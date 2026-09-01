@@ -24,8 +24,7 @@ dotnet run --project JuniGrid/JuniGrid.csproj
 
 # or open JuniGrid.sln in Visual Studio 2022+ and press F5
 
-# release build (output in JuniGrid/bin/Release/net10.0-windows10.0.17763.0/)
-dotnet publish JuniGrid/JuniGrid.csproj -c Release
+
 ```
 
 ## Security notes
