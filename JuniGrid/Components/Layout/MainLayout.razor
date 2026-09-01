@@ -1,0 +1,62 @@
+@namespace JuniGrid.Components.Layout
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="jg-shell">
+    <TitleBar />
+
+    <div class="jg-body">
+        <AccountPanel />
+
+        <div class="jg-content">
+            <TopNav />
+            <main class="jg-main">
+                @Body
+            </main>
+        </div>
+    </div>
+</div>
+<TaskDock />
+
+@code {
+    protected override void OnInitialized()
+    {
+        Nav.LocationChanged += OnLocChanged;
+    }
+
+    private void OnLocChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // Auto-collapse the built-in browser overlay when navigating away from Mods-related pages —
+        // it is semantically the content area of the Mods page, so it goes away when the route leaves.
+        var rel = Nav.ToBaseRelativePath(e.Location).ToLowerInvariant().TrimEnd('/');
+        var onModsPage = rel.StartsWith("mods") || rel.StartsWith("mod/");
+        if (!onModsPage) JuniGrid.MainWindow.HideNexusOverlay();
+
+        // v0.31.0: play the page-enter animation on <main.jg-main> on every page switch (PCL style)
+        _ = InvokeAsync(async () =>
+        {
+            try { await JS.InvokeVoidAsync("junigridJs.playPageEnter"); } catch { }
+        });
+    }
+
+    public void Dispose() => Nav.LocationChanged -= OnLocChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // v0.20.0: don't notify right after mount — at that point the shell DOM exists but the CSS isn't
+            // fully applied, so if the WPF layer fades in immediately it would show the dark fallback background.
+            // Let the JS side wait two rAFs plus a short stabilize period, until the light theme is truly
+            // rendered and stable, before notifying the WPF main window to fade in.
+            // Safety net: if the call fails (script not ready) it must not become an unobserved exception —
+            // the App side has its own 6s forced-reveal fallback.
+            try { await JS.InvokeVoidAsync("junigridJs.splashUiReadyWhenStable"); }
+            catch { }
+            // v0.31.0: play the page-enter animation on first entry to the home page too
+            try { await JS.InvokeVoidAsync("junigridJs.playPageEnter"); } catch { }
+        }
+    }
+}

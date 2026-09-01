@@ -1,0 +1,264 @@
+@namespace JuniGrid.Components.Pages
+@page "/logs"
+@using System.Text.RegularExpressions
+@inject LauncherService Launcher
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="jg-page jg-page-wide">
+    <div class="jg-logs-head">
+        <div>
+            <h1 style="margin-top:0;margin-bottom:8px">SMAPI log</h1>
+            <div class="jg-sort-dd" id="jgLogFilter">
+                <button type="button" class="jg-sort-trigger" @onclick="ToggleFilterMenu">
+                    @FilterLabel(_filter)
+                    <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+                <div class="jg-sort-menu">
+                    @foreach (var f in Filters)
+                    {
+                        <button type="button" class="jg-sort-item @(_filter == f.Key ? "active" : "")"
+                                @onclick="() => SelectFilter(f.Key)">@f.Label</button>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="jg-logs-actions">
+            <button type="button" class="jg-pill-dark" @onclick="AskClear">Clear</button>
+            <button type="button" class="jg-pill-dark" @onclick="CopyAll">Copy all</button>
+        </div>
+    </div>
+
+    <div class="jg-card" style="margin-top:12px;padding:0">
+        <div class="jg-logview">
+            @if (_lines.Count == 0)
+            {
+                <div style="padding:20px;opacity:.5;font-size:13px">
+                    No logs yet. Click "▶ Launch game" on the left (SMAPI mode) and output will stream here in real time.
+                    In Steam mode, SMAPI logs are in %APPDATA%\StardewValley\ErrorLogs.
+                </div>
+            }
+            else if (_visible.Count == 0)
+            {
+                <div style="padding:20px;opacity:.5;font-size:13px">
+                    No log lines match the current category.
+                </div>
+            }
+            @foreach (var line in _visible)
+            {
+                <div class="jg-logline @LogLineClassifier.Classify(line)">
+                    @foreach (var seg in Segments(line))
+                    {
+                        if (seg.IsUrl)
+                        {
+                            <a href="@seg.Text" @onclick="() => OpenUrl(seg.Text)" @onclick:preventDefault="true">@seg.Text</a>
+                        }
+                        else
+                        {
+                            @seg.Text
+                        }
+                    }
+                </div>
+            }
+        </div>
+        <div class="jg-loginput">
+            <div class="jg-cmdcaps">
+                <input type="text" value="@_command"
+                       @oninput="e => _command = e.Value?.ToString() ?? string.Empty"
+                       @onkeydown="HandleCommandKey"
+                       placeholder="@(Launcher.CanSendCommand ? "Type a SMAPI command, press Enter to send, e.g. help" : "Once the game is launched from this app, type SMAPI commands here")"
+                       disabled="@(!Launcher.CanSendCommand)" />
+                <button type="button" class="jg-cmdsend" @onclick="SendCommand"
+                        disabled="@(!Launcher.CanSendCommand)">Send</button>
+            </div>
+        </div>
+        <div class="jg-logfooter">Live output · @_visible.Count lines</div>
+    </div>
+
+    @* ─── Clear-log confirmation dialog ─── *@
+    @if (_confirmClear)
+    {
+        <div class="jg-modal-overlay" @onclick="() => _confirmClear = false">
+            <div class="jg-modal" @onclick:stopPropagation>
+                <div class="jg-modal-title">Clear log</div>
+                <div class="jg-modal-body">Clear all log contents?</div>
+                <div class="jg-modal-actions">
+                    <button type="button" class="jg-pill-ghost" @onclick="() => _confirmClear = false">Cancel</button>
+                    <button type="button" class="jg-pill-dark" @onclick="DoClear">OK</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // The render source is a snapshot of the shared buffer in LauncherService — the page component is destroyed
+    // and recreated per route, and locally stored lines "clear" after leaving /logs, so history lines always come from the service.
+    private IReadOnlyList<string> _lines = Array.Empty<string>();    // snapshot of the service buffer (full)
+    private IReadOnlyList<string> _visible = Array.Empty<string>();  // view: category filter
+    private string _filter = "all"; // all | err | upd | loaded
+    private bool _pendingScroll;
+
+    private static readonly (string Key, string Label)[] Filters =
+    {
+        ("all", "All"), ("err", "Errors"), ("upd", "Updatable"), ("loaded", "Loaded")
+    };
+    private string FilterLabel(string key) =>
+        Array.Find(Filters, f => f.Key == key).Label;
+
+    protected override void OnInitialized()
+    {
+        _lines = Launcher.GetLogSnapshot();
+        _visible = BuildVisible();
+        _pendingScroll = _lines.Count > 0;
+        Launcher.OnLogLine += HandleLog;
+    }
+
+    public void Dispose() => Launcher.OnLogLine -= HandleLog;
+
+    private void HandleLog(string _) =>
+        InvokeAsync(() =>
+        {
+            _lines = Launcher.GetLogSnapshot();
+            _visible = BuildVisible();
+            _pendingScroll = true;
+            StateHasChanged();
+        });
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try { await JS.InvokeVoidAsync("junigridJs.logsFilterInit", "#jgLogFilter"); } catch { }
+        }
+        if (_pendingScroll)
+        {
+            _pendingScroll = false;
+            try { await JS.InvokeVoidAsync("junigridJs.scrollToBottom", ".jg-logview"); } catch { }
+        }
+    }
+
+    private async Task ToggleFilterMenu() =>
+        await JS.InvokeVoidAsync("junigridJs.logsFilterToggle", "#jgLogFilter");
+
+    private async Task SelectFilter(string filter)
+    {
+        _filter = filter;
+        _visible = BuildVisible();
+        try { await JS.InvokeVoidAsync("junigridJs.logsFilterClose", "#jgLogFilter"); } catch { }
+    }
+
+    // View = snapshot of the service buffer; first hide TRACE groups like the SMAPI console does
+    // (the whole group is hidden when verbose is off), then apply the category filter.
+    // Category matching reuses LogLineClassifier, so it always follows the same rules as line coloring.
+    private IReadOnlyList<string> BuildVisible()
+    {
+        var traceFiltered = new List<string>(_lines.Count);
+        var hideGroup = false;
+        foreach (var line in _lines)
+        {
+            if (line.StartsWith("["))
+                hideGroup = line.Contains(" TRACE ");
+            if (!hideGroup) traceFiltered.Add(line);
+        }
+
+        if (_filter == "all") return traceFiltered;
+        return traceFiltered.Where(l => LogLineClassifier.MatchesFilter(l, _filter)).ToList();
+    }
+
+    // ─── Clear / copy: clearing goes through a confirm dialog; a toast confirms a successful copy ───
+    private bool _confirmClear;
+    private void AskClear() => _confirmClear = true;
+
+    private void DoClear()
+    {
+        _confirmClear = false;
+        Launcher.ClearLog();
+        _lines = Array.Empty<string>();
+        _visible = Array.Empty<string>();
+    }
+
+    private async Task CopyAll()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", string.Join('\n', _visible));
+            await JS.InvokeVoidAsync("junigridJs.toast", "Copied");
+        }
+        catch
+        {
+            await JS.InvokeVoidAsync("junigridJs.toast", "Copy failed", "err");
+        }
+    }
+
+    // ---- SMAPI command input ----
+    private string _command = string.Empty;
+
+    private void HandleCommandKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") SendCommand();
+    }
+
+    private void SendCommand()
+    {
+        var cmd = _command.Trim();
+        if (cmd.Length == 0) return;
+        if (Launcher.SendCommand(cmd)) _command = string.Empty;
+    }
+
+    // ---- Links inside log lines: split out URLs and render them as <a>, opened in the system browser on click ----
+    // (In the Blazor WebView, clicking a link would navigate the whole app away, so preventDefault and use Process.Start)
+    private static readonly Regex UrlRegex = new(@"https?://\S+", RegexOptions.Compiled);
+
+    // Logs can run to thousands of lines and each new line re-renders the whole list, so cache the split results by line content
+    private readonly Dictionary<string, (string Text, bool IsUrl)[]> _segmentCache = new();
+
+    private (string Text, bool IsUrl)[] Segments(string line)
+    {
+        if (_segmentCache.TryGetValue(line, out var cached)) return cached;
+
+        var segs = new List<(string Text, bool IsUrl)>();
+        var pos = 0;
+        foreach (Match m in UrlRegex.Matches(line))
+        {
+            var url = TrimUrlTail(m.Value);
+            if (m.Index > pos) segs.Add((line[pos..m.Index], false));
+            if (url.Length > 0) segs.Add((url, true));
+            if (m.Value.Length > url.Length) segs.Add((m.Value[url.Length..], false));  // stripped trailing punctuation renders as plain text
+            pos = m.Index + m.Length;
+        }
+        if (pos < line.Length) segs.Add((line[pos..], false));
+        var result = segs.ToArray();
+
+        if (_segmentCache.Count < 4000) _segmentCache[line] = result;
+        return result;
+    }
+
+    private static string TrimUrlTail(string url)
+    {
+        // Trailing sentence punctuation is not part of a link; a closing paren counts as punctuation only when unbalanced (links may contain parens)
+        while (url.Length > 0)
+        {
+            var last = url[^1];
+            if (last == ')' && url.Count(c => c == '(') < url.Count(c => c == ')')) { url = url[..^1]; continue; }
+            if (last is '.' or ',' or ';' or ':' or '!' or '?' or '"' or '\'' or ']' or '}' or '。' or '，' or '）')
+            { url = url[..^1]; continue; }
+            break;
+        }
+        return url;
+    }
+
+    private void OpenUrl(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            _ = JS.InvokeVoidAsync("junigridJs.toast", "Could not open link", "err");
+        }
+    }
+}

@@ -1,0 +1,750 @@
+@namespace JuniGrid.Components.Pages
+@page "/settings"
+@implements IDisposable
+@inject ConfigService Cfg
+@inject GameService Game
+@inject SteamService Steam
+@inject NexusService NexusApi
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject StorageService Storage
+@inject MemoryService Mem
+
+<div class="jg-page">
+    <h1 style="margin-top:0">Settings</h1>
+    <div class="jg-card" style="margin-top:12px">
+        <div style="font-weight:600">Accounts</div>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                @if (_steam.Found && _steam.AvatarDataUri is not null)
+                {
+                    <img src="@_steam.AvatarDataUri" alt="steam" style="width:36px;height:36px;border-radius:50%;object-fit:cover;" />
+                }
+                else
+                {
+                    <div style="width:36px;height:36px;border-radius:50%;background:#334155;color:#fff;display:flex;align-items:center;justify-content:center;">S</div>
+                }
+                <div style="flex:1">
+                    <div style="font-weight:600">Steam · @(_steam.Found ? (_steam.PersonaName ?? _steam.AccountName ?? "Signed in") : "Not signed in")</div>
+                    <div style="font-size:12px;opacity:.65">Signed in at the Steam client level — switch accounts in Steam</div>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+                @if (!string.IsNullOrEmpty(_nexusAvatar))
+                {
+                    <img src="@_nexusAvatar" alt="nexus" style="width:36px;height:36px;border-radius:50%;object-fit:cover;" />
+                }
+                else
+                {
+                    <img src="assets/nav/nexus.svg" alt="nexus" style="width:36px;height:36px;border-radius:50%;object-fit:cover;" />
+                }
+                <div style="flex:1">
+                    <div style="font-weight:600;display:flex;align-items:center;gap:6px;">Nexus · @(string.IsNullOrEmpty(_nexusName) ? "Not signed in" : _nexusName) @if (_nexusPremium) { <span class="jg-premium-badge">Premium</span> }</div>
+                    <div style="font-size:12px;opacity:.65">@(string.IsNullOrEmpty(_nexusName) ? "Log in to download and install from Nexus" : "Nexus Mods account signed in")</div>
+                </div>
+                @if (!string.IsNullOrEmpty(_nexusName))
+                {
+                    <button class="jg-nexus-logout-btn" @onclick="NexusLogout">Log out of Nexus</button>
+                }
+                else
+                {
+                    <button class="jg-nexus-login-btn" @onclick='() => Nav.NavigateTo("/nexus?login=1")'>Log in</button>
+                }
+            </div>
+        </div>
+    </div>
+
+
+    <div class="jg-card" style="margin-top:12px">
+        <div style="font-weight:600">Game directory</div>
+        <FluentTextField @bind-Value="_gamePath"
+                         Placeholder="e.g. C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley"
+                         style="width:100%;margin-top:6px" />
+
+        <div style="display:flex;gap:8px;margin-top:8px">
+            <button type="button" class="jg-path-btn" @onclick="Pick">Browse...</button>
+            <button type="button" class="jg-path-btn" @onclick="AutoDetect">Auto-detect</button>
+            <button type="button" class="jg-path-btn primary" @onclick="Save">Save</button>
+        </div>
+    </div>
+
+    <div class="jg-card" style="margin-top:12px">
+        <div style="font-weight:600">Nexus installation</div>
+        <div class="jg-switch-col">
+            <div class="jg-switch-row @(_oneClickInstall ? "on" : "")" @onclick="ToggleOneClick">
+                <span style="display:flex;align-items:center;gap:8px">
+                    <span>One-click install</span>
+                </span>
+                <span class="jg-switch"><span class="jg-switch-knob"></span></span>
+            </div>
+            <div class="jg-switch-row @(_autoInstall ? "on" : "") @(!_nexusPremium ? "disabled" : "")" @onclick="ToggleAutoInstall">
+                <span style="display:flex;align-items:center;gap:8px">
+                    <span>Auto-install updates</span>
+                </span>
+                <span class="jg-switch"><span class="jg-switch-knob"></span></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="jg-card" style="margin-top:12px">
+        <div style="font-weight:600">Content filtering</div>
+        <div class="jg-switch-col">
+            <div class="jg-switch-row @(_filterAdult ? "on" : "")" @onclick="ToggleFilterAdult">
+                <span>Filter adult content</span>
+                <span class="jg-switch"><span class="jg-switch-knob"></span></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="jg-card" style="margin-top:12px">
+        <div style="display:inline-flex;align-items:center;gap:6px;cursor:pointer" @onclick='() => Nav.NavigateTo("/tasks")'>
+            <div style="font-weight:600">Task manager</div>
+            <img src="assets/task-arrow.svg" alt="Go to task manager" style="width:14px;height:14px;opacity:.75" />
+        </div>
+        <div class="jg-switch-col">
+            <div class="jg-switch-row @(_showTaskDock ? "on" : "")" @onclick="ToggleTaskDock">
+                <span style="display:flex;align-items:center;gap:8px">
+                    <span>Show the task manager floating window</span>
+                </span>
+                <span class="jg-switch"><span class="jg-switch-knob"></span></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="jg-card" style="margin-top:12px">
+        <div style="font-weight:600">Memory management</div>
+        <div style="font-size:12px;opacity:.65;margin-top:2px">Self-compression plus scheduled and threshold-based auto-release</div>
+
+        <div class="jg-mem-line" style="margin-top:8px">
+            System @FmtMb(_mem?.SysTotalBytes), @FmtMb(_mem?.SysAvailBytes) free (@Pct()%) · App @FmtMb(_mem?.AppWorkingSet)
+        </div>
+
+        <div class="jg-kv-grid" style="margin-top:10px">
+            <div class="jg-kv">
+                <div class="k">App process</div>
+                <div class="v">@FmtMb(_mem?.AppWorkingSet)<span class="jg-kv-sub">GC @FmtMb(_mem?.AppGcBytes)</span></div>
+            </div>
+            <div class="jg-kv">
+                <div class="k">WebView2 child processes</div>
+                <div class="v">@FmtMb(_mem?.WebViewWorkingSet)<span class="jg-kv-sub">@(_mem?.WebViewProcCount ?? 0) process(es)</span></div>
+            </div>
+            <div class="jg-kv">
+                <div class="k">Game process</div>
+                <div class="v">@(_mem is { GameRunning: true } ? FmtMb(_mem.GameWorkingSet) : "Not running")</div>
+            </div>
+            <div class="jg-kv">
+                <div class="k">System memory usage</div>
+                <div class="v">@Pct()%</div>
+            </div>
+        </div>
+
+        <div class="jg-switch-col" style="margin-top:6px">
+            <div class="jg-switch-row @(_memTimer ? "on" : "")" @onclick="ToggleMemTimer">
+                <span>Scheduled auto-compress</span>
+                <span class="jg-switch"><span class="jg-switch-knob"></span></span>
+            </div>
+            @* Slider panel: initial hiding is decided by the Blazor style (no JS timing dependency); the open/close animation is played by JS *@
+            <div class="jg-slider-panel" style="@(_memTimer ? null : "display:none")" @ref="_timerPanel">
+                <div class="jg-slider-row">
+                    <span class="jg-slider-label">Scheduled release</span>
+                    <div class="e-slider" data-min="5" data-max="240" data-step="5" data-suffix=" min" @ref="_timerSlider">
+                        <div class="es-track-wrap"><div class="es-track"><div class="es-fill"></div></div></div>
+                        <span class="es-value"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="jg-switch-row @(_memThreshold ? "on" : "")" @onclick="ToggleMemThreshold">
+                <span>Threshold auto-compress</span>
+                <span class="jg-switch"><span class="jg-switch-knob"></span></span>
+            </div>
+            <div class="jg-slider-panel" style="@(_memThreshold ? null : "display:none")" @ref="_thresholdPanel">
+                <div class="jg-slider-row">
+                    <span class="jg-slider-label">Usage threshold</span>
+                    <div class="e-slider" data-min="50" data-max="95" data-step="1" data-suffix="%" @ref="_thresholdSlider">
+                        <div class="es-track-wrap"><div class="es-track"><div class="es-fill"></div></div></div>
+                        <span class="es-value"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+            <button type="button" class="jg-path-btn" @onclick="CompressNow">Compress now</button>
+            <button type="button" class="jg-path-btn" @onclick="TrimGameNow">Trim game memory</button>
+        </div>
+    </div>
+
+    <div class="jg-card" style="margin-top:12px">
+        <div style="font-weight:600">Cache & storage</div>
+        <div style="font-size:12px;opacity:.65;margin-top:2px">Usage stats, cleanup, and the unified cache directory</div>
+
+        <div class="jg-mem-line" style="margin-top:8px;display:flex;align-items:center;gap:8px">
+            <span>Cleanable caches total @FmtMb(Storage.TotalKnownBytes)</span>
+        </div>
+
+        <div style="margin-top:4px">
+            @foreach (var c in _cats)
+            {
+                <div class="jg-store-row">
+                    <div class="jg-store-main">
+                        <div class="jg-store-name">
+                            @c.Name
+                            @if (c.Movable) { <span class="jg-store-tag">Movable</span> }
+                            @if (!c.Cleanable) { <span class="jg-store-tag">Fixed</span> }
+                        </div>
+                        <div class="jg-store-path" title="@c.DisplayPath">@c.Note · @c.DisplayPath</div>
+                    </div>
+                    <div class="jg-store-size">@FmtSize(c.Id)</div>
+                    @if (c.Cleanable)
+                    {
+                        <button type="button" class="jg-mini-btn" @onclick='() => AskClean(c.Id)'>Clean</button>
+                    }
+                    <button type="button" class="jg-mini-btn" @onclick='() => OpenCatFolder(c)'>Open</button>
+                </div>
+            }
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
+            <button type="button" class="jg-path-btn" @onclick="ChangeCacheRoot">Change cache directory…</button>
+            @if (!string.IsNullOrWhiteSpace(Cfg.Current.CacheRoot))
+            {
+                <button type="button" class="jg-path-btn" @onclick="ResetCacheRoot">Restore default location</button>
+            }
+            <button type="button" class="jg-path-btn" @onclick='() => RefreshStats()'>Refresh usage</button>
+            <button type="button" class="jg-path-btn primary" @onclick="AskCleanAll">Clean all</button>
+        </div>
+        <div class="jg-note" style="margin-top:6px">Movable items live in the unified cache directory and migrate automatically on change · WebView2 data moves after an app restart · the game recycle bin depends on the game directory · settings data is fixed and not movable</div>
+    </div>
+
+    <div class="jg-card jg-cursor-grid" style="margin-top:12px">
+        <div style="font-weight:600">About</div>
+        <div class="jg-about">
+            <div class="jg-about-title-row">
+                <span class="jg-pixel-title">JuniGrid</span>
+                <span class="jg-about-title-side">
+                    <span class="jg-shiny">· v1.0.0</span>
+                    <span class="jg-about-desc">Your helper for Stardew Valley.</span>
+                </span>
+            </div>
+            <div class="jg-author-row">
+                <span>Author:</span>
+                <img src="assets/author-avatar.jpg" alt="MLD avatar" class="jg-author-avatar" />
+                <span class="jg-pixel-name">MLD</span>
+            </div>
+            <div class="jg-logoloop" aria-label="Contact">
+                <div class="jg-ll-track">
+                    <ul class="jg-ll-seq">
+                        <li class="jg-ll-item">
+                            <a class="jg-ll-link" href="https://github.com/MLD-yu" target="_blank" rel="noreferrer noopener" title="GitHub">
+                                <img src="assets/logos/logo-github.svg" alt="GitHub" />
+                            </a>
+                        </li>
+                        <li class="jg-ll-item">
+                            <a class="jg-ll-link" href="javascript:void(0)" data-copy="yu2109292229@gmail.com" title="Gmail">
+                                <img src="assets/logos/logo-gmail.svg" alt="Gmail" />
+                            </a>
+                        </li>
+                        <li class="jg-ll-item">
+                            <a class="jg-ll-link" href="https://space.bilibili.com/385452339" target="_blank" rel="noreferrer noopener" title="bilibili">
+                                <img src="assets/logos/logo-bilibili.svg" alt="bilibili" />
+                            </a>
+                        </li>
+                        <li class="jg-ll-item">
+                            <a class="jg-ll-link" href="https://www.douyin.com/user/MS4wLjABAAAA-5M0Kcg98EjyHuB9G2LYJ1lMRFwDjMIIjVwMYT8xXBfXVOBo8eiU12Qms7yddDDn" target="_blank" rel="noreferrer noopener" title="Douyin">
+                                <img src="assets/logos/logo-douyin.svg" alt="Douyin" />
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_pendingRoot is not null)
+{
+    <div class="jg-modal-overlay" @onclick="CancelChangeRoot">
+        <div class="jg-modal" @onclick:stopPropagation>
+            <div class="jg-modal-title">Change cache directory</div>
+            <div class="jg-modal-body">
+                Download/install temp files, the SMAPI installer, and Mods backups will migrate immediately to:<br />
+                <b>@_pendingRoot</b><br /><br />
+                WebView2 data migrates automatically after an app restart (files in use are left in place and can be cleaned up later).
+            </div>
+            <div class="jg-modal-actions">
+                <button class="jg-path-btn" @onclick="CancelChangeRoot">Cancel</button>
+                <button class="jg-path-btn primary" @onclick="ConfirmChangeRoot">Start migration</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_pendingCleanId is not null || _confirmCleanAll)
+{
+    <div class="jg-modal-overlay" @onclick="CancelClean">
+        <div class="jg-modal" @onclick:stopPropagation>
+            <div class="jg-modal-title">@(_confirmCleanAll ? "Clean all caches" : "Clean cache")</div>
+            <div class="jg-modal-body">@CleanConfirmText</div>
+            <div class="jg-modal-actions">
+                <button class="jg-path-btn" @onclick="CancelClean">Cancel</button>
+                <button class="jg-path-btn primary" @onclick="DoClean">Confirm cleanup</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private SteamProfile _steam = SteamProfile.None;
+    private string _nexusName = "";
+    private string? _nexusAvatar;
+    private bool   _nexusPremium;
+
+    private void NexusLogout()
+    {
+        var cfg = Cfg.Current;
+        cfg.NexusApiKey = "";
+        cfg.NexusUserName = "";
+        cfg.NexusUserEmail = "";
+        cfg.NexusProfileUrl = "";
+        cfg.NexusIsPremium = false;
+        cfg.NexusAvatarDataUri = "";
+        Cfg.Save(cfg);
+        _nexusName = ""; _nexusAvatar = null; _nexusPremium = false;
+        _ = JS.InvokeVoidAsync("junigridJs.toast", "Logged out of Nexus");
+        StateHasChanged();
+    }
+
+    private async Task LoadAccountsAsync()
+    {
+        // Q4: read everything instantly from the config cache — no network just from opening Settings
+        _steam = Steam.GetProfile();
+        var cfg = Cfg.Current;
+        _nexusName = cfg.NexusUserName;
+        _nexusPremium = cfg.NexusIsPremium;
+        // v1.08.2: only trust image/* caches — older versions cached the download result of profile_url (a web page link),
+        // so bad data like data:text/html hit the cache on every visit and the avatar naturally "didn't match"
+        var cached = cfg.NexusAvatarDataUri;
+        _nexusAvatar = cached is not null && cached.StartsWith("data:image/", StringComparison.Ordinal) ? cached : null;
+        // v1.08.2: when signed in, self-heal in the background (validate builds a real avatar direct link from user_id) and write back only if different;
+        // not awaited — the Settings page's first paint is never delayed by network waits
+        if (!string.IsNullOrEmpty(cfg.NexusApiKey)) _ = RefreshNexusAvatarAsync();
+    }
+
+    private async Task RefreshNexusAvatarAsync()
+    {
+        try
+        {
+            var cfg = Cfg.Current;
+            var u = await NexusApi.ValidateAsync(cfg.NexusApiKey);
+            if (u is null || string.IsNullOrEmpty(u.Avatar)) return;
+            var fresh = await NexusApi.FetchAvatarAsync(u.Avatar);
+            if (string.IsNullOrEmpty(fresh)) return;
+            _nexusName = string.IsNullOrEmpty(u.Name) ? _nexusName : u.Name;
+            _nexusPremium = u.IsPremium;
+            // Write the name/Premium state back to config too: old versions only saved the key + avatar cache,
+            // and without this the Settings page would flash "Not signed in" for ~1s on every visit until validate healed it
+            if (cfg.NexusUserName != _nexusName || cfg.NexusIsPremium != _nexusPremium)
+            {
+                cfg.NexusUserName = _nexusName;
+                cfg.NexusIsPremium = _nexusPremium;
+                Cfg.Save(cfg);
+            }
+            if (fresh != _nexusAvatar)
+            {
+                _nexusAvatar = fresh;
+                cfg.NexusAvatarDataUri = fresh;
+                Cfg.Save(cfg);
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+        catch { /* on network failure keep showing the cache, silently */ }
+    }
+
+
+    private string _gamePath = "";
+    private bool _oneClickInstall;
+    private bool _autoInstall;
+
+    // ─── Filter adult content: on by default, toggled directly on click ───
+    private bool _filterAdult = true;
+
+    private bool _showTaskDock = true;
+
+    private void ToggleTaskDock()
+    {
+        _showTaskDock = !_showTaskDock;
+        var cfg = Cfg.Current;
+        cfg.ShowTaskDock = _showTaskDock;
+        Cfg.Save(cfg);
+    }
+
+    // ─── v0.2.1: Memory management ───
+    private MemoryService.MemorySnapshot? _mem;
+    private bool _memTimer;
+    private int _memTimerMinutes = 30;
+    private bool _memThreshold;
+    private int _memThresholdPercent = 80;
+    private ElementReference _timerPanel;      // v0.2.2: slider panel, springs open/closed with its toggle
+    private ElementReference _thresholdPanel;
+    private ElementReference _timerSlider;     // v0.2.2: elastic slider (React Bits ElasticSlider style)
+    private ElementReference _thresholdSlider;
+    private DotNetObjectReference<Settings>? _sliderCb;
+
+    private static string FmtMb(long? bytes)
+        => bytes is null or < 0 ? "—" : ResumableDownload.FormatBytes(bytes.Value);
+
+    private string Pct() => _mem is null ? "—" : _mem.SysPercent.ToString("F0");
+
+    private void OnMemSnap(MemoryService.MemorySnapshot snap) =>
+        _ = InvokeAsync(() => { _mem = snap; StateHasChanged(); });
+
+    /// <summary>Toggle: expanding = let Blazor remove display:none first, then play the animation;
+    /// collapsing = play the collapse animation while the panel is still visible and hide only after it finishes (so both directions are visible).</summary>
+    private async Task ToggleMemTimer()
+    {
+        if (_memTimer)
+        {
+            await AnimatePanelAsync(_timerPanel, false);
+            _memTimer = false;
+        }
+        else
+        {
+            _memTimer = true;
+            StateHasChanged();
+            await AnimatePanelAsync(_timerPanel, true);
+        }
+        SaveMemCfg();
+        StateHasChanged();
+    }
+
+    private async Task ToggleMemThreshold()
+    {
+        if (_memThreshold)
+        {
+            await AnimatePanelAsync(_thresholdPanel, false);
+            _memThreshold = false;
+        }
+        else
+        {
+            _memThreshold = true;
+            StateHasChanged();
+            await AnimatePanelAsync(_thresholdPanel, true);
+        }
+        SaveMemCfg();
+        StateHasChanged();
+    }
+
+    /// <summary>Slider panel springs open/closed with its toggle (same GSAP easing as the dropdowns, see interop.js collapseToggle).
+    /// If JS is unavailable, the try/catch above still applies the toggle immediately, just without animation.</summary>
+    private async Task AnimatePanelAsync(ElementReference el, bool open)
+    {
+        try { await JS.InvokeVoidAsync("junigridJs.collapseToggle", el, open); } catch { }
+    }
+    private void SaveMemCfg()
+    {
+        var cfg = Cfg.Current;
+        cfg.MemTimerEnabled = _memTimer;
+        cfg.MemTimerMinutes = _memTimerMinutes;
+        cfg.MemThresholdEnabled = _memThreshold;
+        cfg.MemThresholdPercent = _memThresholdPercent;
+        Cfg.Save(cfg);
+    }
+
+    /// <summary>Elastic slider drag-end callback (JS → .NET): commit the value and save.</summary>
+    [JSInvokable]
+    public void OnElasticValue(string id, double value)
+    {
+        if (id == "timer") _memTimerMinutes = (int)Math.Clamp(value, 5, 240);
+        else if (id == "threshold") _memThresholdPercent = (int)Math.Clamp(value, 50, 95);
+        else return;
+        SaveMemCfg();
+        StateHasChanged();
+    }
+
+    private async Task CompressNow()
+    {
+        // Compress everything at once: app (GC + working set trim) + WebView2 child processes (working set trim)
+        var (before, after) = await Task.Run(() => Mem.CompressSelf());
+        var msg = $"App {ResumableDownload.FormatBytes(before)} → {ResumableDownload.FormatBytes(after)}";
+        var wv = await Task.Run(() => Mem.TrimWebView2());
+        if (wv.count > 0)
+            msg += $"; WebView2 ({wv.count} process(es)) {ResumableDownload.FormatBytes(wv.before)} → {ResumableDownload.FormatBytes(wv.after)}";
+        _mem = Mem.GetSnapshot();
+        StateHasChanged();
+        await JS.InvokeVoidAsync("junigridJs.toast", "Compressed: " + msg);
+    }
+
+    private async Task TrimGameNow()
+    {
+        var n = await Task.Run(() => Mem.TrimGameWorkingSet());
+        await JS.InvokeVoidAsync("junigridJs.toast",
+            n > 0 ? $"Trimmed working sets for {n} game process(es)" : "Game is not running", n > 0 ? null : "err");
+    }
+
+    // ─── v0.2.1: Cache & storage ───
+    private List<StorageCategory> _cats = new();
+
+    private string FmtSize(string id)
+    {
+        if (Storage.IsComputing(id)) return "Calculating…";
+        var b = Storage.GetSize(id);
+        return b < 0 ? "—" : ResumableDownload.FormatBytes(b);
+    }
+
+    private void OnStorageStats() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task CleanCat(string id)
+    {
+        var msg = await Storage.CleanCategoryAsync(id);
+        _cats = Storage.GetCategories();
+        await JS.InvokeVoidAsync("junigridJs.toast", msg);
+    }
+
+    // ─── Clean confirmation dialog: shared by single-item and clean-all ───
+    private string? _pendingCleanId;
+    private bool _confirmCleanAll;
+
+    private string CleanConfirmText
+    {
+        get
+        {
+            if (_confirmCleanAll)
+            {
+                var n = _cats.Count(x => x.Cleanable);
+                return $"This will clean all {n} cleanable cache items one by one.\n\n"
+                     + "Files in use are skipped automatically; the game uninstall recycle bin cannot be recovered once emptied.";
+            }
+            var c = _cats.FirstOrDefault(x => x.Id == _pendingCleanId);
+            if (c is null) return "Clean this item?";
+            return $"This will clean \"{c.Name}\".\n\n{c.Tip}\n\nFiles in use are skipped automatically.";
+        }
+    }
+
+    private void AskClean(string id) { _confirmCleanAll = false; _pendingCleanId = id; }
+    private void AskCleanAll() { _pendingCleanId = null; _confirmCleanAll = true; }
+    private void CancelClean() { _pendingCleanId = null; _confirmCleanAll = false; }
+
+    private async Task DoClean()
+    {
+        var all = _confirmCleanAll;
+        var id = _pendingCleanId;
+        CancelClean();
+        if (all)
+        {
+            foreach (var c in _cats.Where(x => x.Cleanable).ToList())
+                await Storage.CleanCategoryAsync(c.Id);
+            await JS.InvokeVoidAsync("junigridJs.toast", "All caches processed — see the task list for details");
+        }
+        else if (id is not null)
+        {
+            await CleanCat(id);
+        }
+    }
+
+    private async Task RefreshStats()
+    {
+        var ok = await Storage.RefreshAllAsync(force: true);
+        await JS.InvokeVoidAsync("junigridJs.toast",
+            ok ? "Usage refreshed" : "Failed to refresh usage — please retry", ok ? null : "err");
+    }
+
+    // ─── Change the unified cache directory: movable items (downloads/SMAPI/WebView2/Mods backups) move with it ───
+    private string? _pendingRoot;
+
+    private void ChangeCacheRoot()
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Select cache directory" };
+        if (dlg.ShowDialog() == true) _pendingRoot = dlg.FolderName;
+    }
+
+    private void CancelChangeRoot() => _pendingRoot = null;
+
+    private async Task ConfirmChangeRoot()
+    {
+        var root = _pendingRoot;
+        _pendingRoot = null;
+        if (string.IsNullOrWhiteSpace(root)) return;
+        var msg = await Storage.MigrateCacheRootAsync(root);
+        _cats = Storage.GetCategories();
+        await JS.InvokeVoidAsync("junigridJs.toast", msg);
+    }
+
+    private async Task ResetCacheRoot()
+    {
+        var msg = await Storage.MigrateCacheRootAsync(null);
+        _cats = Storage.GetCategories();
+        await JS.InvokeVoidAsync("junigridJs.toast", msg);
+    }
+
+    private void OpenCatFolder(StorageCategory c)
+    {
+        try
+        {
+            var p = c.DisplayPath;
+            if (!Directory.Exists(p)) Directory.CreateDirectory(p);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(p) { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    public void Dispose()
+    {
+        Mem.OnSnapshot -= OnMemSnap;
+        Storage.OnStats -= OnStorageStats;
+        _sliderCb?.Dispose();
+    }
+
+    private void SaveFilterAdult()
+    {
+        var cfg = Cfg.Current;
+        cfg.FilterAdultContent = _filterAdult;
+        Cfg.Save(cfg);   // ConfigService.Save syncs NexusService.IncludeAdultContent internally
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAccountsAsync();
+        _gamePath = Cfg.Current.GamePath;        _oneClickInstall = Cfg.Current.EnableOneClickInstall;
+        _autoInstall = Cfg.Current.EnableAutoInstall && _nexusPremium;   // always off by default for non-premium
+        if (!_nexusPremium && Cfg.Current.EnableAutoInstall)
+        {
+            // For non-premium, persist any leftover enabled state as off so other pages reading config directly don't trigger auto-install
+            Cfg.Current.EnableAutoInstall = false;
+            Cfg.Save(Cfg.Current);
+        }
+        _filterAdult = Cfg.Current.FilterAdultContent;
+        _showTaskDock = Cfg.Current.ShowTaskDock;
+
+        // v0.2.1: memory management — subscribe to snapshot pushes (every 5s); Dispose unsubscribes when leaving the page
+        Mem.OnSnapshot += OnMemSnap;
+        _mem = Mem.GetSnapshot();
+        _memTimer = Cfg.Current.MemTimerEnabled;
+        _memTimerMinutes = Math.Clamp(Cfg.Current.MemTimerMinutes, 5, 240);
+        _memThreshold = Cfg.Current.MemThresholdEnabled;
+        _memThresholdPercent = Math.Clamp(Cfg.Current.MemThresholdPercent, 50, 95);
+
+        // v0.2.1: cache & storage — recompute usage in the background on first visit or when stale
+        Storage.OnStats += OnStorageStats;
+        _cats = Storage.GetCategories();
+        Storage.RefreshAll();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // GSAP elastic button hover + question-mark tooltip + disabled-row pixel effects (internally guarded against duplicate binding)
+        await JS.InvokeVoidAsync("junigridJs.initGsapFx");
+        await JS.InvokeVoidAsync("junigridJs.initPixelHover");
+        await JS.InvokeVoidAsync("junigridJs.initCursorGrid", ".jg-cursor-grid");
+        await JS.InvokeVoidAsync("junigridJs.initLogoLoop", ".jg-logoloop");
+        if (firstRender)
+        {
+            // v0.2.2: elastic slider binding (value changes are committed to config via the OnElasticValue callback)
+            try
+            {
+                _sliderCb = DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("junigridJs.elasticInit", _timerSlider, "timer", (double)_memTimerMinutes, _sliderCb);
+                await JS.InvokeVoidAsync("junigridJs.elasticInit", _thresholdSlider, "threshold", (double)_memThresholdPercent, _sliderCb);
+            }
+            catch { }
+        }
+    }
+    private void ToggleOneClick()
+    {
+        _oneClickInstall = !_oneClickInstall;
+        SaveOneClickInstall();
+    }
+
+    private void ToggleAutoInstall()
+    {
+        if (!_nexusPremium) return;
+        _autoInstall = !_autoInstall;
+        SaveAutoInstall();
+    }
+
+    private void ToggleFilterAdult()
+    {
+        _filterAdult = !_filterAdult;
+        SaveFilterAdult();
+    }
+
+    private void SaveOneClickInstall()
+    {
+        var cfg = Cfg.Current;
+        cfg.EnableOneClickInstall = _oneClickInstall;
+        Cfg.Save(cfg);
+    }
+
+    private void SaveAutoInstall()
+    {
+        var cfg = Cfg.Current;
+        // Double guard: even if set to true outside the UI, non-premium stays off
+        cfg.EnableAutoInstall = _autoInstall && cfg.NexusIsPremium;
+        Cfg.Save(cfg);
+    }
+
+    private static bool IsValidGamePath(string? p)
+        => !string.IsNullOrWhiteSpace(p)
+           && Directory.Exists(p)
+           && File.Exists(Path.Combine(p, "StardewModdingAPI.exe"))
+           && Directory.Exists(Path.Combine(p, "Mods"));
+
+    private void AutoDetect()
+    {
+        var detected = Game.DetectGamePath();
+        if (!string.IsNullOrEmpty(detected))
+        {
+            _gamePath = detected;
+            if (IsValidGamePath(detected))
+            {
+                var cfg = Cfg.Current;
+                cfg.GamePath = _gamePath;
+                Cfg.Save(cfg);
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Game directory detected and saved");
+            }
+            else
+            {
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Directory found, but StardewModdingAPI.exe or the Mods folder is missing", "err");
+            }
+        }
+        else
+        {
+            _ = JS.InvokeVoidAsync("junigridJs.toast", "Could not auto-detect the game directory — click \"Browse...\" to pick it manually", "err");
+        }
+    }
+
+    private void Pick()
+    {
+        var dlg = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Select the Stardew Valley game directory"
+        };
+        if (dlg.ShowDialog() == true)
+        {
+            _gamePath = dlg.FolderName;
+            if (IsValidGamePath(_gamePath))
+            {
+                var cfg = Cfg.Current;
+                cfg.GamePath = _gamePath;
+                Cfg.Save(cfg);
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Game directory selected and saved");
+            }
+            else
+            {
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Please select a valid game directory", "err");
+            }
+        }
+    }
+
+    private void Save()
+    {
+        if (!IsValidGamePath(_gamePath))
+        {
+            _ = JS.InvokeVoidAsync("junigridJs.toast", "Please select a valid game directory", "err");
+            return;
+        }
+        var cfg = Cfg.Current;
+        cfg.GamePath = _gamePath;
+        Cfg.Save(cfg);
+        _ = JS.InvokeVoidAsync("junigridJs.toast", "Game directory saved");
+    }
+}

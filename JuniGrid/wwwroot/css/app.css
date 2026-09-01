@@ -1,0 +1,4010 @@
+/* =============================================================
+   JuniGrid — global styles
+   Layout: TitleBar / (AccountPanel | TopNav + content)
+   ============================================================= */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: transparent;
+    border-radius: 10px;   /* Matches the Win11 DWM rounded corners; the previously missing 32px here made the background corner in screenshot 3 larger than the window */
+}
+body.jg-max, html:has(body.jg-max) { border-radius: 0; }
+body {
+    font-family: 'Segoe UI Variable', 'Segoe UI',
+                 -apple-system, BlinkMacSystemFont,
+                 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    color: var(--neutral-foreground-rest, #202020);
+}
+
+/* ============================================================
+   Startup animation (standalone overlay, sits above Blazor)
+   ============================================================ */
+#jg-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Fully transparent with no background (PCL2 style); the app shell itself is hidden during the animation, only the animation is visible */
+    background: transparent;
+    transition: opacity .55s ease, visibility .55s ease;
+}
+#jg-splash.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+/* While booting: the whole app shell is invisible, only the startup animation floats on top.
+   WebView2 does not support truly transparent windows (AllowsTransparency must be False),
+   so a dark brand-colored cover hides the light page, giving a PCL2-like look. */
+/* v0.19.0 PCL-style transparent boot: body/#app fully transparent, only the WPF SplashWindow shows.
+   MainWindow starts with Visibility=Hidden; when the animation ends the WPF layer slides it in and reveals it.
+   The front-end splash has degenerated into an empty shell; only the booting-phase hiding semantics remain here. */
+body.jg-booting { background: transparent !important; }
+body.jg-booting #app { background: transparent !important; }
+body.jg-booting #app > * { opacity: 0 !important; visibility: hidden !important; }
+#jg-splash { display: none; }   /* The front-end splash is no longer shown; the WPF layer handles it */
+
+.jg-splash-stage {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+#jg-splash-logo {
+    width: 96px; height: 96px;
+    border-radius: 20%;
+    box-shadow: 0 8px 40px rgba(0,0,0,.45);
+}
+.jg-splash-word {
+    display: block;
+    height: clamp(64px, 11vmin, 120px);
+    filter: drop-shadow(0 4px 18px rgba(26,154,60,.35));
+}
+.jg-splash-word text {
+    font-family: 'Segoe UI Variable', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-weight: 800;
+}
+@media (max-width: 640px) {
+    .jg-splash-stage { gap: 8px; }
+    #jg-splash-logo { width: 64px; height: 64px; }
+}
+
+/* -------- Shell layout -------- */
+.jg-shell {
+    position: relative;      /* TaskDock is absolutely positioned on this so it never leaves the visible area */
+    display: flex;
+    flex-direction: column;
+    height: 100%;            /* Follows the 100% height chain of html/body/#app, see the comment in index.html */
+    border-radius: 10px;   /* Matches the Win11 DWM rounded corners; the original 32px made button background corners much rounder than the window corners */
+    overflow: hidden;
+    background: linear-gradient(135deg, #f3f6fb 0%, #eef2f8 100%);
+}
+@media (prefers-color-scheme: dark) {
+    .jg-shell { background: linear-gradient(135deg, #1c1c1e 0%, #202225 100%); }
+    body { color: #f2f2f2; }
+}
+
+.jg-body { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.jg-content { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; height: 100%; }
+.jg-main {
+    flex: 1;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: #ffffff;               /* Info display module: pure white content area */
+    /* Bottom spacing is not put on the scrolling container's own padding - container padding does not follow scroll,
+       which would clip/flush the last line against the edge. Use .jg-page's padding-bottom instead (follows the content). */
+    padding: clamp(14px, 1.6vw, 28px) clamp(16px, 2vw, 40px) 0;
+    scrollbar-width: none;              /* Firefox: hide the scrollbar (still scrollable) */
+}
+.jg-main::-webkit-scrollbar { display: none; }   /* WebKit: hide the scrollbar (still scrollable) */
+@media (prefers-color-scheme: dark) {
+    .jg-main { background: #1c1e1c; }            /* Dark mode: dark content background, consistent with the shell */
+}
+/* Maximize overflow clipping was fixed at WM_GETMINMAXINFO; bottom spacing only needs a little */
+.jg-page { max-width: 1440px; margin: 0 auto; padding-bottom: 16px; }
+.jg-page-wide { max-width: 1680px; margin: 0 auto; padding-bottom: 16px; }
+
+/* -------- Titlebar -------- */
+.jg-titlebar {
+    height: 40px;
+    display: flex;
+    align-items: stretch;
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-titlebar { background: rgba(30,30,32,0.7); border-bottom-color: rgba(255,255,255,0.06); }
+}
+
+.jg-titlebar-drag { flex: 1; display: flex; align-items: center; padding: 0 14px; }
+.jg-brand { display: flex; align-items: center; gap: 10px; }
+.jg-brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+.jg-brand-name { font-weight: 700; font-size: 13px; }
+
+.jg-titlebar-actions { display: flex; }
+.jg-winbtn {
+    width: 46px; height: 40px;
+    background: transparent; border: 0; color: inherit; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+}
+.jg-winbtn:hover { background: rgba(0,0,0,0.06); }
+.jg-winbtn-close { border-top-right-radius: 10px; }
+.jg-winbtn-close:hover { background: #e81123; color: #fff; }
+
+/* When maximized the DWM removes the window rounded corners; all CSS radii reset to 0 in sync */
+body.jg-max .jg-shell,
+body.jg-max .jg-titlebar,
+body.jg-max .jg-winbtn-close { border-radius: 0; }
+
+/* -------- Account panel (left, PCL-style) -------- */
+.jg-account {
+    width: 20%;                            /* The launch module takes 1/5 of the app UI */
+    flex: 0 0 20%;                        /* Locked by flex; never compressed or stretched */
+    min-width: 220px;                    /* Tolerance: stays usable on very narrow windows */
+    padding: clamp(12px, 1.2vw, 22px) clamp(10px, 1vw, 18px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    border-right: 1px solid rgba(0,0,0,0.06);
+    background: rgba(255,255,255,0.35);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom-left-radius: 10px;
+    overflow-y: auto;
+    scrollbar-width: none;                       /* Hide the sidebar scrollbar (still scrollable) */
+}
+.jg-account::-webkit-scrollbar { display: none; }
+@media (prefers-color-scheme: dark) {
+    .jg-account { background: rgba(30,30,32,0.5); border-right-color: rgba(255,255,255,0.06); }
+}
+
+/* Steam user info vertically centered; launch button + version pinned to the bottom */
+.jg-account-mid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    justify-content: center;
+    margin: auto 0;
+}
+
+.jg-mode-pills {
+    position: relative;              /* Anchor for the slider thumb */
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    width: 100%;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.04);   /* Light track */
+}
+.jg-mode-pills .jg-pill {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    padding: 8px 6px;
+    font-size: 12.5px;
+    text-align: center;
+}
+/* Selected thumb: black, slides left/right between the two options */
+.jg-pill-thumb {
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc(50% - 8px);
+    border-radius: 999px;
+    background: #0a0a0a;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    transition: left 260ms cubic-bezier(.45, 0, .25, 1);
+    pointer-events: none;
+    z-index: 0;
+}
+.jg-mode-pills.smapi .jg-pill-thumb { left: calc(50% + 4px); }
+
+.jg-pill {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    padding: 8px 6px;
+    border-radius: 999px;
+    border: 0;                        /* Selection is indicated by the thumb */
+    background: transparent;
+    color: inherit;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 180ms ease;
+}
+.jg-pill:hover { color: rgba(10, 10, 10, 0.85); }
+.jg-pill.active { color: #fff; font-weight: 600; }
+.jg-pill[disabled] { opacity: .5; cursor: not-allowed; }
+@media (prefers-color-scheme: dark) {
+    .jg-mode-pills { background: rgba(255, 255, 255, 0.08); }
+    .jg-pill { color: rgba(255, 255, 255, 0.9); }
+    .jg-pill:hover { color: #fff; }
+}
+
+.jg-avatar-wrap { position: relative; margin-top: 8px; }
+.jg-avatar {
+    width: 88px; height: 88px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+    border: 3px solid rgba(0,0,0,0.25);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+.jg-avatar-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 30% 30%, #ffe58a, #f5a623 60%, #b46a00);
+    color: #fff;
+    font-size: 36px;
+    font-weight: 700;
+}
+.jg-avatar-dot {
+    position: absolute;
+    right: 4px; bottom: 4px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #16c60c;
+    border: 2px solid #fff;
+    box-shadow: 0 0 6px rgba(22,198,12,0.6);
+}
+
+.jg-account-name {
+    font-size: 16px;
+    font-weight: 700;
+    text-align: center;
+    word-break: break-all;
+}
+.jg-account-sub { font-size: 12px; opacity: 0.6; margin-top: -6px; }
+
+.jg-launch-big {
+    width: 100%;
+    margin-top: 6px;
+    padding: 13px 16px;
+    min-height: 60px;
+    border: 0;
+    border-radius: 12px;
+    background: #0a0a0a;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    transition: background 240ms ease, transform 120ms ease, box-shadow 120ms ease, width 320ms cubic-bezier(.45,0,.25,1);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 2px;
+}
+.jg-launch-ver {
+    font-size: 11.5px;
+    font-weight: 500;
+    opacity: 0.85;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.jg-launch-ver .jg-upd-arrow { color: #ffd54d; font-weight: 700; }
+
+/* Failure toast: centered at the top of the screen, red floating bar */
+.jg-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #e5484d;
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 999999;
+    box-shadow: 0 8px 28px rgba(229, 72, 77, 0.4);
+    pointer-events: none;
+    white-space: nowrap;
+}
+.jg-launch-big:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.jg-launch-big:active { transform: translateY(0); }
+.jg-launch-big[disabled] { opacity: 0.55; cursor: not-allowed; transform: none; }
+.jg-launch-big.update {
+    background: linear-gradient(135deg, #c239b3, #8b008b);
+    box-shadow: 0 6px 18px rgba(194,57,179,0.35);
+}
+.jg-launch-big.update:hover { box-shadow: 0 8px 24px rgba(194,57,179,0.45); }
+
+/* Launch area: the main button fills the row by default; while running it smoothly narrows and the X button fades in on the right */
+.jg-launch-row {
+    position: relative;
+    margin-top: 6px;
+    width: 100%;
+    overflow: visible;
+}
+.jg-launch-row .jg-launch-big {
+    margin-top: 0;
+    width: 100%;
+    min-width: 0;
+    /* width transitions between two calc() values, smoothly interpolated by the browser -> genuinely smooth narrowing */
+    transition: width 320ms cubic-bezier(.45,0,.25,1), filter 240ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+/* Running: the main button narrows to make room (50px = 42 X button + 8 gap), still on the left on the 100% baseline */
+.jg-launch-row.running .jg-launch-big {
+    width: calc(100% - 50px);
+    /* Keep the green gradient and dim it with a filter - the requested look was "grayed out", not "swapped to gray" */
+    filter: saturate(0.2) brightness(0.82);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.jg-launch-row.running .jg-launch-big:hover {
+    transform: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    filter: saturate(0.2) brightness(0.82);
+}
+.jg-launch-row.running .jg-launch-main {
+    letter-spacing: 0.5px;
+}
+
+/* Close game X button: absolutely positioned at the far right, out of flow; hidden by default, fades in smoothly while running (opacity/transform are both interpolable) */
+.jg-close-btn {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 42px;
+    border: 0;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #e5484d, #c8232a);
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateX(12px);
+    pointer-events: none;
+    box-shadow: 0 4px 14px rgba(229,72,77,0.28);
+    transition: opacity 260ms cubic-bezier(.45,0,.25,1), transform 260ms cubic-bezier(.45,0,.25,1), background 120ms ease, box-shadow 120ms ease;
+}
+.jg-launch-row.running .jg-close-btn {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+}
+.jg-close-btn:hover {
+    background: linear-gradient(135deg, #d5323a, #a81d24);
+    box-shadow: 0 6px 18px rgba(229,72,77,0.5);
+    transform: translateY(-1px);
+}
+/* Cursor-following tooltip for the Close game X button (cursor-following pill):
+   position:fixed on body, screen coordinates, escapes container clipping; spring smooth following is driven by JS */
+/* Close game confirmation dialog */
+.jg-dlg-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 10, 16, 0.55);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999998;
+}
+.jg-dialog {
+    background: #fff;                        /* White background */
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 16px;
+    padding: 22px 24px 20px;
+    max-width: 340px;
+    width: calc(100% - 48px);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+    text-align: center;
+    animation: jg-dlg-in 160ms ease-out;
+}
+@keyframes jg-dlg-in {
+    from { transform: translateY(8px) scale(0.97); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.jg-dialog-body {
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: #333;
+    margin-bottom: 18px;
+}
+.jg-dialog-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+.jg-dialog-actions .jg-btn {
+    padding: 8px 20px;
+    border: 0;
+    border-radius: 9px;
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 100ms ease, box-shadow 100ms ease;
+    background: #f1f1f4;                     /* Cancel: light gray background */
+    color: #333;
+}
+.jg-dialog-actions .jg-btn:hover { background: #e3e3e8; transform: translateY(-1px); }
+.jg-dialog-actions .jg-btn.danger {
+    background: linear-gradient(135deg, #e5484d, #c8232a);
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(229, 72, 77, 0.35);
+}
+.jg-dialog-actions .jg-btn.danger:hover { box-shadow: 0 6px 18px rgba(229, 72, 77, 0.45); }
+
+/* -- Remark/rename dialog -- */
+.jg-dialog-actions .jg-btn.primary {
+    background: linear-gradient(135deg, #4465c4, #2f4bb0);
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(52, 88, 190, 0.35);
+}
+.jg-dialog-actions .jg-btn.primary:hover { background: linear-gradient(135deg, #5170d4, #3355b8); }
+.jg-remark-dialog { text-align: left; }
+.jg-remark-title { font-size: 15px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+.jg-remark-mod { font-size: 12.5px; color: #6c6c6c; margin-bottom: 12px; word-break: break-all; }
+.jg-remark-input {
+    width: 100%; box-sizing: border-box;
+    padding: 9px 12px; border-radius: 9px;
+    border: 1px solid rgba(0,0,0,0.15); background: #f5f5f7; color: #1a1a1a;
+    font-size: 13.5px; font-family: inherit; outline: none;
+}
+.jg-remark-input:focus { border-color: #4c6fce; box-shadow: 0 0 0 3px rgba(76, 111, 206, 0.18); }
+.jg-remark-count { font-size: 11.5px; color: #999; text-align: right; margin: 6px 0 14px; }
+@media (prefers-color-scheme: dark) {
+    .jg-dialog { background: #2a2a2e; border-color: rgba(255,255,255,0.1); }
+    .jg-remark-title { color: #eaeaea; }
+    .jg-remark-mod { color: #9a9a9a; }
+    .jg-remark-input { background: #1f1f22; border-color: rgba(255,255,255,0.14); color: #eaeaea; }
+    .jg-remark-count { color: #7a7a7a; }
+    .jg-dialog-actions .jg-btn { background: #3a3a40; color: #ddd; }
+    .jg-dialog-actions .jg-btn:hover { background: #45454c; }
+}
+
+.jg-version { font-size: 11.5px; opacity: 0.65; text-align: center; }
+.jg-uptodate { color: #107c10; opacity: 1; }
+.jg-updatehint { color: #b4009e; font-weight: 600; opacity: 1; }
+@media (prefers-color-scheme: dark) {
+    .jg-uptodate { color: #6ccb5f; }
+    .jg-updatehint { color: #d478e8; }
+}
+.jg-linkbtn {
+    background: none;
+    border: 0;
+    color: #1a1a1a;
+    font-size: 11.5px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 2px 6px;
+    opacity: 0.8;
+}
+.jg-linkbtn:hover { opacity: 1; text-decoration: underline; }
+
+.jg-panel-msg {
+    font-size: 11.5px;
+    line-height: 1.45;
+    border-radius: 8px;
+    padding: 8px 10px;
+    word-break: break-all;
+    width: 100%;
+}
+.jg-panel-msg.ok { background: rgba(16,124,16,0.10); color: #107c10; }
+.jg-panel-msg.err { background: rgba(232,17,35,0.10); color: #c50f1f; }
+.jg-panel-msg.upd { background: rgba(180,0,158,0.10); color: #b4009e; }
+@media (prefers-color-scheme: dark) {
+    .jg-panel-msg.ok { color: #6ccb5f; }
+    .jg-panel-msg.err { color: #f1707b; }
+    .jg-panel-msg.upd { color: #d478e8; }
+}
+
+/* -------- Top nav (horizontal) -------- */
+.jg-topnav {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;   /* v0.25.0: 5 icons evenly distributed across the top bar */
+    gap: 6px;
+    padding: 8px 16px 0;               /* 0 at the bottom so the selected thumb can extend to the bottom edge and merge into the content area */
+    background: rgba(255,255,255,0.30);
+    backdrop-filter: saturate(180%) blur(20px);
+    /* No clipping: let the selected block (.jg-topnav-thumb) bleed down into the content area, seamlessly connected in the same color,
+       otherwise it gets clipped at the top bar's bottom edge, drawing a dividing line so it doesn't look like it "protrudes from the content area" */
+}
+@media (prefers-color-scheme: dark) {
+    .jg-topnav { background: rgba(30,30,32,0.45); }
+}
+/* Selected highlight thumb: solid color, extends down into the content area (seamlessly connected in the same color); clicking another item lets JS move/resize it over */
+.jg-topnav-thumb {
+    position: absolute;
+    top: 4px;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    border-radius: 12px 12px 0 0;
+    background: rgba(255,255,255,0.92);
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
+    pointer-events: none;
+    /* v0.35.0: thumb position/size use hardware-composited transform/width for real-time tracking */
+    transition: left 260ms cubic-bezier(.45,0,.25,1), width 260ms cubic-bezier(.45,0,.25,1);
+    will-change: left, width;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-topnav-thumb { background: rgba(255,255,255,0.14); box-shadow: none; }
+}
+/* v0.25.0: icon-only top bar items - flex:1 even distribution + floating pill tooltip */
+.jg-topnav-item {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 96px;
+    height: 42px;
+    padding: 6px 10px;
+    border-radius: 12px;
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 120ms ease, transform 120ms ease;
+}
+.jg-topnav-icon {
+    width: 28px; height: 28px;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+    user-select: none;
+}
+.jg-topnav-item:hover { background: rgba(0,0,0,0.06); transform: translateY(-1px); }
+/* Selected item: the background is handled by the jg-topnav-thumb slider; icons keep their original colors so colored/light icons like NEXUS/SMAPI display correctly */
+.jg-topnav-item.active {
+    background: transparent;
+}
+
+/* Nav item tooltips are handled by the generic JS white following pill (.jg-close-tip); no ::after here anymore */
+@media (prefers-color-scheme: dark) {
+    .jg-topnav-item:hover { background: rgba(255,255,255,0.08); }
+    .jg-topnav-item.active { background: transparent; }
+}
+
+/* -------- Hero + cards -------- */
+.jg-hero {
+    border-radius: 14px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
+    background: linear-gradient(135deg, rgba(0,0,0,0.07), rgba(16,185,129,0.08));
+    border: 1px solid rgba(0,0,0,0.07);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+}
+.jg-hero-info { min-width: 0; flex: 1; }
+.jg-hero-title { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+.jg-hero-sub { display: block; opacity: 0.7; font-size: 12px; word-break: break-all; }
+
+.jg-card {
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--neutral-layer-1, #ffffff);
+    border: 1px solid rgba(0,0,0,0.06);
+}
+@media (prefers-color-scheme: dark) {
+    .jg-card { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.06); }
+}
+.jg-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.jg-grid-4 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+}
+.jg-modlist {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.jg-stat-label {
+    opacity: 0.7;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.jg-stat-num { font-size: 24px; font-weight: 700; margin-top: 4px; }
+.jg-stat-sub { font-size: 12px; opacity: 0.6; margin-top: 2px; }
+
+/* -------- Logs (SMAPI colors) -------- */
+.jg-logtail, .jg-logview {
+    font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.04);
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+.jg-logtail { max-height: 160px; }
+.jg-logview { height: calc(100vh - 350px); min-height: 220px; margin: 0; border-radius: 8px 8px 0 0; }
+/* v1.07.0: SMAPI command pill input - send button embedded on the right; black border on focus (near-white border in the dark theme) */
+.jg-loginput {
+    display: flex;
+    padding: 8px 10px;
+    border-top: 1px solid rgba(0,0,0,0.06);
+}
+.jg-cmdcaps {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(0,0,0,0.16);
+    border-radius: 999px;
+    padding: 3px 3px 3px 16px;
+    background: rgba(255,255,255,0.7);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.jg-cmdcaps:focus-within { border-color: #1a1a1a; box-shadow: 0 0 0 1px rgba(26,26,26,0.25); }
+.jg-cmdcaps input {
+    flex: 1;
+    min-width: 0;   /* Text starts scrolling/hiding at the send button instead of pushing the pill wider */
+    font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+    font-size: 12px;
+    color: inherit;
+    padding: 8px 4px;
+    border: 0;
+    background: transparent;
+    outline: none;
+}
+.jg-cmdcaps input:disabled { opacity: .5; }
+.jg-cmdsend {
+    flex: none;
+    border: 0;
+    border-radius: 999px;
+    background: #141414;
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 7px 18px;
+    cursor: pointer;
+    transition: background 120ms ease, transform 100ms ease;
+}
+.jg-cmdsend:hover:not(:disabled) { background: #000; transform: translateY(-1px); }
+.jg-cmdsend:disabled { opacity: .45; cursor: not-allowed; }
+@media (prefers-color-scheme: dark) {
+    .jg-loginput { border-top-color: rgba(255,255,255,0.06); }
+    .jg-cmdcaps { border-color: rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); }
+    .jg-cmdcaps:focus-within { border-color: #eaeaea; box-shadow: 0 0 0 1px rgba(234,234,234,0.25); }
+    .jg-cmdsend { background: #0a0a0a; border: 1px solid rgba(255,255,255,0.24); }
+}
+/* Status bar at the bottom of the log box (line count) */
+.jg-logfooter {
+    padding: 6px 12px;
+    font-size: 12px;
+    opacity: .65;
+    border-top: 1px solid rgba(0,0,0,0.06);
+    border-radius: 0 0 8px 8px;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-logfooter { border-top-color: rgba(255,255,255,0.06); }
+}
+@media (prefers-color-scheme: dark) {
+    .jg-logtail, .jg-logview { background: rgba(0,0,0,0.3); }
+}
+
+.jg-logline { white-space: pre-wrap; word-break: break-all; }
+/* v1.08.0: inline links in log lines - clicks are opened by C# in the system browser (no in-WebView navigation) */
+.jg-logline a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+}
+.jg-logline a:hover { text-decoration-style: solid; }
+.jg-logline.err   { color: #e81123; }
+.jg-logline.upd   { color: #b4009e; }
+.jg-logline.warn  { color: #d97b00; }
+.jg-logline.info  { color: #1a1a1a; }
+.jg-logline.trace { color: #8a8a8a; }
+.jg-logline.sys   { color: #107c10; }
+@media (prefers-color-scheme: dark) {
+    .jg-logline.err   { color: #f1707b; }
+    .jg-logline.upd   { color: #d478e8; }
+    .jg-logline.warn  { color: #e5a00d; }
+    .jg-logline.info  { color: #e5e5e5; }
+    .jg-logline.trace { color: #9a9a9a; }
+    .jg-logline.sys   { color: #6ccb5f; }
+}
+
+/* v1.07.0: the category legend on the right of the log page was removed (errors/diagnostics/updatable/info/warnings) */
+
+/* -------- Responsive: site-wide breakpoint system -------- */
+/* Narrow window: tighten everything */
+@media (max-width: 980px) {
+    .jg-account { width: 200px; padding: 14px 12px; }
+    .jg-avatar-fallback { font-size: 30px; }
+    .jg-account-name { font-size: 14.5px; }
+    .jg-launch-big { font-size: 14px; padding: 11px 12px; }
+    .jg-hero-title { font-size: 18px; }
+}
+@media (max-width: 860px) {
+    .jg-grid-4 { grid-template-columns: repeat(2, 1fr); }
+    .jg-taskdock { right: 12px; bottom: 12px; padding: 8px 10px; }
+    .jg-taskdock-title { font-size: 12px; }
+}
+@media (max-width: 680px) {
+    .jg-grid-4 { grid-template-columns: 1fr; }
+    .jg-account { width: 160px; padding: 10px 8px; }
+}
+/* Large screens: font sizes and spacing scale up in sync */
+@media (min-width: 1400px) {
+    .jg-account-name { font-size: 16px; }
+    .jg-launch-big { font-size: 16px; padding: 14px 16px; }
+    .jg-hero-title { font-size: 22px; }
+}
+@media (min-width: 1800px) {
+    .jg-hero-title { font-size: 26px; }
+}
+
+/* -------- SMAPI pinned card + mod update states -------- */
+.jg-smapi-card {
+    border: 1.5px solid rgba(0,0,0,0.25);
+    background: linear-gradient(135deg, rgba(0,0,0,0.07), rgba(194,57,179,0.06));
+}
+.jg-update-link {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1.5px solid #c239b3;
+    background: rgba(194,57,179,0.08);
+    color: #b4009e;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease;
+}
+.jg-update-link:hover { background: rgba(194,57,179,0.16); }
+.jg-update-link[disabled] { opacity: .55; cursor: not-allowed; }
+@media (prefers-color-scheme: dark) {
+    .jg-update-link { color: #d478e8; border-color: #a0509e; background: rgba(194,57,179,0.12); }
+    .jg-update-link:hover { background: rgba(194,57,179,0.22); }
+}
+.jg-mod-updmsg { font-size: 11.5px; margin-top: 6px; }
+.jg-mod-updmsg.checking  { color: #1a1a1a; }
+.jg-mod-updmsg.updating  { color: #1a1a1a; }
+.jg-mod-updmsg.updated   { color: #107c10; }
+.jg-mod-updmsg.available { color: #b4009e; }
+.jg-mod-updmsg.failed    { color: #e81123; }
+.jg-mod-updmsg.premium   { color: #d97b00; }
+@media (prefers-color-scheme: dark) {
+    .jg-mod-updmsg.checking, .jg-mod-updmsg.updating { color: #e5e5e5; }
+    .jg-mod-updmsg.updated   { color: #6ccb5f; }
+    .jg-mod-updmsg.available { color: #d478e8; }
+    .jg-mod-updmsg.failed    { color: #f1707b; }
+    .jg-mod-updmsg.premium   { color: #e5a00d; }
+}
+
+/* -------- Mod action buttons + chips (browse tabs) -------- */
+.jg-mod-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.jg-mini-btn {
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(0,0,0,0.14);
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease;
+}
+.jg-mini-btn:hover { background: rgba(0,0,0,0.05); }
+.jg-mini-btn[disabled] { opacity: .5; cursor: not-allowed; }
+.jg-mini-btn.danger {
+    background: #e81123;
+    border-color: #e81123;
+    color: #fff;
+    font-weight: 600;
+}
+.jg-mini-btn.danger-outline { color: #c50f1f; border-color: rgba(232,17,35,0.4); }
+.jg-mini-btn.danger-outline:hover { background: rgba(232,17,35,0.08); }
+@media (prefers-color-scheme: dark) {
+    .jg-mini-btn { border-color: rgba(255,255,255,0.16); }
+    .jg-mini-btn:hover { background: rgba(255,255,255,0.07); }
+    .jg-mini-btn.danger-outline { color: #f1707b; border-color: rgba(241,112,123,0.4); }
+}
+
+.jg-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.jg-chip {
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,0.12);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    transition: all 120ms ease;
+}
+.jg-chip:hover { background: rgba(0,0,0,0.04); }
+.jg-chip.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+.jg-chip[disabled] { opacity: .5; cursor: not-allowed; }
+@media (prefers-color-scheme: dark) {
+    .jg-chip { border-color: rgba(255,255,255,0.14); }
+    .jg-chip:hover { background: rgba(255,255,255,0.06); }
+}
+
+/* -------- Mod covers + in-app detail page -------- */
+.jg-mod-cover-sm {
+    width: 56px; height: 56px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(0,0,0,0.06);
+}
+.jg-mod-hero {
+    width: 100%;
+    max-height: 220px;
+    object-fit: cover;
+    display: block;
+    background: rgba(0,0,0,0.06);
+}
+
+/* -------- Mod detail page multi-image gallery -------- */
+.jg-modgallery {
+    position: relative;
+    display: block;
+}
+.jg-modgallery-main { max-height: 300px; }
+.jg-gallery-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.18);
+    background: rgba(255,255,255,0.85);
+    color: #1a1a1a;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: background 120ms ease;
+}
+.jg-gallery-nav:hover:not(:disabled) { background: #1a1a1a; color: #fff; }
+.jg-gallery-nav:disabled { opacity: 0.35; cursor: default; }
+.jg-gallery-nav.left { left: 10px; }
+.jg-gallery-nav.right { right: 10px; }
+.jg-gallery-thumbs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    background: rgba(0,0,0,0.03);
+}
+.jg-gallery-thumb {
+    flex-shrink: 0;
+    width: 56px;
+    height: 40px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    background: transparent;
+}
+.jg-gallery-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.jg-gallery-thumb.active { border-color: #1a1a1a; }
+.jg-gallery-thumb:hover:not(.active) { border-color: rgba(15,127,255,0.5); }
+@media (prefers-color-scheme: dark) {
+    .jg-gallery-nav { background: rgba(40,40,42,0.9); border-color: rgba(255,255,255,0.15); color: #e5e5e5; }
+    .jg-gallery-thumbs { background: rgba(255,255,255,0.03); }
+}
+
+.jg-modlink {
+    color: inherit;
+    font-weight: 600;
+    text-decoration: none;
+    word-break: break-word;
+    cursor: pointer;
+}
+.jg-modlink:hover { color: #1a1a1a; text-decoration: underline; }
+@media (prefers-color-scheme: dark) {
+    .jg-modlink:hover { color: #e5e5e5; }
+}
+.jg-moddetail-desc {
+    font-size: 13px;
+    line-height: 1.7;
+    opacity: 0.9;
+    word-break: break-word;
+}
+.jg-moddetail-desc img { max-width: 100%; border-radius: 8px; }
+.jg-moddetail-desc a { color: #1a1a1a; }
+.jg-moddetail-desc ol, .jg-moddetail-desc ul { padding-left: 22px; margin: 6px 0; }
+.jg-moddetail-desc li { margin: 2px 0; }
+.jg-moddetail-desc blockquote {
+    margin: 8px 0;
+    padding: 6px 12px;
+    border-left: 3px solid #1a1a1a;
+    background: rgba(15,127,255,0.06);
+    border-radius: 4px;
+}
+.jg-moddetail-desc pre {
+    background: rgba(0,0,0,0.05);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: Consolas, Monaco, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 8px 0;
+}
+.jg-moddetail-desc h1, .jg-moddetail-desc h2, .jg-moddetail-desc h3,
+.jg-moddetail-desc h4, .jg-moddetail-desc h5 { margin: 10px 0 4px; line-height: 1.4; }
+.jg-moddetail-desc hr { border: 0; border-top: 1px solid rgba(0,0,0,0.12); margin: 10px 0; }
+
+/* -------- Nexus browse listings (card grid in the style of the Nexus browse page) -------- */
+.jg-browsegrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 16px;
+    margin-top: 12px;
+}
+.jg-browsecard {
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--neutral-layer-1, #ffffff);
+    border: 1px solid rgba(0,0,0,0.08);
+    transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-browsecard { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); }
+}
+.jg-browsecard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+    border-color: rgba(15,127,255,0.4);
+}
+.jg-browsecard-top { cursor: pointer; }
+.jg-browsecard-cover { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: rgba(0,0,0,0.06); }
+.jg-browsecard-cover-fallback {
+    width: 100%; aspect-ratio: 1 / 1;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #5aa9ff, #1a1a1a);
+    color: #fff; font-size: 34px; font-weight: 700;
+}
+.jg-browsecard-title {
+    font-weight: 600; font-size: 13px; line-height: 1.3;
+    margin: 8px 10px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.jg-browsecard-title:hover { color: #1a1a1a; }
+.jg-browsecard-meta { font-size: 11px; opacity: 0.55; margin: 2px 10px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jg-browsecard-desc {
+    font-size: 11.5px; opacity: 0.6; line-height: 1.5;
+    margin: 6px 10px 0;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.jg-browsecard-actions { display: flex; gap: 6px; margin: 10px 10px 12px; margin-top: auto; }
+.jg-browsecard-actions .jg-browsecard-install { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Installed: the whole button grays out and loses interaction */
+.jg-browsecard-install.installed {
+    background: rgba(0,0,0,0.05);
+    border-color: rgba(0,0,0,0.10);
+    color: #888;
+    cursor: default;
+    opacity: 1;
+}
+.jg-browsecard-install.installed:hover { background: rgba(0,0,0,0.05); }
+@media (prefers-color-scheme: dark) {
+    .jg-browsecard-install.installed { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.10); color: #9aa0a6; }
+    .jg-browsecard-install.installed:hover { background: rgba(255,255,255,0.06); }
+}
+@media (max-width: 640px) {
+    .jg-browsegrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+}
+
+/* -------- Mod single-row list (PCL style) ------ */
+.jg-modrows { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.jg-modrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--neutral-layer-1, #ffffff);
+    border: 1px solid rgba(0,0,0,0.06);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-modrow { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.06); }
+}
+.jg-modrow:hover {
+    background: rgba(0,0,0,0.05);
+    border-color: rgba(0,0,0,0.12);
+}
+@media (prefers-color-scheme: dark) {
+    .jg-modrow:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.10); }
+}
+.jg-modrow.selected {
+    background: rgba(0,0,0,0.07);
+    border-color: rgba(0,0,0,0.32);
+    box-shadow: inset 3px 0 0 #1a1a1a;
+}
+
+.jg-modrow-icon {
+    width: 44px; height: 44px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(0,0,0,0.06);
+}
+.jg-modrow-icon-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #5aa9ff, #1a1a1a);
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.jg-modrow-text { min-width: 0; flex: 1; }
+.jg-modrow-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.jg-modrow-title .name {
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.jg-modrow-title .divider { opacity: 0.3; flex-shrink: 0; }
+.jg-modrow-title .ver { font-size: 12px; opacity: 0.55; white-space: nowrap; flex-shrink: 0; }
+.jg-modrow-title .upd { color: #b4009e; font-size: 12px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+.jg-tag {
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.06);
+    opacity: 0.75;
+    flex-shrink: 0;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-tag { background: rgba(255,255,255,0.08); }
+    .jg-modrow-title .upd { color: #d478e8; }
+}
+.jg-modrow-desc {
+    font-size: 12px;
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+/* Action buttons revealed on hover */
+.jg-modrow-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 120ms ease;
+    flex-shrink: 0;
+}
+.jg-modrow:hover .jg-modrow-actions,
+.jg-modrow.selected .jg-modrow-actions { opacity: 1; }
+.jg-rowbtn {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    border: 1px solid rgba(0,0,0,0.25);
+    background: transparent;
+    color: #1a1a1a;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: background 120ms ease;
+}
+.jg-rowbtn:hover { background: rgba(0,0,0,0.08); }
+.jg-rowbtn.danger { color: #c50f1f; border-color: rgba(232,17,35,0.35); }
+.jg-rowbtn.danger:hover { background: rgba(232,17,35,0.10); }
+.jg-rowbtn.confirm {
+    background: #e81123;
+    border-color: #e81123;
+    color: #fff;
+    width: auto;
+    padding: 0 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-rowbtn { color: #e5e5e5; border-color: rgba(121,184,255,0.35); }
+    .jg-rowbtn.danger { color: #f1707b; border-color: rgba(241,112,123,0.35); }
+}
+
+/* Batch action floating bar (follows the content area, centered on the mod list; left:20% ~= width of the account panel) */
+.jg-batchbar-anchor {
+    position: fixed;
+    left: 20%;
+    right: 0;
+    bottom: 18px;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 50;
+}
+body.jg-max .jg-batchbar-anchor { bottom: 28px; }
+.jg-batchbar {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(0,0,0,0.08);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+    z-index: 50;
+    font-size: 12.5px;
+    max-width: calc(100% - 32px);
+    flex-wrap: wrap;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-batchbar {
+        background: rgba(36,36,38,0.92);
+        border-color: rgba(255,255,255,0.10);
+        box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    }
+}
+
+/* Update button (purple, same color as the SMAPI update) */
+.jg-rowbtn.upd { color: #b4009e; border-color: rgba(194,57,179,0.4); }
+.jg-rowbtn.upd:hover { background: rgba(194,57,179,0.12); }
+@media (prefers-color-scheme: dark) {
+    .jg-rowbtn.upd { color: #d478e8; border-color: rgba(212,120,232,0.4); }
+}
+/* Already the latest version: the update button grays out */
+.jg-rowbtn.latest { color: #b0b6bc; border-color: rgba(0,0,0,0.12); cursor: default; }
+.jg-rowbtn.latest:hover { background: transparent; }
+@media (prefers-color-scheme: dark) {
+    .jg-rowbtn.latest { color: #6d7378; border-color: rgba(255,255,255,0.14); }
+}
+
+/* ---- Minimize shrink/fade transition (close to the native window look) ---- */
+#app { transition: transform .18s ease, opacity .18s ease; }
+body.jg-minimizing #app { transform: scale(0.96); opacity: 0; }
+
+
+/* Floating download task pill (bottom-right) - absolutely positioned inside .jg-shell
+   Reason: WPF borderless maximize extends the window ~8px past the work area, and fixed (viewport-relative) positioning follows it,
+   causing the pill to be covered by the taskbar. After switching to absolute relative to .jg-shell (the real visible clipping container),
+   the pill always lands at the bottom-right of the visible area, maximized or not. */
+.jg-taskdock {
+    position: absolute; right: 20px; bottom: 20px; z-index: 9999;
+    max-width: calc(100% - 40px);       /* Relative to .jg-shell, never exceeds it */
+    width: auto; height: auto;          /* v1.06.7: fits the content size, pill-shaped */
+    min-width: 160px; min-height: 56px; /* v1.06.7: a single-line status (All done / No tasks) still has two-line presence */
+    display: flex; align-items: center; justify-content: center;
+    background: #141414; color: #fff; border: none;    /* v1.06.4: solid black pill at rest */
+    padding: 10px 22px; border-radius: 999px; cursor: pointer;   /* v1.06.6: larger padding to shape the pill, text unchanged */
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+    transition: box-shadow .15s, background .3s;   /* No transform transition: the GSAP perspective tilt writes inline transform per frame */
+    overflow: hidden;                   /* The progress fill layer doesn't overflow the rounded corners */
+}
+/* Downloading: the pill grays out as a whole; a black fill layer covers it left-to-right with progress, returning to solid black at 100% */
+.jg-taskdock.running { background: #7d7d80; }
+.jg-taskdock-fill {
+    position: absolute; left: 0; top: 0; bottom: 0; z-index: 0;
+    width: 0%;
+    background: #141414;                /* Same as the resting black = the gray background is "filled back" to black by progress */
+    transition: width .35s ease;
+    pointer-events: none;
+}
+.jg-taskdock-body { position: relative; z-index: 1; text-align: center; min-width: 0; }
+/* When maximized the window extends past the work area; pull in another 20px as double insurance */
+body.jg-max .jg-taskdock {
+    right: 40px; bottom: 40px;
+}
+body.jg-max .jg-taskdock .jg-taskdock-title,
+body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jg-taskdock:hover { box-shadow: 0 10px 26px rgba(0,0,0,0.3); }
+.jg-taskdock-title { font-weight:600; font-size:13px; line-height:1.1; }
+.jg-taskdock-sub { font-size:11px; opacity:.85; margin-top:4px; }
+
+/* --- v1.07: all-done state - the pill morphs into a circle + white checkmark (shape driven by gsap taskDockMorph) --- */
+.jg-taskdock-check {
+    position: absolute; left: 50%; top: 50%; z-index: 1;
+    width: 26px; height: 26px;
+    margin-left: -13px; margin-top: -13px;
+    opacity: 0; pointer-events: none; /* Hidden at rest; gsap pops it out for the morphed done state */
+}
+/* No-gsap fallback: show the final circle state directly (with gsap, inline styles take over and this rule doesn't apply) */
+.jg-taskdock.done {
+    width: 56px; min-width: 56px; height: 56px; min-height: 56px; padding: 0;
+}
+.jg-taskdock.done .jg-taskdock-check { opacity: 1; }
+.jg-taskdock.done .jg-taskdock-body { opacity: 0; }
+
+/* --- v1.06.6: filter nav (All/Downloading/Succeeded/Failed; selected = black pill with white text) --- */
+.jg-tfilters { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
+.jg-tfilter {
+    border: 1px solid rgba(0,0,0,0.12); background: #fff; color: #333;
+    border-radius: 999px; padding: 7px 16px; font-size: 13px; cursor: pointer;
+}
+.jg-tfilter.active { background: #141414; color: #fff; border-color: #141414; }
+@media (prefers-color-scheme: dark) {
+    .jg-tfilter { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); color: #ddd; }
+    .jg-tfilter.active { background: #f2f2f2; color: #111; border-color: #f2f2f2; }
+}
+
+/* v0.2.2: "Task type" dropdown pill on the task page - clicking the body = back to "All"; only the small arrow opens the menu */
+.jg-tf-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid rgba(0,0,0,0.12);
+    background: #fff;
+    color: #333;
+    border-radius: 999px;
+    padding: 7px 8px 7px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+}
+.jg-tf-kind.active { background: #141414; color: #fff; border-color: #141414; }
+/* The menu is nested inside the pill; the text color must be taken back from the pill's selected state (black bg/white text), otherwise white text lands on a white background */
+.jg-tf-kind .jg-sort-menu { color: #333; }
+.jg-tf-caret {
+    display: inline-flex;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border-left: 1px solid rgba(0,0,0,0.14);
+}
+.jg-tf-kind.active .jg-tf-caret { border-left-color: rgba(255,255,255,0.3); }
+.jg-tf-caret:hover { background: rgba(0,0,0,0.08); }
+.jg-tf-kind.active .jg-tf-caret:hover { background: rgba(255,255,255,0.2); }
+@media (prefers-color-scheme: dark) {
+    .jg-tf-kind { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); color: #ddd; }
+    .jg-tf-kind.active { background: #f2f2f2; color: #111; border-color: #f2f2f2; }
+    .jg-tf-kind .jg-sort-menu { color: #ddd; }
+    .jg-tf-caret { border-left-color: rgba(255,255,255,0.18); }
+    .jg-tf-kind.active .jg-tf-caret { border-left-color: rgba(0,0,0,0.22); }
+    .jg-tf-caret:hover { background: rgba(255,255,255,0.1); }
+    .jg-tf-kind.active .jg-tf-caret:hover { background: rgba(0,0,0,0.12); }
+}
+
+/* --- v1.06.6: download info dropdown (GSAP easeReverse elastic expansion) --- */
+.jg-taskdrop-trigger {
+    border: none; background: transparent; cursor: pointer; color: #555;
+    display: inline-flex; padding: 2px; border-radius: 4px;
+}
+.jg-taskdrop-trigger:hover { background: rgba(0,0,0,0.06); }
+.jg-taskdrop-menu {
+    visibility: hidden; opacity: 0; height: 0; overflow: hidden;
+    margin-top: 8px; background: rgba(255,255,255,0.88);
+    border: 1px solid rgba(0,0,0,0.1); border-radius: 10px;
+}
+/* v1.07: the open steady state is guaranteed by the class (inline styles are cleared after the gsap animation ends and the state is owned by CSS,
+   so frequent re-renders during downloads won't snap an open panel back to hidden) */
+.jg-taskdrop-menu.open { visibility: visible; opacity: 1; height: auto; }
+.jg-taskdrop-item {
+    padding: 7px 14px; font-size: 12px; color: #333;
+    border-bottom: 1px solid rgba(0,0,0,0.05); word-break: break-word;
+}
+.jg-taskdrop-item:last-child { border-bottom: none; }
+@media (prefers-color-scheme: dark) {
+    .jg-taskdrop-trigger { color: #aaa; }
+    .jg-taskdrop-trigger:hover { background: rgba(255,255,255,0.08); }
+    .jg-taskdrop-menu { background: rgba(30,30,32,0.92); border-color: rgba(255,255,255,0.12); }
+    .jg-taskdrop-item { color: #ccc; border-bottom-color: rgba(255,255,255,0.06); }
+}
+
+/* --- v1.06.6: download page gray background changed back to white; the black circular back button changed to transparent with a black arrow; clear-all pill --- */
+.jg-tasks-back {
+    width: 42px; height: 42px; border-radius: 50%;
+    border: none; cursor: pointer;
+    background: transparent; color: #141414;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background .15s;
+}
+.jg-tasks-back:hover { background: rgba(0,0,0,0.05); }
+@media (prefers-color-scheme: dark) {
+    .jg-tasks-back { color: #e5e5e5; }
+    .jg-tasks-back:hover { background: rgba(255,255,255,0.08); }
+}
+.jg-tasks-clear {
+    border: none; cursor: pointer;
+    background: #141414; color: #fff;
+    border-radius: 999px; padding: 10px 26px;
+    font-size: 13px; font-weight: 600; font-family: inherit;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+    transition: transform .15s, box-shadow .15s, opacity .15s;
+}
+.jg-tasks-clear:hover { transform: scale(1.04); box-shadow: 0 10px 24px rgba(0,0,0,0.26); }
+.jg-tasks-clear:disabled { opacity: .4; cursor: default; transform: none; box-shadow: none; }
+.jg-tasks-cancel {
+    border: 1px solid rgba(0,0,0,0.14); cursor: pointer;
+    background: transparent; color: inherit;
+    border-radius: 999px; padding: 9px 24px;
+    font-size: 13px; font-weight: 600; font-family: inherit;
+    transition: transform .15s, background .15s;
+}
+.jg-tasks-cancel:hover { background: rgba(0,0,0,0.06); transform: scale(1.04); }
+@media (prefers-color-scheme: dark) {
+    .jg-tasks-cancel { border-color: rgba(255,255,255,0.22); }
+    .jg-tasks-cancel:hover { background: rgba(255,255,255,0.08); }
+}
+.jg-tasks-confirm-mask {
+    position: fixed; inset: 0; z-index: 999990;
+    background: rgba(0,0,0,0.35);
+    display: flex; align-items: center; justify-content: center;
+}
+.jg-tasks-confirm {
+    background: #fff; color: #1a1a1a;
+    border-radius: 14px; padding: 22px 24px;
+    width: min(360px, 86vw);
+    box-shadow: 0 18px 48px rgba(0,0,0,0.3);
+}
+@media (prefers-color-scheme: dark) {
+    .jg-tasks-confirm { background: #2a2a2e; color: #eee; }
+}
+
+/* --- v1.06.4: PCL2-style step list for task cards (check = done / blue % = current / X = failed) --- */
+/* v1.06.6: merged into the black version above (the blues in screenshots 2/3 were all changed to black); not redefined here */
+
+
+/* Mod row - small purple new-version tag after the version number (minimal hint) */
+.jg-newver {
+    display:inline-block; margin-left:6px; padding:1px 8px;
+    font-size:11px; font-weight:600;
+    color:#b4009e; background:rgba(180,0,158,0.08);
+    border:1px solid rgba(180,0,158,0.25); border-radius:10px;
+}
+
+
+/* Reserve 96px at the bottom-right for the pill when there are active tasks */
+/* Launch button: hover pixel-dissolve second state - a "Click to launch!" white mask with black text */
+.jg-launch-big { overflow: hidden; }
+.px-launch-mask {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    background: #f0fceb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: inherit;
+    color: #000;
+}
+.px-launch-txt {
+    font-size: 16px;
+    font-weight: 700;
+    color: #000;
+    letter-spacing: 0.5px;
+}
+/* Grid pixel windows: laid over the mask, revealed one by one */
+.px-grid {
+    border-radius: inherit;
+}
+
+/* -- Mod management page: GSAP elastic loading animation during check/refresh (v0.31.0: larger canvas + softer colors + dedicated space) -- */
+.jg-mods-loading {
+    /* Takes over the whole list area, 40px gap from the top search bar; 60px below so the four boxes' keyframes (y +80/-10/+30) don't collide */
+    margin: 40px auto 60px;
+    padding: 80px 0 100px;
+    min-height: 260px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+}
+.jg-mods-loading .box {
+    width: 30px;
+    height: 30px;
+    margin: 0 14px;
+    border-radius: 8px;
+    display: inline-block;
+    will-change: transform;
+}
+.jg-mods-loading .gradient-green {
+    position: relative;
+    overflow: hidden;
+    /* v0.31.0: diagonal linear gradient: top-left #9efd58 -> bottom-right #00e359 + overlaid noise speckles (frosted texture) */
+    background: linear-gradient(135deg, #9efd58 0%, #00e359 100%);
+}
+.jg-mods-loading .gradient-green::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+    pointer-events: none;
+}
+
+/* -- v0.31.0: PCL-style page-switch entrance animation (triggered on .jg-main each page change) -- */
+.jg-main {
+    /* v0.42.0: removed the persistent will-change: transform - it turns position:fixed descendants
+       (the batch bar) into .jg-main-relative positioning, making the batch bar scroll with the page */
+}
+.jg-page-enter {
+    animation: jg-page-in 380ms cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes jg-page-in {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+        filter: blur(3px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+        filter: blur(0);
+    }
+}
+/* Top-level inner blocks - staggered so page elements float up one after another, that PCL "alive" feel */
+.jg-page-enter > * {
+    animation: jg-child-in 420ms cubic-bezier(.22, 1, .36, 1) both;
+}
+.jg-page-enter > *:nth-child(1) { animation-delay: 40ms; }
+.jg-page-enter > *:nth-child(2) { animation-delay: 90ms; }
+.jg-page-enter > *:nth-child(3) { animation-delay: 140ms; }
+.jg-page-enter > *:nth-child(4) { animation-delay: 190ms; }
+.jg-page-enter > *:nth-child(5) { animation-delay: 240ms; }
+.jg-page-enter > *:nth-child(6) { animation-delay: 290ms; }
+@keyframes jg-child-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+
+/* -- v0.32.0: mod management toolbar (chips + sort dropdown + expanding search) -- */
+.jg-mods-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: nowrap;
+    min-width: 0;
+}
+.jg-mods-toolbar .jg-chips { flex-wrap: wrap; min-width: 0; }
+/* v0.34.0: DOM flattened (sort/chips/search are siblings); right alignment is handled by .jg-search-x itself */
+
+/* Sort dropdown */
+.jg-sort-dd { position: relative; }
+.jg-sort-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,0.14);
+    background: rgba(255,255,255,0.55);
+    color: inherit;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease;
+}
+.jg-sort-trigger:hover { background: rgba(0,0,0,0.05); }
+.jg-sort-arrow { display: block; transform-origin: center center; }
+.jg-sort-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 156px;
+    padding: 6px;
+    border-radius: 14px;
+    border: 1px solid rgba(0,0,0,0.1);
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: saturate(180%) blur(20px);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.14);
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(-10px) scale(0.92);
+    transform-origin: top left;
+    z-index: 1000;
+    pointer-events: none;
+}
+.jg-sort-dd.open .jg-sort-menu {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+/* v1.07.0: hover bridge - the 8px gap between trigger and menu is covered by a hit area, so moving toward the menu no longer slips out of the dropdown */
+.jg-sort-menu::before { content: ''; position: absolute; left: 0; right: 0; top: -14px; height: 14px; }
+/* v1.07.0: Nexus page menu split into two layers - the elastic animation only applies to .jg-sort-menu-in (visual layer),
+   the outer box (with the hover bridge) keeps its final rectangle so the hit area equals the final position from the first open frame,
+   and during the animation it no longer "looks open but actually hits the mod cards below". Skin values must stay in sync with .jg-sort-menu. */
+.jg-nexus-scope .jg-sort-menu {
+    padding: 0; border: 0; background: transparent; box-shadow: none;
+    backdrop-filter: none; opacity: 1; transform: none;
+}
+.jg-nexus-scope .jg-sort-menu-in {
+    padding: 6px;
+    border-radius: 14px;
+    border: 1px solid rgba(0,0,0,0.1);
+    background: rgba(255,255,255,0.96);
+    backdrop-filter: saturate(180%) blur(20px);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.14);
+}
+/* v0.33.0: merged into the .jg-sort-menu main rule above */
+.jg-sort-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: inherit;
+    font-size: 13px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.jg-sort-item:hover { background: rgba(0,0,0,0.07); }
+.jg-sort-item.active { background: rgba(0,0,0,0.10); color: #1a1a1a; font-weight: 600; }
+
+/* Expanding search */
+.jg-search-x {
+    display: flex;
+    align-items: center;
+    margin-left: auto;          /* v0.34.0: flush right; when expanded it grows leftward into the free space right of the chips */
+    width: 40px;
+    height: 40px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,0.14);
+    background: rgba(255,255,255,0.55);
+    overflow: hidden;
+    flex-shrink: 0;
+    box-sizing: border-box;
+}
+.jg-search-x.open { width: 220px; }
+.jg-search-btn {
+    flex: 0 0 38px;
+    height: 38px;
+    border: 0;
+    background: transparent;
+    font-size: 15px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
+}
+.jg-search-btn:hover { transform: scale(1.08); }
+.jg-search-btn img { filter: none; opacity: 0.75; }
+.jg-search-x:hover .jg-search-btn img { opacity: 1; }
+.jg-search-field {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-right: 10px;
+    flex: 1;
+    min-width: 0;
+    visibility: hidden;
+    opacity: 0;
+}
+.jg-search-x.open .jg-search-field { visibility: visible; opacity: 1; }
+.jg-search-input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 13px;
+    color: inherit;
+}
+.jg-search-clear {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    opacity: 0.55;
+    font-size: 12px;
+    color: inherit;
+    padding: 4px 6px;
+    border-radius: 999px;
+}
+.jg-search-clear:hover { opacity: 1; background: rgba(0,0,0,0.06); }
+
+@media (prefers-color-scheme: dark) {
+    .jg-sort-trigger { background: rgba(30,30,32,0.55); border-color: rgba(255,255,255,0.16); }
+    .jg-sort-trigger:hover { background: rgba(255,255,255,0.07); }
+    .jg-sort-menu { background: rgba(30,30,32,0.94); border-color: rgba(255,255,255,0.12); box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
+    /* v1.07.0: dark skin for the Nexus page visual inner layer (consistent with .jg-sort-menu above) */
+    .jg-nexus-scope .jg-sort-menu-in { background: rgba(30,30,32,0.94); border-color: rgba(255,255,255,0.12); box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
+    .jg-sort-item:hover { background: rgba(255,255,255,0.10); }
+    .jg-sort-item.active { background: rgba(255,255,255,0.14); color: #e5e5e5; }
+    .jg-search-x { background: rgba(30,30,32,0.55); border-color: rgba(255,255,255,0.16); }
+    .jg-search-clear:hover { background: rgba(255,255,255,0.08); }
+}
+
+
+/* -- v0.36.0: AnimatedList top/bottom gradient masks -- */
+.jg-al-gradient {
+    position: sticky;
+    left: 0;
+    right: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 50;
+    transition: opacity 0.3s ease;
+}
+.jg-al-gradient-top {
+    top: 0;
+    /* The sticky placeholder is 0-height; a pseudo-element inside draws the real gradient so content isn't squeezed */
+    float: inline-start;
+}
+.jg-al-gradient-top::before,
+.jg-al-gradient-bottom::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 50px;
+    pointer-events: none;
+}
+.jg-al-gradient-top::before {
+    top: 0;
+    background: linear-gradient(to bottom, #ffffff, rgba(255,255,255,0));
+}
+.jg-al-gradient-bottom {
+    bottom: 0;
+    /* Uses sticky relative to the .jg-main scroll viewport so the page entrance animation's transform
+       doesn't turn fixed into scroll-container-relative positioning, making the mask scroll with the content */
+    height: 0;
+}
+.jg-al-gradient-bottom::before {
+    bottom: 0;
+    background: linear-gradient(to top, #ffffff, rgba(255,255,255,0));
+}
+@media (prefers-color-scheme: dark) {
+    .jg-al-gradient-top::before {
+        background: linear-gradient(to bottom, #1c1e1c, rgba(28,30,28,0));
+    }
+    .jg-al-gradient-bottom::before {
+        background: linear-gradient(to top, #1c1e1c, rgba(28,30,28,0));
+    }
+}
+
+
+/* -- v0.39.0: Nexus login flow (top-tier UI design: black & white base, pills, soft shadows, entrance motion) -- */
+.jg-login-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 18px; border: 0; border-radius: 999px;
+    background: linear-gradient(135deg, #2e2e2e, #161616); color: #fff;
+    font-size: 13.5px; font-weight: 600; font-family: inherit; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+    transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.jg-login-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,0,0,0.30); }
+
+.jg-login-overlay {
+    position: fixed; inset: 0; z-index: 99990;
+    background: rgba(20,22,20,0.42);
+    backdrop-filter: blur(6px) saturate(120%);
+    display: flex; align-items: center; justify-content: center;
+    animation: jg-login-fadein 180ms ease both;
+}
+@keyframes jg-login-fadein { from { opacity: 0 } to { opacity: 1 } }
+
+.jg-login-card {
+    position: relative; width: 380px; max-width: calc(100vw - 48px);
+    padding: 26px 26px 20px; border-radius: 20px; overflow: hidden;
+    background: rgba(255,255,255,0.96);
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 24px 64px rgba(0,0,0,0.28);
+    animation: jg-login-pop 260ms cubic-bezier(.22,1,.36,1) both;
+    display: flex; flex-direction: column; gap: 14px;
+}
+@keyframes jg-login-pop {
+    from { opacity: 0; transform: translateY(14px) scale(.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.jg-login-card.success { padding-top: 0; }  /* The pixel canvas reaches the card's top edge */
+
+.jg-login-title { font-size: 18px; font-weight: 700; letter-spacing: .2px; }
+.jg-login-sub { font-size: 12.5px; opacity: .6; margin-top: -8px; line-height: 1.5; }
+
+.jg-login-options { display: flex; flex-direction: column; gap: 10px; }
+.jg-login-option {
+    display: flex; align-items: center; gap: 13px;
+    padding: 13px 14px; border-radius: 14px; text-align: left;
+    border: 1.5px solid rgba(0,0,0,0.09); background: #fff;
+    font-family: inherit; cursor: pointer;
+    transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.jg-login-option:hover {
+    border-color: rgba(0,0,0,0.75); transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.10);
+}
+/* v1.08.4: SSO website authorization entry - disabled until officially approved */
+.jg-login-option-disabled { opacity: .5; cursor: not-allowed; }
+.jg-login-option-disabled:hover { border-color: rgba(0,0,0,0.09); transform: none; box-shadow: none; }
+.jg-login-option-disabled .jg-login-option-icon { opacity: .6; }
+.jg-login-option-icon {
+    width: 38px; height: 38px; flex-shrink: 0; border-radius: 11px;
+    background: rgba(0,0,0,0.05); color: #1a1a1a;
+    display: flex; align-items: center; justify-content: center;
+}
+.jg-login-option-text { display: flex; flex-direction: column; gap: 2px; }
+.jg-login-option-name { font-size: 14px; font-weight: 650; }
+.jg-login-option-desc { font-size: 11.5px; opacity: .55; }
+
+.jg-login-input {
+    width: 100%; padding: 11px 14px; border-radius: 12px; box-sizing: border-box;
+    border: 1.5px solid rgba(0,0,0,0.12); background: #fff;
+    font-family: inherit; font-size: 13.5px; color: inherit; outline: none;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.jg-login-input:focus { border-color: #1a1a1a; box-shadow: 0 0 0 3px rgba(0,0,0,0.08); }
+.jg-login-input[disabled] { opacity: .55; }
+.jg-login-error { font-size: 12px; color: #c50f1f; }
+
+.jg-login-actions { display: flex; gap: 10px; }
+.jg-login-get, .jg-login-confirm {
+    flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 10px 0; border-radius: 12px; font-family: inherit;
+    font-size: 13.5px; font-weight: 600; cursor: pointer;
+    transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+}
+.jg-login-get {
+    border: 1.5px solid rgba(0,0,0,0.14); background: #fff; color: inherit;
+}
+.jg-login-get:hover { border-color: rgba(0,0,0,0.6); }
+.jg-login-confirm {
+    border: 0; background: linear-gradient(135deg, #2e2e2e, #161616); color: #fff;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+}
+.jg-login-confirm:hover:not([disabled]) { transform: translateY(-1px); }
+.jg-login-confirm[disabled] { opacity: .45; cursor: not-allowed; }
+
+.jg-login-cancel {
+    border: 0; background: transparent; color: inherit; opacity: .55;
+    font-size: 12.5px; font-family: inherit; cursor: pointer; padding: 4px 0;
+}
+.jg-login-cancel:hover { opacity: 1; }
+
+.jg-login-waiting {
+    display: flex; align-items: center; gap: 10px; justify-content: center;
+    padding: 18px 0; font-size: 13px; opacity: .75;
+}
+
+.jg-login-spinner {
+    width: 15px; height: 15px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+    animation: jg-login-spin .7s linear infinite;
+}
+.jg-login-spinner.large {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(0,0,0,0.15); border-top-color: #1a1a1a;
+}
+@keyframes jg-login-spin { to { transform: rotate(360deg); } }
+
+/* Success card: pixel reveal canvas + content */
+.jg-pixel-reveal {
+    position: absolute; inset: 0; z-index: 5; pointer-events: none;
+}
+.jg-login-success-inner {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding-top: 26px;
+}
+.jg-login-avatar {
+    width: 68px; height: 68px; border-radius: 50%; object-fit: cover;
+    border: 2.5px solid rgba(0,0,0,0.08);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+}
+.jg-login-avatar.fallback {
+    background: #1a1a1a; color: #fff; font-size: 26px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+}
+.jg-login-success-name { font-size: 16.5px; font-weight: 700; }
+.jg-login-success-welcome { font-size: 13px; opacity: .65; }
+
+/* Success toast: black floating bar at the top */
+.jg-login-toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: #161616; color: #fff; padding: 11px 22px; border-radius: 999px;
+    font-size: 13.5px; font-weight: 600; z-index: 999999;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    animation: jg-login-toast-in 320ms cubic-bezier(.22,1,.36,1) both;
+    pointer-events: none; white-space: nowrap;
+}
+@keyframes jg-login-toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(-12px) scale(.94); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+@media (prefers-color-scheme: dark) {
+    .jg-login-card { background: rgba(28,30,28,0.97); border-color: rgba(255,255,255,0.09); }
+    .jg-login-option { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.12); }
+    .jg-login-option:hover { border-color: rgba(255,255,255,0.6); }
+    .jg-login-option-disabled:hover { border-color: rgba(255,255,255,0.12); }
+    .jg-login-option-icon { background: rgba(255,255,255,0.08); color: #e5e5e5; }
+    .jg-login-input { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.16); color: #eee; }
+    .jg-login-input:focus { border-color: #e5e5e5; box-shadow: 0 0 0 3px rgba(255,255,255,0.10); }
+    .jg-login-get { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.16); color: #eee; }
+    .jg-login-get:hover { border-color: rgba(255,255,255,0.55); }
+    .jg-login-confirm { background: linear-gradient(135deg, #f0f0f0, #d8d8d8); color: #161616; }
+    .jg-login-btn { background: linear-gradient(135deg, #f0f0f0, #d8d8d8); color: #161616; }
+    .jg-login-spinner.large { border-color: rgba(255,255,255,0.18); border-top-color: #e5e5e5; }
+}
+
+
+/* -- v0.41.0: batch bar icon buttons (SVG, transparent background #3d3d3d) -- */
+.jg-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+}
+.jg-icon-btn svg {
+    width: 15px;
+    height: 15px;
+    color: #3d3d3d;
+    flex-shrink: 0;
+}
+.jg-icon-btn[disabled] { opacity: .38; cursor: not-allowed; }
+.jg-icon-btn[disabled] svg { color: #9a9a9a; }
+.jg-icon-btn.danger-outline svg { color: #c50f1f; }
+.jg-icon-btn.danger-outline[disabled] svg { color: #d99; }
+
+/* The batch bar doesn't wrap: deselect merges onto the same line */
+.jg-batchbar { flex-wrap: nowrap; }
+
+/* Inline button SVGs uniformly dark */
+.jg-rowbtn svg { color: #3d3d3d; }
+.jg-rowbtn.upd svg { color: #b4009e; }
+.jg-rowbtn.danger svg { color: #c50f1f; }
+
+@media (prefers-color-scheme: dark) {
+    .jg-icon-btn svg { color: #d4d4d4; }
+    .jg-icon-btn[disabled] svg { color: #6a6a6a; }
+    .jg-icon-btn.danger-outline svg { color: #f1707b; }
+    .jg-rowbtn svg { color: #d4d4d4; }
+    .jg-rowbtn.upd svg { color: #d478e8; }
+    .jg-rowbtn.danger svg { color: #f1707b; }
+}
+
+
+/* -- v0.42.0: batch bar/inline icon-only buttons + pill tooltip (data-tip) + single-line count -- */
+.jg-batchbar-count { font-weight: 600; white-space: nowrap; }
+.jg-ico { position: relative; padding: 6px 10px; }
+.jg-ico img { width: clamp(16px, 1.6vw, 22px); height: clamp(16px, 1.6vw, 22px); display: block; opacity: .78; }
+.jg-ico svg { width: clamp(15px, 1.4vw, 20px); height: clamp(15px, 1.4vw, 20px); color: #3d3d3d; display: block; }
+.jg-ico[disabled] img { opacity: .3; }
+.jg-ico[disabled] svg { color: #9a9a9a; }
+/* Inline button icons scale with the window too */
+.jg-rowbtn-icon { width: clamp(15px, 1.4vw, 19px); height: clamp(15px, 1.4vw, 19px); object-fit: contain; }
+/* Pill tooltip - shared by batch bar buttons and row action buttons */
+
+@media (prefers-color-scheme: dark) {
+    .jg-ico img { filter: invert(0.85); opacity: .8; }
+    .jg-ico svg { color: #d4d4d4; }
+    .jg-ico[disabled] svg { color: #6a6a6a; }
+}
+
+
+/* -- v0.43.1: global toast (black bg/white text by default / red bg/white text for errors) -- */
+.jg-toast-live {
+    position: fixed; top: 56px; left: 50%; transform: translateX(-50%);
+    z-index: 99999; padding: 10px 22px; border-radius: 999px;
+    background: rgba(22,22,22,0.94); color: #fff;
+    font-size: 13.5px; font-weight: 600; letter-spacing: .2px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.28);
+    pointer-events: none; max-width: 72vw;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.jg-toast-live.err { background: rgba(198,15,31,0.96); color: #fff; }
+
+
+/* -- v0.45.0: mod category tags (PCL2-style small pill before the summary) -- */
+.jg-cat {
+    display: inline-block; padding: 1px 8px; margin-right: 6px;
+    border-radius: 999px; background: rgba(0,0,0,0.07); color: #555;
+    font-size: 11px; font-weight: 600; line-height: 1.5;
+    vertical-align: 1px; white-space: nowrap;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-cat { background: rgba(255,255,255,0.12); color: #bbb; }
+}
+
+
+/* -- v0.46.0: save profile dropdown + delete confirmation dialog -- */
+.jg-profile-dd { position: relative; display: inline-block; }
+.jg-profile-menu { min-width: 200px; }
+.jg-profile-item {
+    display: flex; align-items: center; gap: 4px;
+    padding: 2px 4px; border-radius: 8px;
+}
+.jg-profile-item.active { background: rgba(0,0,0,0.10); }
+.jg-profile-name {
+    flex: 1; text-align: left; background: none; border: none;
+    padding: 7px 10px; border-radius: 6px; font-size: 13px;
+    color: #2a2a2a; cursor: pointer; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+}
+.jg-profile-name:hover { background: rgba(0,0,0,0.07); }
+.jg-profile-add { color: #666; font-weight: 600; }
+.jg-profile-del {
+    flex: none; width: 24px; height: 24px; border: none; border-radius: 6px;
+    background: none; color: #999; font-size: 15px; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.jg-profile-del:hover { background: rgba(198,15,31,0.12); color: #c50f1f; }
+.jg-profile-input {
+    flex: 1; min-width: 0; border: 1px solid rgba(0,0,0,0.2); border-radius: 6px;
+    padding: 6px 8px; font-size: 13px; outline: none; background: #fff; color: #1a1a1a;
+}
+.jg-profile-input:focus { border-color: #1a1a1a; }
+
+.jg-modal-overlay {
+    position: fixed; inset: 0; z-index: 99998;
+    background: rgba(0,0,0,0.35); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+}
+.jg-modal {
+    background: #fff; border-radius: 14px; padding: 22px 24px;
+    width: min(420px, 86vw); box-shadow: 0 18px 60px rgba(0,0,0,0.3);
+}
+.jg-modal-title { font-size: 16px; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; }
+.jg-modal-body { font-size: 13.5px; color: #444; line-height: 1.65; margin-bottom: 18px; }
+.jg-modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+@media (prefers-color-scheme: dark) {
+    .jg-profile-item.active { background: rgba(255,255,255,0.14); }
+    .jg-profile-name { color: #e0e0e0; }
+    .jg-profile-name:hover { background: rgba(255,255,255,0.10); }
+    .jg-profile-add { color: #aaa; }
+    .jg-profile-input { background: #2a2a2c; border-color: rgba(255,255,255,0.22); color: #e5e5e5; }
+    .jg-modal { background: #232325; }
+    .jg-modal-title { color: #eaeaea; }
+    .jg-modal-body { color: #bbb; }
+}
+
+
+/* -- v0.47.0: profile dropdown animations + dashed "add" pill + question-mark help button -- */
+.jg-profile-menu {
+    visibility: hidden; opacity: 0;            /* Initially hidden; GSAP autoAlpha takes over */
+    pointer-events: none;
+}
+.jg-profile-dd.open .jg-profile-menu { pointer-events: auto; }
+.jg-profile-dd { z-index: 9500; }
+/* v1.07.0: the overlay stays in the DOM - the closed state turns off visibility+pointer-events; the open state .open is
+   flipped the same frame as the menu by the dropdownToggle JS (previously the overlay relied on Blazor @if rendering, one beat slower than JS - the root cause of click-through) */
+.jg-dd-overlay { position: fixed; inset: 0; z-index: 9000; background: transparent; visibility: hidden; pointer-events: none; }
+.jg-dd-overlay.open { visibility: visible; pointer-events: auto; }
+
+/* Dashed pill "Add profile" button */
+.jg-profile-addcap {
+    position: relative;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: 100%; padding: 7px 10px; margin-top: 2px;
+    border: 1.5px dashed rgba(0,0,0,0.3); border-radius: 999px;
+    background: transparent; color: #555; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; transition: background 120ms ease, border-color 120ms ease;
+}
+.jg-profile-addcap .plus { font-size: 14px; line-height: 1; }
+.jg-profile-addcap:hover { background: rgba(0,0,0,0.05); border-color: rgba(0,0,0,0.5); color: #1a1a1a; }
+/* Hover pill tooltip (same style as the batch bar data-tip) */
+.jg-profile-addcap::after {
+    content: attr(data-tip);
+    position: absolute; bottom: calc(100% + 8px); left: 50%;
+    transform: translateX(-50%) translateY(4px) scale(0.94);
+    padding: 5px 12px; border-radius: 999px;
+    background: rgba(22,22,22,0.92); color: #fff;
+    font-size: 12px; font-weight: 500; white-space: nowrap; line-height: 1;
+    pointer-events: none; opacity: 0;
+    transition: opacity 140ms ease 200ms, transform 140ms ease 200ms;
+    z-index: 10000; box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+}
+.jg-profile-addcap:hover::after { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+
+/* Question-mark help button */
+.jg-help-btn {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.22); background: transparent;
+    color: #666; font-size: 14px; font-weight: 700; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transform-origin: center; flex: none;
+}
+.jg-help-btn:hover { border-color: rgba(0,0,0,0.5); color: #1a1a1a; background: rgba(0,0,0,0.04); }
+
+/* Elastic tooltip bubble */
+.jg-help-bubble {
+    position: fixed; z-index: 99997; max-width: 320px;
+    transform: translate(-50%, -100%);
+    background: rgba(22,22,22,0.94); color: #fff;
+    padding: 10px 14px; border-radius: 12px;
+    font-size: 12.5px; line-height: 1.6; font-weight: 500;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    pointer-events: none; visibility: hidden; opacity: 0;
+    white-space: normal;
+}
+.jg-help-bubble::after {
+    content: ""; position: absolute; top: 100%; left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: rgba(22,22,22,0.94);
+}
+
+@media (prefers-color-scheme: dark) {
+    .jg-profile-addcap { border-color: rgba(255,255,255,0.3); color: #aaa; }
+    .jg-profile-addcap:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.55); color: #e5e5e5; }
+    .jg-help-btn { border-color: rgba(255,255,255,0.25); color: #999; }
+    .jg-help-btn:hover { border-color: rgba(255,255,255,0.55); color: #eaeaea; background: rgba(255,255,255,0.06); }
+}
+
+
+/* -- v0.48.0 -- */
+/* Profile dropdown menu and trigger button right-aligned (fixes clipped overflow) */
+.jg-profile-menu { left: auto; right: 0; transform: none; }
+/* Dashed pill: only a centered plus remains */
+.jg-profile-addcap { padding: 7px 0; }
+/* Question-mark bubble: white bg/black text, widened, no longer a few chars per line; position computed by JS */
+.jg-help-bubble {
+    background: rgba(255,255,255,0.98); color: #1a1a1a;
+    border: 1px solid rgba(0,0,0,0.10);
+    box-shadow: 0 12px 36px rgba(0,0,0,0.20);
+    max-width: 340px; min-width: 240px; width: max-content;
+    font-size: 13px; line-height: 1.7;
+    transform: none;
+}
+.jg-help-bubble::after {
+    top: auto; bottom: 100%; left: auto; right: 14px;
+    transform: none;
+    border: 6px solid transparent; border-bottom-color: rgba(255,255,255,0.98);
+}
+/* data-tip now follows the mouse: turn off the old fixed ::after tooltip to avoid double tooltips */
+.jg-ico::after, .jg-profile-addcap::after { content: none !important; }
+.jg-cursor-tip {
+    position: fixed; z-index: 100000; pointer-events: none;
+    padding: 6px 13px; border-radius: 999px;
+    background: rgba(255,255,255,0.97); color: #1a1a1a;
+    border: 1px solid rgba(0,0,0,0.08);
+    font-size: 12px; font-weight: 600; white-space: nowrap; line-height: 1;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.16);
+    opacity: 0; visibility: hidden;
+    transition: opacity 120ms ease 120ms;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-help-bubble { background: rgba(40,40,42,0.98); color: #eaeaea; border-color: rgba(255,255,255,0.14); }
+    .jg-help-bubble::after { border-bottom-color: rgba(40,40,42,0.98); }
+    .jg-cursor-tip { background: rgba(42,42,44,0.97); color: #eaeaea; border-color: rgba(255,255,255,0.12); }
+}
+
+
+/* -- v0.49.0: profile items reuse the sort menu styles for hover/active -- */
+.jg-profile-menu .jg-profile-item {
+    background: transparent !important;
+    padding: 0;
+    border-radius: 8px;
+    transition: background 100ms ease;
+}
+.jg-profile-menu .jg-profile-item:hover:not(.active) { background: rgba(0,0,0,0.07) !important; }
+.jg-profile-menu .jg-profile-item.active,
+.jg-profile-menu .jg-profile-item.active:hover { background: rgba(0,0,0,0.10) !important; }
+.jg-profile-menu .jg-profile-item .jg-profile-name { background: none !important; }
+.jg-profile-menu .jg-profile-item.active .jg-profile-name { font-weight: 600; color: #1a1a1a; }
+
+@media (prefers-color-scheme: dark) {
+    .jg-profile-menu .jg-profile-item:hover:not(.active) { background: rgba(255,255,255,0.10) !important; }
+    .jg-profile-menu .jg-profile-item.active,
+    .jg-profile-menu .jg-profile-item.active:hover { background: rgba(255,255,255,0.14) !important; }
+    .jg-profile-menu .jg-profile-item.active .jg-profile-name { color: #e5e5e5; }
+}
+
+
+/* -- v0.50.0: outer cancel overlay for the batch-bar delete confirmation -- */
+.jg-batchbar { position: relative; z-index: 9501; }
+
+
+
+/* ============ v0.53.0: launch page collapse + detail page Download-4 + Shimmer + ScrollStack + Flip ============ */
+
+
+
+
+/* Back button: transparent background + SVG */
+.jg-detail-back {
+    background: transparent;
+    border: none;
+    padding: 6px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.jg-detail-back svg {
+    width: 22px;
+    height: 22px;
+}
+.jg-detail-back:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+/* Shimmer skeleton */
+@keyframes jg-shimmer-move {
+    0% { background-position: -600px 0; }
+    100% { background-position: 600px 0; }
+}
+.jg-shimmer {
+    background: linear-gradient(90deg, rgba(0, 0, 0, 0.06) 0%, rgba(0, 0, 0, 0.11) 40%, rgba(0, 0, 0, 0.06) 80%);
+    background-size: 600px 100%;
+    animation: jg-shimmer-move 1.4s linear infinite;
+    border-radius: 8px;
+    display: block;
+}
+.jg-shimmer-hero {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 32px;
+    padding: 32px 24px;
+    background: #ffffff;
+    color: #1a1a1a;
+    border-radius: 16px;
+    margin-top: 14px;
+    min-height: 360px;
+    align-items: center;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+.jg-shimmer-left { display: flex; flex-direction: column; gap: 14px; }
+.jg-shimmer-title { height: 42px; width: 78%; border-radius: 6px; }
+.jg-shimmer-line { height: 14px; border-radius: 6px; }
+.jg-shimmer-btns { display: flex; gap: 10px; margin-top: 12px; }
+.jg-shimmer-btn { height: 42px; width: 140px; border-radius: 999px; }
+.jg-shimmer-cover { width: 100%; height: 320px; border-radius: 14px; }
+.jg-shimmer-scrollstack { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
+.jg-shimmer-card { height: 120px; border-radius: 14px; }
+
+/* Download-4 layout hero */
+.jg-dl4-hero {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 36px;
+    padding: 40px 28px 44px;
+    background: #ffffff;
+    color: #1a1a1a;
+    border-radius: 18px;
+    margin-top: 14px;
+    align-items: stretch;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+.jg-dl4-left { display: flex; flex-direction: column; gap: 14px; }
+.jg-dl4-eyebrow {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.55;
+    color: #fff;
+}
+.jg-dl4-title {
+    font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+    font-size: 44px;
+    line-height: 1.15;
+    font-weight: 600;
+    margin: 0;
+    color: #1a1a1a;
+    word-break: break-word;
+}
+.jg-dl4-sub {
+    font-size: 15px;
+    line-height: 1.65;
+    color: #444;
+    margin: 4px 0 6px;
+    max-width: 440px;
+}
+.jg-dl4-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.jg-dl4-cta {
+    background: #1a1a1a;
+    color: #fff;
+    border: none;
+    padding: 12px 22px 12px 24px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.jg-dl4-cta:hover:not(.disabled):not(:disabled) {
+    background: #000;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+}
+.jg-dl4-cta.disabled, .jg-dl4-cta:disabled {
+    background: rgba(0, 0, 0, 0.08);
+    color: rgba(0, 0, 0, 0.45);
+    box-shadow: none;
+    cursor: default;
+}
+.jg-dl4-cta:disabled .jg-dl4-cta-ico { display: none; }
+.jg-dl4-cta-ico {
+    width: 26px;
+    height: 26px;
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+}
+.jg-dl4-cta.disabled .jg-dl4-cta-ico { background: rgba(255, 255, 255, 0.08); }
+.jg-dl4-ghost {
+    background: transparent;
+    color: #1a1a1a;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    padding: 11px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    transition: background 0.2s, border-color 0.2s;
+}
+.jg-dl4-ghost:hover { background: rgba(0, 0, 0, 0.05); border-color: rgba(0, 0, 0, 0.28); }
+.jg-dl4-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 4px;
+    font-size: 13px;
+    color: #555;
+    margin-top: auto;
+    padding-top: 14px;
+}
+.jg-meta-ico { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
+.jg-dl4-meta-item { white-space: nowrap; }
+.jg-dl4-meta-item b { font-weight: 600; color: #1a1a1a; }
+.jg-dl4-dot { opacity: 0.4; }
+.jg-dl4-msg {
+    margin-top: 8px;
+    font-size: 12.5px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 8px;
+    color: #333;
+}
+.jg-dl4-installed {
+    margin-top: 6px;
+    font-size: 12.5px;
+    color: #7ce495;
+}
+.jg-dl4-right { position: relative; display: flex; flex-direction: column; justify-content: flex-end; }
+.jg-dl4-cover {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: 14px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+    display: block;
+}
+.jg-dl4-cover-fallback {
+    background: linear-gradient(135deg, #3a3a3d, #1a1a1c);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 88px;
+    font-weight: 700;
+    font-family: serif;
+}
+.jg-dl4-cover-badge {
+    position: absolute;
+    left: 14px;
+    bottom: 14px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    backdrop-filter: blur(6px);
+}
+
+/* Detail page regular panel (v0.55.0: replaces ScrollStack) */
+.jg-detail-section {
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 20px 22px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    margin-top: 14px;
+}
+.jg-detail-section-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #1a1a1a;
+}
+
+/* Flip gallery */
+.jg-flip-gallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+}
+.jg-flip-box {
+    width: calc(33.333% - 8px);
+    aspect-ratio: 1 / 1;
+    min-width: 140px;
+    padding: 6px;
+    border: 2px dashed rgba(0, 0, 0, 0.12);
+    border-radius: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    box-sizing: border-box;
+}
+.jg-flip-box-content {
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    background-position: center;
+    background-size: cover;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.2s;
+}
+.jg-flip-box-content:hover {
+    transform: scale(1.02);
+}
+.jg-flip-modal {
+    width: 100%;
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: transparent;
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.25s ease, visibility 0.25s;
+}
+.jg-flip-modal.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+.jg-flip-modal.open .jg-flip-overlay { opacity: 0.65; }
+.jg-flip-overlay { transition: opacity 0.25s ease; }
+.jg-zoom-open {
+    max-width: 92vw !important;
+    max-height: 90vh !important;
+    width: auto !important;
+    height: auto !important;
+    aspect-ratio: auto !important;
+    object-fit: contain !important;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    cursor: zoom-out !important;
+    animation: jg-zoom-in 0.25s ease;
+}
+@keyframes jg-zoom-in {
+    from { transform: scale(0.85); opacity: 0.4; }
+    to { transform: scale(1); opacity: 1; }
+}
+.jg-flip-modal .jg-flip-content {
+    max-width: 92vw;
+    max-height: 90vh;
+    position: relative;
+    z-index: 1001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.jg-flip-modal .jg-flip-content .jg-flip-box-content {
+    width: 100%;
+    height: 100%;
+    cursor: zoom-out;
+}
+.jg-flip-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    opacity: 0;
+    cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+    .jg-account-hider { background: #26262a; border-color: rgba(255, 255, 255, 0.12); color: #e5e5e5; }
+    .jg-account-hider:hover { background: #34343a; }
+    .jg-detail-back:hover { background: rgba(255, 255, 255, 0.08); }
+    .jg-detail-back svg { stroke: #e5e5e5 !important; }
+    .jg-shimmer { background: linear-gradient(90deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.12) 40%, rgba(255,255,255,0.05) 80%); background-size: 600px 100%; }
+    .jg-detail-section { background: #1e1e20; border-color: rgba(255,255,255,0.08); box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
+    .jg-detail-section-title { color: #f0f0f0; }
+    .jg-flip-box { border-color: rgba(255,255,255,0.15); }
+}
+
+/* v0.55.0: the hero keeps a dark background in dark mode */
+@media (prefers-color-scheme: dark) {
+    .jg-dl4-hero {
+        background: #1e1e20;
+        color: #f0f0f0;
+        border-color: rgba(255, 255, 255, 0.08);
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    }
+    .jg-dl4-title { color: #f6f6f6; }
+    .jg-dl4-sub { color: #c8c8c8; }
+    .jg-dl4-meta { color: #b0b0b0; }
+    .jg-dl4-meta-item b { color: #f6f6f6; }
+    .jg-dl4-ghost { color: #f6f6f6; border-color: rgba(255, 255, 255, 0.18); }
+    .jg-dl4-ghost:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.32); }
+    .jg-dl4-msg { background: rgba(255, 255, 255, 0.06); color: #dcdcdc; }
+    .jg-shimmer-hero { background: #1e1e20; color: #f0f0f0; }
+}
+
+
+/* ============ v0.56.0: Edge translator + detail images + cover zoom ============ */
+
+/* Edge-style translator */
+.jg-detail-topbar { display: flex; align-items: center; gap: 6px; }
+/* Images inside the detailed description */
+.jg-moddetail-desc img.jg-desc-img {
+    max-width: 100%;
+    border-radius: 10px;
+    margin: 8px 0;
+    cursor: zoom-in;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.jg-moddetail-desc img.jg-desc-img:hover {
+    transform: scale(1.01);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* Cover clickable to zoom */
+.jg-flip-cover {
+    cursor: zoom-in;
+    transition: transform 0.2s;
+}
+.jg-flip-cover:hover {
+    transform: scale(1.01);
+}
+
+/* Images in the Flip modal display fully */
+
+@media (prefers-color-scheme: dark) {
+    .jg-meta-ico { stroke: #c8c8c8; }
+    .jg-dl4-cta { background: #f0f0f0; color: #1a1a1a; }
+    .jg-dl4-cta:hover:not(.disabled):not(:disabled) { background: #fff; }
+    .jg-dl4-cta.disabled, .jg-dl4-cta:disabled { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.45); }
+    .jg-moddetail-desc img.jg-desc-img:hover {
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    }
+}
+
+
+/* ============ v0.59.0: mod list shimmer skeleton + image zoom placeholder + lighter page transitions ============ */
+
+/* Mod row shimmer */
+.jg-modrows-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 8px;
+}
+.jg-modrow-shimmer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+.jg-shimmer-avatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 8px;
+    flex: none;
+}
+.jg-shimmer-lines {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.jg-shimmer-line {
+    height: 12px;
+    border-radius: 6px;
+}
+.jg-shimmer-pill {
+    width: 60px;
+    height: 26px;
+    border-radius: 999px;
+    flex: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    .jg-modrow-shimmer { background: #1e1e20; border-color: rgba(255, 255, 255, 0.08); }
+}
+
+/* Image zoom placeholder */
+.jg-zoom-placeholder {
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 10px;
+    border: 1px dashed rgba(0, 0, 0, 0.08);
+    box-sizing: border-box;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-zoom-placeholder { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.08); }
+}
+
+/* Lighter page transitions: v0.31.0's per-child animation simplified to a whole-block fade-in, reducing reflow jank */
+.jg-page-enter {
+    animation: jg-page-fadein 0.22s ease-out;
+}
+.jg-page-enter > * { animation: none !important; }
+@keyframes jg-page-fadein {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* v0.68.2: official Nexus-style Premium orange pill badge */
+.jg-premium-badge {
+    display: inline-flex; align-items: center;
+    padding: 1px 9px; border-radius: 999px;
+    background: linear-gradient(180deg, #f7b04a, #ee9b28);
+    color: #2b1c05;
+    font-size: 11px; font-weight: 700; letter-spacing: .02em;
+    line-height: 1.55; white-space: nowrap;
+}
+
+
+/* ===== v0.69.0: detail page new modules ===== */
+/* "About" question mark next to the title (pink gradient circle, after the GSAP easeReverse demo) */
+.jg-about-q {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; margin-left: 10px; border: none; cursor: pointer;
+    border-radius: 50%; vertical-align: 4px;
+    background: linear-gradient(317deg, #ffe9fe 10%, #ff96f9 83%);
+    color: #1a1a1a; font-weight: 700; font-size: 14px;
+    transition: transform .25s cubic-bezier(.34,1.56,.64,1);
+}
+.jg-about-q:hover { transform: scale(1.18); }
+/* v0.69.1: last install time after the mod name (dark gray, no checkmark) */
+.jg-dl4-lastdl { font-size: 12px; color: #444; font-weight: 400; margin-left: 12px; }
+
+/* Parallax image carousel */
+.jg-carousel {
+    display: flex; gap: 12px; overflow-x: auto; margin-top: 14px;
+    padding: 4px 2px 10px; scroll-behavior: smooth;
+    scrollbar-width: thin; cursor: grab; user-select: none;
+}
+.jg-carousel:active { cursor: grabbing; }
+.jg-carousel-img {
+    height: 200px; border-radius: 12px; flex: none;
+    box-shadow: 0 6px 20px rgba(0,0,0,.12);
+    transition: transform .3s ease;
+}
+.jg-carousel-img:hover { transform: translateY(-4px) scale(1.02); }
+
+/* About block (like screenshot 7: white card on the left + numbered accordion on the right) */
+.jg-about-panel {
+    display: flex; gap: 16px; margin-top: 14px;
+    background: rgba(0,0,0,.03); border-radius: 16px; padding: 16px;
+}
+.jg-about-left {
+    flex: 0 0 300px; background: #fff; border-radius: 14px; padding: 18px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.08); align-self: flex-start;
+}
+.jg-about-left img { width: 100%; border-radius: 10px; margin-bottom: 12px; }
+.jg-about-left-title { font-size: 17px; font-weight: 700; color: #141414; }
+.jg-about-left-sub { font-size: 13px; color: #555; line-height: 1.6; margin-top: 8px; }
+.jg-about-right { flex: 1; display: flex; flex-direction: column; }
+.jg-acc { border-bottom: 1px solid rgba(0,0,0,.08); }
+.jg-acc:last-child { border-bottom: none; }
+.jg-acc-head {
+    width: 100%; display: flex; align-items: center; gap: 12px;
+    padding: 13px 6px; background: none; border: none; cursor: pointer;
+    font-size: 14px; color: #1a1a1a; text-align: left;
+}
+.jg-acc-head:hover { background: rgba(0,0,0,.03); border-radius: 8px; }
+.jg-acc-no { font-size: 12px; color: #999; font-variant-numeric: tabular-nums; width: 20px; }
+.jg-acc-name { flex: 1; font-weight: 600; }
+.jg-acc-arrow { transition: transform .3s ease; color: #888; }
+.jg-acc-arrow.open { transform: rotate(180deg); }
+.jg-acc-body { padding: 4px 6px 14px 38px; font-size: 13px; color: #333; line-height: 1.7; }
+.jg-acc-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.jg-cl-ver { font-weight: 700; margin-top: 8px; color: #1a1a1a; }
+.jg-cl-line { padding-left: 8px; opacity: .85; }
+.jg-linklike {
+    background: none; border: none; padding: 0; cursor: pointer;
+    color: #0f7fff; font-size: inherit; text-decoration: underline;
+}
+.jg-tag { padding: 1px 8px; border-radius: 999px; font-size: 11px; background: rgba(0,0,0,.06); color: #555; }
+.jg-tag-ok { background: rgba(34,139,34,.12); color: #2e7d32; }
+.jg-tag-warn { background: rgba(232,17,35,.10); color: #c50f1f; }
+@media (max-width: 900px) {
+    .jg-about-panel { flex-direction: column; }
+    .jg-about-left { flex: none; width: 100%; }
+}
+
+/* File tabs (mirroring the site's main/old files structure, light theme) */
+.jg-file-card {
+    border: 1px solid rgba(0,0,0,.09); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 8px; background: #fff;
+}
+.jg-file-head { display: flex; align-items: center; gap: 8px; }
+.jg-file-dlcheck {
+    width: 18px; height: 18px; border-radius: 50%; flex: none;
+    background: #2e9e4f; color: #fff; font-size: 11px; font-weight: 700;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.jg-file-name { font-weight: 600; font-size: 13.5px; color: #1a1a1a; }
+.jg-file-ver {
+    padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+    background: rgba(238,155,40,.15); color: #b06d0a;
+}
+.jg-file-meta {
+    display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px;
+    font-size: 12px; color: #777;
+}
+.jg-file-desc { font-size: 12.5px; color: #555; line-height: 1.6; margin-top: 8px; }
+.jg-file-btns { display: flex; gap: 8px; margin-top: 10px; }
+
+
+/* ===== v0.69.1: file tab row list (site-style) ===== */
+.jg-frow { border: 1px solid rgba(0,0,0,.09); border-radius: 10px; margin-bottom: 6px; background: #fff; overflow: hidden; }
+.jg-frow-head {
+    width: 100%; display: flex; align-items: center; gap: 14px;
+    padding: 10px 14px; background: none; border: none; cursor: pointer;
+    font-size: 12.5px; color: #666; text-align: left;
+}
+.jg-frow-head:hover { background: rgba(0,0,0,.03); }
+.jg-frow-name { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; color: #1a1a1a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jg-frow-cell { white-space: nowrap; flex: none; }
+.jg-frow-arrow { transition: transform .25s ease; color: #ee9b28; flex: none; }
+.jg-frow-arrow.open { transform: rotate(180deg); }
+.jg-frow-body { padding: 10px 16px 14px; font-size: 12.5px; color: #444; line-height: 1.7; border-top: 1px solid rgba(0,0,0,.06); white-space: pre-wrap; }
+.jg-frow-note { margin-top: 10px; font-size: 12px; color: #888; }
+
+/* ===== v0.69.2 ===== */
+.jg-about-h2 { font-size: 18px; font-weight: 700; color: #141414; margin: 18px 0 2px; }
+.jg-about-acc { background: #fff; border: 1px solid rgba(0,0,0,.07); border-radius: 14px; padding: 2px 14px; }
+.jg-dl4-meta-under { margin-top: 10px; flex-wrap: wrap; justify-content: flex-start; }
+
+
+/* === v0.69.3: Requirements (dark table matching the official site) === */
+.jg-req { margin-top: 18px; border: 1px solid rgba(0,0,0,.1); border-radius: 12px; overflow: hidden; background: #fff; }
+.jg-req-head { display: flex; align-items: baseline; gap: 12px; padding: 13px 16px; cursor: pointer; user-select: none; background: rgba(0,0,0,.025); }
+.jg-req-head:hover { background: rgba(0,0,0,.045); }
+.jg-req-title { font-size: 14.5px; font-weight: 700; color: #1a1a1a; }
+.jg-req-sub { font-size: 12px; color: #777; flex: 1; }
+.jg-req-arrow { transition: transform .2s; color: #666; align-self: center; }
+.jg-req-arrow.open { transform: rotate(180deg); }
+.jg-req-body { padding: 6px 16px 14px; }
+.jg-req-empty { padding: 12px 0; font-size: 13px; color: #666; }
+.jg-req-table { border: 1px solid rgba(0,0,0,.08); border-radius: 8px; overflow: hidden; }
+.jg-req-th { display: grid; grid-template-columns: 1fr 1fr; padding: 8px 14px; font-size: 11.5px; font-weight: 600; color: #666; letter-spacing: .04em; background: rgba(0,0,0,.03); border-bottom: 1px solid rgba(0,0,0,.08); }
+.jg-req-row { display: grid; grid-template-columns: 1fr 1fr; padding: 9px 14px; font-size: 13px; align-items: center; }
+.jg-req-row + .jg-req-row { border-top: 1px solid rgba(0,0,0,.06); }
+.jg-req-name .jg-linklike, .jg-req-name { color: #b8860b; font-weight: 600; }
+.jg-req-name .jg-linklike { background: none; border: none; padding: 0; cursor: pointer; font-size: 13px; text-align: left; }
+.jg-req-name .jg-linklike:hover { text-decoration: underline; }
+.jg-req-notes { color: #555; font-size: 12.5px; }
+
+
+/* === v0.69.5: left column accordion fill + right sticky cover + multi-open accordions with inner scroll and sticky titles === */
+.jg-dl4-hero { align-items: flex-start; }
+.jg-dl4-left { min-width: 0; }
+.jg-dl4-right { position: sticky; top: 12px; align-self: flex-start; }
+.jg-about-acc { margin-top: 18px; border-top: 1px solid rgba(0,0,0,.08); }
+.jg-acc-inner { height: 52px; overflow: hidden; }
+.jg-acc.open .jg-acc-inner { height: auto; max-height: 360px; overflow: hidden; }
+.jg-acc.open.jg-acc-scroll .jg-acc-inner { overflow-y: auto; scrollbar-width: thin; }
+.jg-acc-head { position: sticky; top: 0; z-index: 2; background: #fff; }
+.jg-acc-arrow { transition: transform .25s; }
+.jg-acc.open .jg-acc-arrow { transform: rotate(180deg); }
+.jg-acc-body { padding: 4px 0 12px; }
+
+
+/* === v0.69.6: accordion scrollbars appear on demand (hidden until expanded; shown only when content overflows) === */
+.jg-acc-inner { scrollbar-width: none; }
+.jg-acc-inner::-webkit-scrollbar { width: 0; height: 0; }
+.jg-acc.open.jg-acc-scroll .jg-acc-inner::-webkit-scrollbar { width: 6px; }
+.jg-acc.open.jg-acc-scroll .jg-acc-inner::-webkit-scrollbar-thumb { background: rgba(0,0,0,.18); border-radius: 3px; }
+.jg-req-row { display: grid; grid-template-columns: 1fr 1fr; padding: 9px 14px; font-size: 13px; align-items: center; }
+.jg-req-row + .jg-req-row { border-top: 1px solid rgba(0,0,0,.06); }
+
+
+/* === v0.69.7: Requirements links without underline + cover thumbnails === */
+.jg-req-link { background: none; border: none; padding: 0; cursor: pointer; font-size: 13px;
+    color: #b8860b; font-weight: 600; text-align: left; text-decoration: none; }
+.jg-req-link:hover { color: #9a7109; text-decoration: none; }
+.jg-req-cover { width: 30px; height: 30px; object-fit: cover; border-radius: 6px; flex: none; }
+.jg-req-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.jg-req-table { margin-top: 4px; }
+.jg-detail-section { margin-top: 18px; }
+.jg-detail-section-title { font-size: 14.5px; font-weight: 700; color: #1a1a1a; margin-bottom: 8px; }
+
+
+/* === v0.69.9: accordion header doesn't overlap content when hovered + solid header background + body top spacing === */
+.jg-acc-head { background: #fff; }
+.jg-acc.open .jg-acc-body { padding-top: 8px; }
+.jg-acc-inner { position: relative; }
+
+
+/* === v0.70.0: solid hover background (the old rgba semi-transparent + sticky let underlying text bleed through) === */
+.jg-acc-head:hover { background: #f4f4f4 !important; }
+
+
+/* === v0.70.1: user avatar tooltip (easeReverse style) === */
+.jg-user-tip { position: relative; display: inline-block; }
+.jg-user-tip-avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
+    border: 1px solid rgba(0,0,0,.08); cursor: pointer; display: block; }
+.jg-user-tip-fallback { background: #60a5fa; color: #fff; display: flex; align-items: center;
+    justify-content: center; font-weight: 600; font-size: 15px; }
+.jg-user-tip-bubble { position: absolute; top: calc(100% + 12px); right: 0; z-index: 60;
+    background: #fff; color: #1a1a1a; border: 1px solid rgba(0,0,0,.1); border-radius: 12px;
+    padding: 14px 16px; min-width: 220px; max-width: 280px;
+    box-shadow: 0 10px 32px rgba(0,0,0,.14); pointer-events: none; visibility: hidden; opacity: 0;
+    transform-origin: top right; }
+.jg-user-tip-bubble::before { content: ""; position: absolute; bottom: 100%; right: 14px;
+    border: 6px solid transparent; border-bottom-color: #fff; }
+.jg-user-tip-name { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.jg-user-tip-stats { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 7px;
+    font-size: 11.5px; color: #666; }
+.jg-user-tip-about { margin-top: 7px; font-size: 12px; color: #555; line-height: 1.55; }
+.jg-user-tip-link { margin-top: 9px; background: none; border: none; padding: 0; cursor: pointer;
+    color: #b8860b; font-size: 12px; font-weight: 600; }
+.jg-user-tip-link:hover { text-decoration: underline; }
+/* Fallback without GSAP */
+.jg-user-tip-nogsap .jg-user-tip-bubble { transition: opacity .2s, transform .2s; transform: scale(.9); }
+.jg-user-tip-nogsap:hover .jg-user-tip-bubble { visibility: visible; opacity: 1; pointer-events: auto; transform: scale(1); }
+/* When GSAP controls visibility the bubble must be interactive (clickable links) */
+.jg-user-tip:hover .jg-user-tip-bubble { pointer-events: auto; }
+/* v1.08.0: the card toggles by click (hover auto-toggle removed) - .open is flipped by JS on open/close,
+   the open bubble must be interactive, otherwise "View profile/Log out" can't be clicked and clicks pass through to the mod cards below */
+.jg-user-tip.open .jg-user-tip-bubble { pointer-events: auto; }
+
+
+/* === v0.70.2: tooltip bridge (removes the 12px hover dead zone between avatar and bubble) === */
+/* v1.05.1: bridge widened 14 -> 22px with a 400ms close delay - dragging from avatar to card no longer closes mid-way */
+.jg-user-tip { padding-bottom: 22px; margin-bottom: -22px; }   /* Catches the mouse passing through */
+.jg-user-tip-bubble { top: calc(100% + 2px); }                  /* Shortens the vertical seam */
+
+/* === v0.70.2: official-site-style mod cards + infinite scroll grid (v0.75.0: switched to white tones, consistent with the site's light theme) === */
+/* v1.04.0: compact official-site layout - denser grid (minmax 230), 16/9 covers, the card body keeps only title/category chip/two-line summary */
+.jg-browse2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 16px; margin-top: 12px; }
+.jg-modcard2 { background: #fff; border: 1px solid rgba(0,0,0,.08); border-radius: 10px;
+    overflow: hidden; cursor: pointer; transition: transform .18s, box-shadow .18s, border-color .18s;
+    display: flex; flex-direction: column; color: #2a2a2a;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.jg-modcard2:hover { transform: translateY(-3px); box-shadow: 0 10px 26px rgba(0,0,0,.12);
+    border-color: rgba(0,0,0,.14); }
+.jg-modcard2-cover-wrap { position: relative; aspect-ratio: 16/9; overflow: hidden;
+    background: rgba(0,0,0,.05); }
+.jg-modcard2-cover { width: 100%; height: 100%; object-fit: cover; display: block;
+    transition: transform .3s; }
+.jg-modcard2:hover .jg-modcard2-cover { transform: scale(1.04); }
+.jg-modcard2-fb { display: flex; align-items: center; justify-content: center;
+    font-size: 40px; font-weight: 700; color: rgba(0,0,0,.22); }
+.jg-modcard2-badge { position: absolute; top: 8px; right: 8px; background: rgba(255,140,0,.92);
+    color: #fff; font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 3px;
+    letter-spacing: .02em; }
+.jg-modcard2-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.jg-modcard2-title { font-size: 13.5px; font-weight: 600; color: #1d1d1f; line-height: 1.35;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    text-decoration: none; }
+/* v1.04.0: category chips (official-site-style small outlined rounded blocks, replacing the old purple text line) */
+.jg-modcard2-cat-chip { align-self: flex-start; font-size: 10.5px; font-weight: 600; color: #6b6b70;
+    border: 1px solid rgba(0,0,0,.16); background: rgba(0,0,0,.03);
+    border-radius: 5px; padding: 2px 8px; letter-spacing: .01em; white-space: nowrap;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.jg-modcard2-meta { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; flex: 1; }
+.jg-modcard2-time { font-size: 11px; color: #777; display: flex; align-items: center; gap: 3px; }
+.jg-modcard2-summary { font-size: 11.5px; color: #666; line-height: 1.5;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.jg-modcard2-stats { display: flex; gap: 12px; padding-top: 8px; margin-top: auto;
+    border-top: 1px solid rgba(0,0,0,.07); font-size: 11.5px; color: #555; }
+.jg-modcard2-stats span { display: inline-flex; align-items: center; gap: 4px; }
+.jg-modcard2-sentinel { grid-column: 1 / -1; height: 1px; }
+.jg-modcard2-skel { pointer-events: none; }
+.jg-modcard2-skel .jg-modcard2-cover { aspect-ratio: 16/9; }
+/* v0.75.0: dark cards only in dark mode (the site defaults to white tones) */
+@media (prefers-color-scheme: dark) {
+    .jg-modcard2 { background: #24242a; border-color: rgba(255,255,255,.08); color: #e5e5e5;
+        box-shadow: none; }
+    .jg-modcard2:hover { box-shadow: 0 8px 24px rgba(0,0,0,.35); border-color: rgba(255,255,255,.14); }
+    .jg-modcard2-title { color: #f5f5f5; }
+    .jg-modcard2-summary { color: #bbb; }
+    .jg-modcard2-time { color: #999; }
+    .jg-modcard2-category { color: #ff96f9; }
+    .jg-modcard2-cat-chip { color: #b9b9c0; border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.05); }
+    .jg-modcard2-stats { border-top-color: rgba(255,255,255,.06); color: #ccc; }
+    .jg-modcard2-cover-wrap { background: rgba(0,0,0,.35); }
+    .jg-modcard2-fb { color: rgba(255,255,255,.35); }
+}
+
+
+/* === v0.71.0: Showcase 4-style category pills === */
+.jg-pill-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid rgba(0,0,0,.07); }
+/* v0.71.6: this rule only applies to the category filter .jg-pill-row; it no longer affects the launch-mode .jg-mode-pills */
+/* width:auto - overrides the launch-mode .jg-pill base class's width:100%, otherwise each category pill fills a whole row */
+.jg-pill-row .jg-pill { width: auto; flex: 0 0 auto; border: 1px solid rgba(0,0,0,.12); background: #fff; border-radius: 999px;
+    padding: 5px 13px; font-size: 12px; color: #444; cursor: pointer;
+    transition: background .18s, color .18s, border-color .18s, transform .15s; }
+.jg-pill-row .jg-pill:hover { background: rgba(0,0,0,.05); transform: translateY(-1px); }
+.jg-pill-row .jg-pill.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+/* Launch-mode segmented buttons: unselected items forced transparent and borderless (only the outer light gray track + black thumb remain); selected item text inverts to white */
+.jg-mode-pills .jg-pill { background: transparent !important; border: none !important;
+    box-shadow: none !important; color: #555; }
+.jg-mode-pills .jg-pill:hover { background: transparent !important; transform: none; }
+.jg-mode-pills .jg-pill.active { background: transparent !important; color: #fff; font-weight: 600; }
+.jg-pill-n { opacity: .55; font-size: 11px; margin-left: 3px; }
+
+
+/* === v0.71.1: profile rename input fills the remaining width === */
+.jg-profile-item .jg-profile-input { flex: 1; min-width: 0; }
+
+
+/* === v0.71.2: profile overlay click-through (clicks aren't blocked even if a z-index accidentally covers it) === */
+/* v0.71.7: removed the old pointer-events:none disabling - it killed the clickable overlay from v0.71.6,
+   so the sort/profile dropdowns couldn't close on outside clicks. The overlay is clickable again; the menu sits at z-index:9500 above the overlay's 9000. */
+
+
+/* === v0.71.3: profile rename pencil button === */
+.jg-profile-rename { background: transparent; border: none; cursor: pointer; padding: 4px;
+    border-radius: 5px; display: inline-flex; align-items: center; opacity: .55;
+    transition: opacity .15s, background .15s; }
+.jg-profile-rename:hover { opacity: 1; background: rgba(0,0,0,.06); }
+
+/* v0.71.4: profile rename moved to the right of the dropdown button (button <-> input swapped) */
+.jg-profile-headinput { width: 150px; flex: none; }
+.jg-profile-headrename { margin-left: 2px; }
+
+/* v0.71.5: profile rename state - the input keeps the same pill shape as the dropdown button; the confirm button is black with white text */
+.jg-profile-headinput {
+    flex: none;
+    width: 132px;
+    border-radius: 999px;
+    padding: 8px 14px;
+    border: 1px solid rgba(0,0,0,0.14);
+    background: rgba(255,255,255,0.85);
+    font-size: 13px;
+}
+.jg-profile-headconfirm {
+    flex: none;
+    width: 26px; height: 26px;
+    border: none; border-radius: 50%;
+    background: #1a1a1a; color: #fff;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; margin-left: 2px;
+    transition: transform .15s ease, background .15s ease;
+}
+.jg-profile-headconfirm:hover { background: #000; transform: scale(1.08); }
+@media (prefers-color-scheme: dark) {
+    .jg-profile-headinput { background: #2a2a2c; color: #e5e5e5; border-color: rgba(255,255,255,0.22); }
+    .jg-mode-pills .jg-pill { color: rgba(255,255,255,0.55); }
+    .jg-mode-pills .jg-pill.active { color: #fff; }
+}
+
+/* v0.71.6: sort dropdown vs overlay stacking - the sort dd is raised above the overlay (9000) so clicking the menu doesn't close it */
+.jg-sort-dd { z-index: 9500; }
+@media (prefers-color-scheme: dark) {
+    .jg-mode-pills .jg-pill { color: rgba(255,255,255,0.6) !important; }
+    .jg-mode-pills .jg-pill.active { color: #fff !important; }
+}
+
+/* v0.72.4: hide the row list while scroll restore is pending (visibility keeps layout so the limit can be computed),
+   removed the same frame once placed - the browser never paints the "list at the top" frame, eliminating the flash */
+.jg-restore-pending .jg-modrows { visibility: hidden; }
+/* vNext: same for the Nexus page - .jg-nexus-scope is the Nexus page root; while restore is pending
+   the whole page is hidden (visibility keeps layout and height so restoreFor can still measure the limit), removed the same frame
+   as placement/abandonment; the browser can never paint those "paint the top, then jump back to the middle" frames */
+.jg-restore-pending .jg-nexus-scope { visibility: hidden; }
+
+/* v0.73.0: Nexus browse page aligned with the official site - author avatars / absolute dates / time range dropdown */
+.jg-modcard2-avatar { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; flex: none; }
+.jg-modcard2-avatar-fb { display: inline-flex; align-items: center; justify-content: center;
+    background: #ececef; color: #666; font-size: 9px; font-weight: 600; }
+.jg-modcard2-author { display: flex; align-items: center; gap: 5px; }
+.jg-modcard2-timeabs { opacity: .55; margin-left: 6px; }
+/* v0.75.0: the time range dropdown switched to white tones */
+.jg-timerange { background: #fff; color: #3d3d3d; border: 1px solid rgba(0,0,0,.14);
+    border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; outline: none; }
+.jg-timerange:hover { border-color: rgba(0,0,0,.3); }
+@media (prefers-color-scheme: dark) {
+    .jg-timerange { background: #2b2b2f; color: #ddd; border-color: rgba(255,255,255,.12); }
+    .jg-timerange:hover { border-color: rgba(255,255,255,.28); }
+    .jg-modcard2-avatar-fb { background: #3a3a3f; color: #bbb; }
+}
+
+/* --- v0.74.0: Nexus search island + official-site-style home page ---
+   v1.06.2: restored the "magnifier button + click to expand rightward" form - CSS collapses to 40px by default (initial state without JS),
+   .open expands to 300px (no-GSAP fallback); with GSAP the width is driven inline by the searchIslandInit timeline. */
+.jg-nexus-island {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    width: 40px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,0.14);
+    background: rgba(255,255,255,0.72);
+    overflow: hidden;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.jg-nexus-island.open { width: 300px; }
+.jg-island-btn {
+    width: 40px; height: 40px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: transparent; cursor: pointer;
+    color: #555; padding: 0;
+}
+.jg-island-btn:hover { background: rgba(0,0,0,0.05); }
+.jg-island-btn svg { display: block; }
+@media (prefers-color-scheme: dark) {
+    .jg-island-btn { color: #b8b8c0; }
+    .jg-island-btn:hover { background: rgba(255,255,255,0.08); }
+}
+.jg-island-field { display: flex; align-items: center; overflow: hidden; flex: 1; padding: 0 14px; }
+.jg-island-input {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 13px;
+    width: 100%;
+    font-family: inherit;
+    color: inherit;
+}
+.jg-island-clear {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    opacity: .5;
+    padding: 0 10px 0 4px;
+    font-size: 13px;
+}
+.jg-island-clear:hover { opacity: .9; }
+
+.jg-home-sec { margin-top: 20px; }
+.jg-home-sec-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.jg-home-sec-title { font-size: 17px; font-weight: 600; }
+.jg-viewall {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: inherit;
+    color: inherit;
+    opacity: .6;
+    transition: opacity 120ms ease;
+    display: inline-flex;
+    align-items: center;
+}
+/* v1.04.0: underline removed - hover only brightens; the arrow color follows the text color (fill=currentColor) with a transparent background */
+.jg-viewall:hover { opacity: 1; text-decoration: none; }
+
+/* v1.04.0: "View all" pill button at the bottom of the Mods section */
+.jg-viewall-cap {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    border: 1px solid rgba(0,0,0,.14);
+    background: #fff;
+    color: #3d3d3d;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 20px;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    transition: background .15s, border-color .15s, transform .15s;
+}
+.jg-viewall-cap:hover { background: rgba(0,0,0,.05); border-color: rgba(0,0,0,.26); transform: translateY(-1px); }
+@media (prefers-color-scheme: dark) {
+    .jg-viewall-cap { background: #2b2b2f; border-color: rgba(255,255,255,.14); color: #ddd; box-shadow: none; }
+    .jg-viewall-cap:hover { background: #333338; border-color: rgba(255,255,255,.28); }
+}
+
+.jg-trend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.jg-trend-big {
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    cursor: pointer;
+    min-height: 230px;
+    background: rgba(0,0,0,0.06);
+}
+.jg-trend-big-cover {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.jg-trend-big::after {
+    /* The shadow overlay sits on the card itself, covering the bottom; its height doesn't change with the number of text lines */
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 62%;
+    background: linear-gradient(transparent, rgba(0,0,0,0.62) 55%);
+    pointer-events: none;
+}
+.jg-trend-big-info {
+    position: relative;
+    z-index: 1;
+    margin-top: 128px;
+    padding: 34px 14px 12px;
+    color: #fff;
+}
+.jg-trend-big-name { font-size: 15px; font-weight: 600; }
+.jg-trend-big-sub { font-size: 12px; opacity: .85; margin-top: 2px; }
+.jg-trend-big-sum {
+    font-size: 12px;
+    opacity: .8;
+    margin-top: 6px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.jg-trend-smalls {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-top: 14px;
+}
+.jg-trend-sm { cursor: pointer; }
+.jg-trend-sm-cover {
+    width: 100%;
+    aspect-ratio: 16/10;
+    object-fit: cover;
+    border-radius: 10px;
+    display: block;
+    background: rgba(0,0,0,0.06);
+}
+.jg-trend-sm-fb {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: 600;
+    opacity: .35;
+}
+.jg-trend-sm-name { font-size: 13px; font-weight: 600; margin-top: 6px; }
+.jg-trend-sm-sub { font-size: 11px; opacity: .6; margin-top: 1px; }
+@media (max-width: 900px) {
+    .jg-trend-grid { grid-template-columns: 1fr; }
+    .jg-trend-smalls { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* --- v0.75.0: browse page top bar (back button + listing title) --- */
+.jg-browse-topbar { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.jg-browse-topbar-title { font-size: 15px; font-weight: 600; }
+.jg-browse-back { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(0,0,0,.12);
+    background: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    transition: background .15s, transform .15s; flex: none; padding: 0; }
+.jg-browse-back:hover { background: rgba(0,0,0,.05); transform: translateX(-1px); }
+.jg-browse-back svg { width: 18px; height: 18px; }
+@media (prefers-color-scheme: dark) {
+    .jg-browse-back { background: #2a2a2c; border-color: rgba(255,255,255,.18); }
+    .jg-browse-back:hover { background: rgba(255,255,255,.08); }
+    .jg-browse-back svg polyline { stroke: #e5e5e5; }
+}
+
+/* --- v0.90.0: paginator (modeled on the official site) --- */
+.jg-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    margin-top: 16px; padding: 10px 4px; flex-wrap: wrap; }
+.jg-pager-side { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.jg-pager-info { font-size: 12px; opacity: .55; }
+.jg-pager-btn { padding: 5px 12px; border-radius: 999px; border: 1px solid rgba(0,0,0,.12);
+    background: #fff; font-size: 12px; color: #3d3d3d; cursor: pointer; transition: background .15s; }
+.jg-pager-btn:hover:not(:disabled) { background: rgba(0,0,0,.05); }
+.jg-pager-btn:disabled { opacity: .35; cursor: default; }
+.jg-pager-btn.cur { background: #1d1d1f; color: #fff; border-color: #1d1d1f; }
+.jg-pager-dots { font-size: 12px; opacity: .45; padding: 0 2px; }
+.jg-pager-jump { width: 58px; padding: 5px 8px; border: 1px solid rgba(0,0,0,.14);
+    border-radius: 999px; font-size: 12px; text-align: center; outline: none; }
+.jg-pager-jump:focus { border-color: rgba(0,0,0,.35); }
+@media (prefers-color-scheme: dark) {
+    .jg-pager-btn { background: #2a2a2c; color: #e5e5e5; border-color: rgba(255,255,255,.14); }
+    .jg-pager-btn:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+    .jg-pager-btn.cur { background: #e5e5e5; color: #1d1d1f; border-color: #e5e5e5; }
+    .jg-pager-jump { background: #2a2a2c; color: #e5e5e5; border-color: rgba(255,255,255,.14); }
+}
+
+/* --- v0.93.0: DepthText 3D extruded text (ported from React Bits) --- */
+.depth-text { display: inline-block; perspective: var(--dt-persp); isolation: isolate; vertical-align: middle; }
+.depth-text__stage { position: relative; display: inline-grid; place-items: center;
+    transform-style: preserve-3d; will-change: transform; }
+.depth-text__layer, .depth-text__face { grid-area: 1 / 1; display: inline-block;
+    font-size: var(--dt-size); font-weight: var(--dt-weight); line-height: 1; letter-spacing: -.01em;
+    white-space: nowrap; user-select: none; backface-visibility: hidden; }
+.depth-text__layer { position: absolute; inset: 0; z-index: 0;
+    filter: saturate(.95) brightness(.94); pointer-events: none; }
+.depth-text__face { position: relative; z-index: 1; color: var(--dt-face);
+    text-shadow: var(--dt-shadow); transform: translateZ(.6px); }
+@media (prefers-reduced-motion: reduce) { .depth-text__stage { will-change: auto; } }
+
+/* --- v0.94.0: Nexus page only - icon shadows + font icon enlargement (applies only within .jg-nexus-scope, no effect on other pages) --- */
+/* Nexus Mods top logo: soft drop shadow + enlarged */
+.jg-nexus-scope .jg-nexus-logo {
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,.28)) drop-shadow(0 1px 2px rgba(0,0,0,.18));
+    transition: filter .2s ease, transform .2s ease;
+}
+.jg-nexus-scope .jg-nexus-logo:hover {
+    filter: drop-shadow(0 6px 14px rgba(0,0,0,.35)) drop-shadow(0 2px 3px rgba(0,0,0,.22));
+    transform: translateY(-1px);
+}
+
+/* All SVG icons on the Nexus page: unified shadow, deeper on card hover */
+.jg-nexus-scope svg {
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.22));
+}
+.jg-nexus-scope .jg-modcard2:hover svg,
+.jg-nexus-scope .jg-trend-big:hover svg,
+.jg-nexus-scope .jg-trend-sm:hover svg {
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.32));
+}
+
+/* Section title (Trending Mods / Mods) inline SVG flame/gem icons: more pronounced 3D shadow */
+.jg-nexus-scope .jg-home-sec-title svg {
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.30)) drop-shadow(0 1px 1px rgba(0,0,0,.18));
+}
+
+/* Icon shadow inside the login button */
+.jg-nexus-scope .jg-login-btn svg {
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.35));
+}
+
+/* The user avatar gets a bit of shadow too, for visual consistency */
+.jg-nexus-scope .jg-user-tip-avatar {
+    box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 1px 2px rgba(0,0,0,.18);
+}
+
+/* -- Font & icon overall enlargement (Nexus page only) -- */
+.jg-nexus-scope { font-size: 15px; }
+
+/* Section titles "Trending Mods / Mods" and their icons */
+.jg-nexus-scope .jg-home-sec-title svg { width: 22px !important; height: 22px !important; }
+.jg-nexus-scope .jg-home-sec-title .depth-text { --dt-size: 18px !important; }
+
+/* View all */
+.jg-nexus-scope .jg-viewall { font-size: 14px; }
+
+/* Tab pill buttons */
+.jg-nexus-scope .jg-chip { font-size: 14px; padding: 7px 16px; }
+
+/* Trending large card text */
+.jg-nexus-scope .jg-trend-big-name { font-size: 17px; font-weight: 700; }
+.jg-nexus-scope .jg-trend-big-sub  { font-size: 13.5px; }
+.jg-nexus-scope .jg-trend-big-sum  { font-size: 13.5px; line-height: 1.55; }
+.jg-nexus-scope .jg-trend-big-sub svg { width: 13px !important; height: 13px !important; }
+
+/* Trending small cards */
+.jg-nexus-scope .jg-trend-sm-name { font-size: 14px; font-weight: 600; }
+.jg-nexus-scope .jg-trend-sm-sub  { font-size: 12.5px; }
+.jg-nexus-scope .jg-trend-sm-sub svg { width: 13px !important; height: 13px !important; }
+
+/* Mods cards */
+.jg-nexus-scope .jg-modcard2-title    { font-size: 15.5px; }
+.jg-nexus-scope .jg-modcard2-author   { font-size: 13px; }
+.jg-nexus-scope .jg-modcard2-category { font-size: 12.5px; }
+.jg-nexus-scope .jg-modcard2-stats    { font-size: 13px; }
+.jg-nexus-scope .jg-modcard2-stats svg { width: 15px !important; height: 15px !important; }
+.jg-nexus-scope .jg-modcard2-avatar    { width: 20px; height: 20px; }
+
+/* Search box & login button */
+.jg-nexus-scope .jg-island-input { font-size: 14px; }
+.jg-nexus-scope .jg-login-btn { font-size: 14px; }
+.jg-nexus-scope .jg-login-btn svg { width: 17px !important; height: 17px !important; }
+
+/* User avatar one size larger */
+.jg-nexus-scope .jg-user-tip-avatar { width: 40px; height: 40px; }
+
+/* Paginator */
+.jg-nexus-scope .jg-pager-btn  { font-size: 13.5px; padding: 6px 14px; }
+.jg-nexus-scope .jg-pager-info { font-size: 13.5px; }
+
+/* Empty state / hint text */
+.jg-nexus-scope .jg-note { font-size: 14px; }
+
+/* In dark mode the shadows are strengthened a bit for more depth */
+@media (prefers-color-scheme: dark) {
+    .jg-nexus-scope .jg-nexus-logo {
+        filter: drop-shadow(0 4px 12px rgba(0,0,0,.55)) drop-shadow(0 1px 3px rgba(0,0,0,.4));
+    }
+    .jg-nexus-scope svg {
+        filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
+    }
+    .jg-nexus-scope .jg-user-tip-avatar {
+        box-shadow: 0 2px 8px rgba(0,0,0,.55), 0 1px 2px rgba(0,0,0,.4);
+    }
+}
+
+/* --- v1.00.0: Trending section Grainient background + log out button + clickable logo (Nexus page only) --- */
+.jg-nexus-scope .jg-home-sec-hero {
+    position: relative; overflow: hidden;
+    border-radius: 14px; padding: 14px 16px 18px;
+    background: #17181d;
+    box-shadow: 0 6px 22px rgba(0,0,0,.14), inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.jg-nexus-scope .jg-trend-grain { position: absolute; inset: 0; z-index: 0; opacity: .92; }
+.jg-nexus-scope .jg-home-sec-hero > *:not(.jg-trend-grain) { position: relative; z-index: 1; }
+.jg-nexus-scope .jg-user-tip-logout { color: #c0453a !important; margin-left: 12px; }
+.jg-nexus-scope .jg-user-tip-logout:hover { color: #e05347 !important; }
+.jg-nexus-scope .jg-nexus-logo { cursor: pointer; }
+
+/* --- v1.01.0: Nexus page polish (log out button / beige sections / search history / back arrow / view all) --- */
+/* Section background changed to beige #F5F5DC; the Grainient canvas opacity is lowered so it doesn't overpower the background */
+.jg-nexus-scope .jg-hero-cream { background: #F7F7F8; }
+.jg-nexus-scope .jg-hero-cream .jg-trend-grain { opacity: .45; }
+
+/* Log out: red button with white text, placed under "View profile" */
+.jg-nexus-scope .jg-user-tip-logoutbtn {
+    background: #d63c30; color: #fff; border: none; border-radius: 8px;
+    padding: 6px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(214,60,48,.35);
+    transition: background .15s, transform .15s;
+}
+.jg-nexus-scope .jg-user-tip-logoutbtn:hover { background: #bf2f24; transform: translateY(-1px); }
+.jg-nexus-scope .jg-user-tip-logoutbtn:active { transform: translateY(0); }
+
+/* Search history dropdown (modeled on the site's Recent Searches dark panel) */
+.jg-nexus-scope .jg-search-history {
+    position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 9600;
+    visibility: hidden; opacity: 0; transform: translateY(-4px);
+    transition: opacity .15s ease, transform .15s ease, visibility .15s;
+}
+/* v1.05.1: visibility is toggled by JS .history-open (Blazor never receives the focus event from JS focus()) */
+.jg-nexus-scope .jg-island-wrap.history-open .jg-search-history {
+    visibility: visible; opacity: 1; transform: translateY(0);
+    background: #ffffff; border-radius: 12px; padding: 10px 6px;
+    box-shadow: 0 18px 48px rgba(0,0,0,.28), 0 4px 12px rgba(0,0,0,.12), inset 0 0 0 1px rgba(0,0,0,.06);
+    color: #333;
+}
+/* v1.05.2: the clear-history button moved after the "Search history" label */
+.jg-nexus-scope .jg-search-history-head {
+    display: flex; align-items: center; justify-content: flex-start; gap: 10px;
+    padding: 2px 12px 8px; font-size: 12px; color: #8a8a90;
+}
+.jg-nexus-scope .jg-search-history-clearall {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(0,0,0,.05); border: 1px solid rgba(0,0,0,.12);
+    color: #555; font-size: 11.5px; cursor: pointer;
+    text-decoration: none; padding: 3px 10px; border-radius: 999px;
+    transition: background .15s, color .15s;
+}
+.jg-nexus-scope .jg-search-history-clearall:hover { color: #111; background: rgba(0,0,0,.1); }
+.jg-nexus-scope .jg-search-history-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-radius: 8px; cursor: pointer; font-size: 13.5px; color: #333;
+}
+.jg-nexus-scope .jg-search-history-row:hover { background: rgba(0,0,0,.06); }
+.jg-nexus-scope .jg-search-history-row svg { flex: none; opacity: .55; }
+.jg-nexus-scope .jg-search-history-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jg-nexus-scope .jg-search-history-del {
+    background: none; border: none; color: #999; font-size: 13px; cursor: pointer;
+    padding: 2px 6px; border-radius: 6px; flex: none;
+}
+.jg-nexus-scope .jg-search-history-del:hover { color: #111; background: rgba(0,0,0,.08); }
+
+/* v1.05.1: the history panel hangs on the outer container (the island's own overflow:hidden would clip the panel entirely) */
+.jg-nexus-scope .jg-island-wrap { position: relative; display: flex; align-items: center; flex-shrink: 0; }
+.jg-nexus-scope .jg-island-field { position: relative; }
+
+/* Browse page back button: changed to a pure arrow (screenshot 15 style) */
+.jg-nexus-scope .jg-back-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 999px;
+    border: 1px solid rgba(0,0,0,.12); background: #fff; color: #3d3d3d;
+    cursor: pointer; transition: background .15s, transform .15s;
+    padding: 0; flex: none;
+}
+.jg-nexus-scope .jg-back-btn:hover { background: rgba(0,0,0,.05); transform: translateX(-1px); }
+@media (prefers-color-scheme: dark) {
+    .jg-nexus-scope .jg-back-btn { background: #2a2a2c; color: #e5e5e5; border-color: rgba(255,255,255,.14); }
+    .jg-nexus-scope .jg-back-btn:hover { background: rgba(255,255,255,.08); }
+}
+
+/* "View all" button: #3d3d3d text + icon, transparent background, with a grid icon */
+.jg-nexus-scope .jg-viewall {
+    background: transparent; border: none; color: #3d3d3d;
+    font-size: 13.5px; font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; padding: 4px 6px;
+    border-radius: 8px; transition: background .15s;
+}
+.jg-nexus-scope .jg-viewall:hover { background: rgba(0,0,0,.06); }
+.jg-nexus-scope .jg-viewall svg { color: #3d3d3d; }
+@media (prefers-color-scheme: dark) {
+    .jg-nexus-scope .jg-viewall { color: #e5e5e5; }
+    .jg-nexus-scope .jg-viewall svg { color: #e5e5e5; }
+}
+
+/* Tab icon and text alignment */
+.jg-nexus-scope .jg-chip { display: inline-flex; align-items: center; }
+.jg-nexus-scope .jg-chip svg { flex: none; }
+
+/* --- v1.02.0: search page exact-match card (goes straight to the mod by ID, not directly to the detail page) --- */
+.jg-nexus-scope .jg-search-exact {
+    display: flex; align-items: center; gap: 14px; margin-top: 12px;
+    background: #fff; border: 1px solid rgba(0,0,0,.1); border-radius: 12px;
+    padding: 10px 14px 10px 10px; cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,.07);
+    transition: transform .15s, box-shadow .15s;
+}
+.jg-nexus-scope .jg-search-exact:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,.12); }
+.jg-nexus-scope .jg-search-exact-cover {
+    width: 88px; height: 56px; object-fit: cover; border-radius: 8px; flex: none;
+    background: rgba(0,0,0,.06);
+}
+.jg-nexus-scope .jg-search-exact-fb {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; color: #b8860b;
+}
+.jg-nexus-scope .jg-search-exact-body { flex: 1; min-width: 0; }
+.jg-nexus-scope .jg-search-exact-name {
+    font-size: 15px; font-weight: 700; color: #1d1d1f;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.jg-nexus-scope .jg-search-exact-sub { font-size: 12px; color: #b8860b; margin-top: 3px; font-weight: 600; }
+.jg-nexus-scope .jg-search-exact-go { font-size: 13px; color: #3d3d3d; opacity: .6; flex: none; }
+@media (prefers-color-scheme: dark) {
+    .jg-nexus-scope .jg-search-exact { background: #24242a; border-color: rgba(255,255,255,.1); }
+    .jg-nexus-scope .jg-search-exact-name { color: #f5f5f5; }
+    .jg-nexus-scope .jg-search-exact-go { color: #e5e5e5; }
+}
+
+/* --- v1.03.0: Trending card hover effect (previously only Mods cards had it) --- */
+.jg-nexus-scope .jg-trend-big { transition: transform .2s ease, box-shadow .2s ease; }
+.jg-nexus-scope .jg-trend-big-cover { transition: transform .35s ease; }
+.jg-nexus-scope .jg-trend-big:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0,0,0,.20); }
+.jg-nexus-scope .jg-trend-big:hover .jg-trend-big-cover { transform: scale(1.04); }
+.jg-nexus-scope .jg-trend-sm { transition: transform .2s ease; }
+.jg-nexus-scope .jg-trend-sm:hover { transform: translateY(-2px); }
+.jg-nexus-scope .jg-trend-sm-cover { transition: transform .3s ease, box-shadow .2s ease; }
+.jg-nexus-scope .jg-trend-sm:hover .jg-trend-sm-cover { transform: scale(1.05); box-shadow: 0 8px 18px rgba(0,0,0,.18); }
+.jg-nexus-scope .jg-trend-sm:hover .jg-trend-sm-name { text-decoration: underline; }
+
+/* === v1.04.0: detail page "by" author name - blur highlight + hover avatar preview bubble (GSAP easeReverse) === */
+.jg-author-wrap { position: relative; display: inline-flex; margin-left: 2px; }
+.jg-author-name {
+    position: relative;
+    border: none; background: transparent; cursor: pointer;
+    font-family: inherit; font-size: inherit; line-height: inherit;
+    padding: 0; display: inline-flex; align-items: center;
+    isolation: isolate;
+}
+.jg-author-hl {
+    position: absolute; inset: -1px -4px; z-index: 0;
+    border-radius: 5px;
+    background: #ffffff;                 /* Light mode highlight: #ffffff */
+    box-shadow: 0 0 10px rgba(61,61,61,.18), 0 0 0 1px rgba(61,61,61,.10);
+    filter: blur(4px);
+    transform: scaleX(0);
+    pointer-events: none;
+}
+.jg-author-name-txt {
+    position: relative; z-index: 1;
+    font-weight: 700; color: #3d3d3d;
+    text-decoration: none;
+    transition: color .15s;
+}
+.jg-author-wrap:hover .jg-author-name-txt { color: #1a1a1a; }
+/* v1.05.0: the highlight is fixed to light #ffffff with dark text - it no longer follows the system dark mode.
+   On dark systems the #3d3d3d highlight on a light page just looked like a "black highlight"; that branch was removed */
+/* No-GSAP fallback: the highlight is always visible */
+.jg-author-nogsap .jg-author-hl { transform: scaleX(1); }
+
+/* Hover avatar preview bubble (elastic entrance / fast easeReverse exit) */
+.jg-author-bubble {
+    position: absolute; bottom: calc(100% + 12px); left: 50%;
+    z-index: 9702;
+    display: flex; align-items: center; gap: 8px;
+    background: #26262b; color: #e8e8ec;
+    border-radius: 12px; padding: 8px 14px 8px 8px;
+    box-shadow: 0 12px 32px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.08);
+    white-space: nowrap;
+    pointer-events: none;
+    visibility: hidden; opacity: 0;
+}
+.jg-author-bubble::after {
+    content: ""; position: absolute; top: 100%; left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: #26262b;
+}
+.jg-author-ava { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: none;
+    background: rgba(255,255,255,.08); }
+.jg-author-ava-fb { display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: #fff; }
+.jg-author-bubble-txt { font-size: 12px; color: #c9c9d0; }
+
+/* v1.06.1: raise the whole chain while the author bubble is hovered - the corners get covered by
+   neighboring sections outside the right column during the elastic entrance. .jg-dl4-right is sticky (creates its own stacking context), so the whole column's z-index
+   must be raised for the bubble to float above adjacent content; the 9700 range is level with the top bar user bubble (below modal 99999 / toast 999999) */
+.jg-dl4-right:hover { z-index: 9700; }
+.jg-author-wrap:hover { z-index: 9701; }
+
+/* === v1.04.0: settings page "Filter adult content" off-verification panel === */
+.jg-adult-verify {
+    margin-top: 12px; padding: 14px 16px;
+    border: 1px solid rgba(0,0,0,.12);
+    border-radius: 12px;
+    background: rgba(0,0,0,.02);
+}
+@media (prefers-color-scheme: dark) {
+    .jg-adult-verify { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.03); }
+}
+
+/* === v1.05.0: right-side dropdowns right-aligned (the desc/time dropdowns no longer overflow when flush with the window's right edge) === */
+.jg-sort-dd.jg-dd-right .jg-sort-menu { left: auto; right: 0; }
+
+/* === v1.05.0: the user card tooltip sits above the browse page dropdown buttons (above z-index 9500) === */
+.jg-nexus-scope .jg-user-tip { position: relative; z-index: 9700; }
+.jg-nexus-scope .jg-user-tip-bubble { z-index: 9701; }
+
+/* === v1.07.0: SMAPI log page redesign ===
+   The filter became a dropdown (same elastic open/close as the GSAP easeReverse demo "Dropdown", styled with the site-wide .jg-sort-*);
+   Clear/Copy are black pills with white text; the diagnostics detail toggle and the right-side category legend were removed.
+   (v1.07.1: the GhostFibers animated background was removed entirely; the header/cards/dropdown restored to the default themed look) */
+
+.jg-logs-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.jg-logs-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Black pill with white text (Clear / Copy all / confirm dialog primary button) */
+.jg-pill-dark {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 18px;
+    border-radius: 999px;
+    border: 0;
+    background: #141414;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease, transform 100ms ease;
+}
+.jg-pill-dark:hover { background: #000; transform: translateY(-1px); }
+.jg-pill-dark:active { transform: translateY(0); }
+/* Confirm dialog cancel key: transparent outlined pill (dark outline in the light theme / light outline in the dark theme) */
+.jg-pill-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,0.2);
+    background: transparent;
+    color: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease;
+}
+.jg-pill-ghost:hover { background: rgba(0,0,0,0.06); }
+@media (prefers-color-scheme: dark) {
+    .jg-pill-dark { border: 1px solid rgba(255,255,255,0.28); }
+    .jg-pill-ghost { border-color: rgba(255,255,255,0.28); }
+    .jg-pill-ghost:hover { background: rgba(255,255,255,0.08); }
+}
+
+/* -------- v1.06.9: dangerous action red pill (delete mod / close game confirm key) -------- */
+.jg-pill-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 18px;
+    border-radius: 999px;
+    border: 0;
+    background: #e5484d;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease, transform 100ms ease, box-shadow 120ms ease;
+}
+.jg-pill-danger:hover { background: #d93b40; transform: translateY(-1px); box-shadow: 0 6px 18px rgba(229,72,77,0.4); }
+.jg-pill-danger:active { transform: translateY(0); }
+
+/* v1.07.3: plain folder button in the mod management page header (the tooltip uses the global data-tip pill) */
+.jg-mods-folder-btn {
+    border: none; background: transparent; padding: 2px; cursor: pointer;
+    line-height: 0; border-radius: 8px; flex: none;
+    transition: transform 120ms ease, background 120ms ease;
+}
+.jg-mods-folder-btn:hover { background: rgba(0,0,0,0.06); transform: translateY(-1px); }
+.jg-mods-folder-btn:active { transform: translateY(0); }
+@media (prefers-color-scheme: dark) {
+    .jg-mods-folder-btn:hover { background: rgba(255,255,255,0.08); }
+}
+
+/* Settings page - pill login button when not logged into Nexus */
+.jg-nexus-login-btn {
+    border: none;
+    border-radius: 999px;
+    background: #111;
+    color: #fff;
+    font-size: 13px;
+    padding: 7px 18px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .15s ease, transform .15s ease;
+}
+.jg-nexus-login-btn:hover { background: #333; transform: translateY(-1px); }
+.jg-nexus-login-btn:active { transform: translateY(0); }
+
+/* Settings page - pill logout button when logged into Nexus */
+.jg-nexus-logout-btn {
+    border: none;
+    border-radius: 999px;
+    background: #111;
+    color: #fff;
+    font-size: 13px;
+    padding: 7px 18px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .15s ease, transform .15s ease;
+}
+.jg-nexus-logout-btn:hover { background: #333; transform: translateY(-1px); }
+.jg-nexus-logout-btn:active { transform: translateY(0); }
+
+/* v0.2.1: settings page game directory pill button - Save is black with white text */
+.jg-path-btn {
+    padding: 6px 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    background: transparent;
+    color: inherit;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+}
+.jg-path-btn:hover { background: rgba(0, 0, 0, 0.06); }
+.jg-path-btn.primary {
+    background: #111;
+    border-color: #111;
+    color: #fff;
+    font-weight: 600;
+}
+.jg-path-btn.primary:hover { background: #000; }
+@media (prefers-color-scheme: dark) {
+    .jg-path-btn { border-color: rgba(255, 255, 255, 0.22); }
+    .jg-path-btn:hover { background: rgba(255, 255, 255, 0.08); }
+    /* The save button keeps black with white text (same style as the global toast) */
+    .jg-path-btn.primary {
+        background: #111;
+        border-color: #111;
+        color: #fff;
+    }
+    .jg-path-btn.primary:hover { background: #000; }
+}
+
+/* v0.2.2: settings page toggle rows - the whole row is clickable, black thumb, black marker line on the row when on */
+.jg-switch-col {
+    display: flex;
+    flex-direction: column;
+    margin-top: 4px;
+}
+.jg-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 4px;
+    cursor: pointer;
+    user-select: none;
+}
+/* Hover marker line: spreads from the middle outward */
+.jg-switch-row::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: 0;
+    height: 2px;
+    background: #111;
+    transform: translateX(-50%);
+    transition: width 220ms cubic-bezier(0.5, 1, 0.89, 1);
+    z-index: 2;
+    pointer-events: none;
+}
+.jg-switch-row:hover::after { width: 100%; }
+.jg-switch-row:hover { background: rgba(0, 0, 0, 0.03); }
+.jg-switch-row.disabled:hover::after { width: 0; }
+.jg-switch-row.disabled { opacity: .45; cursor: not-allowed; }
+
+.jg-switch {
+    position: relative;
+    flex: none;
+    width: 40px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.22);
+    transition: background 140ms ease;
+}
+.jg-switch-row.on .jg-switch { background: #111; }
+.jg-switch-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: left 140ms ease;
+}
+.jg-switch-row.on .jg-switch-knob { left: 20px; }
+@media (prefers-color-scheme: dark) {
+    .jg-switch { background: rgba(255, 255, 255, 0.25); }
+    .jg-switch-row:hover { background: rgba(255, 255, 255, 0.05); }
+    /* When on, keep the black thumb of the black/white style; black is hard to see in dark mode, so invert to a white track with a black dot */
+    .jg-switch-row.on .jg-switch { background: #f5f5f5; }
+    .jg-switch-row.on .jg-switch-knob { background: #111; }
+    .jg-switch-row::after { background: #f5f5f5; }
+    .jg-switch-row.disabled:hover::after { width: 0; }
+}
+
+/* v0.2.2: settings page age verification dialog */
+.jg-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.jg-modal {
+    width: min(420px, 92vw);
+    background: #fff;
+    color: #111;
+    border-radius: 14px;
+    padding: 18px 20px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-color-scheme: dark) {
+    .jg-modal { background: #1f1f1f; color: #f5f5f5; }
+}
+
+/* v0.2.1: memory management - summary bar + usage cards + slider rows */
+.jg-mem-line {
+    padding: 9px 12px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.05);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+}
+.jg-kv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+}
+.jg-kv {
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+.jg-kv .k { font-size: 11.5px; opacity: .6; }
+.jg-kv .v { font-weight: 600; font-size: 14px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.jg-kv-sub { font-size: 10.5px; font-weight: 500; opacity: .55; margin-left: 6px; }
+.jg-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 4px;
+}
+.jg-slider-label { flex: none; font-size: 12.5px; opacity: .75; min-width: 52px; }
+.jg-slider { flex: 1; accent-color: #111; cursor: pointer; }
+.jg-slider-val { flex: none; font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
+/* v0.2.2: a panel whose sliders elastically expand/collapse with the toggle (the height animation needs overflow:hidden clipping) */
+.jg-slider-panel { overflow: hidden; }
+.jg-slider-panel .jg-slider-row { padding-left: 16px; }
+
+/* v0.2.2: elastic slider (React Bits ElasticSlider style) - the pill track grows on hover,
+   rubber-band stretch and snap-back at both ends, the value fixed on the right */
+.e-slider {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+    padding: 10px 0 12px;
+}
+.e-slider:active { cursor: grabbing; }
+.es-track-wrap { flex: 1; display: flex; }
+.es-track {
+    position: relative;
+    flex: 1;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.13);
+    transition: height .2s ease;
+    will-change: transform;
+}
+.e-slider:hover .es-track,
+.e-slider:active .es-track { height: 12px; }
+.es-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-radius: 999px;
+    background: #141414;
+}
+.es-value {
+    flex: none;
+    min-width: 44px;
+    text-align: right;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #333;
+}
+@media (prefers-color-scheme: dark) {
+    .es-track { background: rgba(255, 255, 255, 0.16); }
+    .es-fill { background: #f2f2f2; }
+    .es-value { color: #ddd; }
+}
+
+/* v0.2.1: cache & storage - category rows */
+.jg-store-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 2px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.jg-store-row:last-child { border-bottom: none; }
+.jg-store-main { flex: 1; min-width: 0; }
+.jg-store-name { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.jg-store-path { font-size: 11px; opacity: .55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.jg-store-size { flex: none; font-weight: 600; font-size: 13px; font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+.jg-store-tag {
+    flex: none;
+    font-size: 10px;
+    font-weight: 500;
+    opacity: .65;
+    border: 1px solid rgba(0, 0, 0, 0.25);
+    border-radius: 999px;
+    padding: 0 6px;
+    line-height: 15px;
+}
+@media (prefers-color-scheme: dark) {
+    .jg-mem-line { background: rgba(255, 255, 255, 0.06); }
+    .jg-kv { background: rgba(255, 255, 255, 0.05); }
+    .jg-slider { accent-color: #f5f5f5; }
+    .jg-store-row { border-bottom-color: rgba(255, 255, 255, 0.08); }
+    .jg-store-tag { border-color: rgba(255, 255, 255, 0.3); }
+}
+
+/* v0.2.2: pixel effect canvas for disabled toggle rows (React Bits PixelCard port) */
+.jg-switch-row { position: relative; }
+.jg-pixel-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    clip-path: inset(0);   /* Clips only the pixel canvas itself, not the row - otherwise it would clip the bubble that pops up above */
+}
+.jg-switch-row > *:not(.jg-pixel-canvas) { position: relative; z-index: 1; }
+
+/* --------- About card: pixel-style title + shimmer version number + author row --------- */
+@font-face {
+    font-family: 'Press Start 2P';
+    src: url('../fonts/PressStart2P.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+.jg-about {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+.jg-about-title-row { display: flex; align-items: center; gap: 10px; }
+
+/* Pixel-style title: pure black text, no background */
+.jg-pixel-title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 22px;
+    line-height: 1;
+    color: #000;
+    letter-spacing: 0;
+    image-rendering: pixelated;
+}
+.jg-about-title-side {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.jg-about-desc { font-size: 12px; opacity: .65; }
+
+/* Author row */
+.jg-author-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    opacity: .9;
+}
+.jg-author-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(0, 0, 0, .12);
+}
+.jg-pixel-name {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 12px;
+    line-height: 1;
+    color: #17171c;
+    background: #f0f0f0;
+    padding: 6px 8px;
+    border-radius: 4px;
+}
+
+/* Shiny Text: gradient clipping + background-position animation */
+.jg-shiny {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 600;
+    background-image: linear-gradient(120deg, #9a9a9a 0%, #9a9a9a 40%, #ffffff 50%, #9a9a9a 60%, #9a9a9a 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: jgShiny 3s linear infinite;
+}
+@keyframes jgShiny {
+    from { background-position: 150% center; }
+    to   { background-position: -50% center; }
+}
+
+/* CursorGrid: cursor grid behind the about card */
+.jg-cursor-grid { position: relative; overflow: hidden; }
+.jg-cursor-grid > .jg-cgrid-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+}
+.jg-cursor-grid > :not(.jg-cgrid-canvas) {
+    position: relative;
+    z-index: 1;
+}
+
+/* LogoLoop: contact icons marquee */
+.jg-logoloop {
+    position: relative;
+    overflow: hidden;
+    margin-top: 2px;
+    padding: 6px 0;
+    width: 300px;
+    max-width: 100%;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%);
+}
+.jg-ll-track {
+    display: flex;
+    width: max-content;
+    will-change: transform;
+    user-select: none;
+}
+.jg-ll-seq {
+    display: flex;
+    align-items: center;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.jg-ll-item {
+    flex: 0 0 auto;
+    margin-right: 32px;
+    display: inline-flex;
+    align-items: center;
+}
+.jg-ll-item img {
+    height: 24px;
+    width: auto;
+    display: block;
+    object-fit: contain;
+    pointer-events: none;
+    -webkit-user-drag: none;
+    transition: transform .3s cubic-bezier(.4, 0, .2, 1);
+}
+.jg-ll-item:hover img { transform: scale(1.25); }
+
+/* Copy email toast */
+.jg-copy-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 36px;
+    transform: translateX(-50%) translateY(8px);
+    background: #17171c;
+    color: #fff;
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease, transform .25s ease;
+    z-index: 9999;
+}
+.jg-copy-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}

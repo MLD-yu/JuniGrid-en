@@ -1,0 +1,101 @@
+@namespace JuniGrid.Components.Layout
+@inject TaskCenterService Center
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject ConfigService Cfg
+@implements IDisposable
+
+@* v1.06.4: the floating dock stays permanently visible — no longer auto-hides (it used to
+   disappear 8 seconds after everything completed, and didn't render at all when there were
+   no tasks on cold start). With no tasks it shows "No tasks"; while running it refreshes
+   progress percentage and speed in real time (every TaskCenterService.Report triggers a refresh).
+   Colors: idle state is a black background; while downloading the whole pill turns grey and a
+   black fill layer sweeps back over it from left to right according to download progress.
+   v1.07: when everything completes the whole pill morphs into a circle + white checkmark
+   (same morph as the gsap smooth-morph demo, driven by taskDockMorph via width/height/padding
+   transitions); it morphs back to a pill when new tasks arrive, with the downloading display unchanged.
+   v0.2.2: hidden permanently when the settings toggle "Show task dock" is off, only shown while
+   download tasks are running; draggable (makeTaskDockDraggable; dragging over 5px swallows the click). *@
+@if (Cfg.Current.ShowTaskDock || Center.RunningCount > 0)
+{
+    <button class="jg-taskdock @(Center.RunningCount > 0 ? "running" : "") @(_done ? "done" : "")" @onclick="Go" title="Download/install tasks">
+    @if (Center.RunningCount > 0)
+    {
+        <div class="jg-taskdock-fill" style="@($"width:{Center.TotalPercent:0}%")"></div>
+    }
+    <div class="jg-taskdock-body">
+        <div class="jg-taskdock-title">@(Center.RunningCount > 0
+            ? $"{Center.RunningCount} tasks running"
+            : Center.RunningCount == 0 && Center.Items.Count > 0 ? "" : Center.Items.Count > 0 ? "All done" : "No tasks")</div>
+        @if (Center.RunningCount > 0)
+        {
+            <div class="jg-taskdock-sub">@Center.TotalPercent.ToString("F0")% · @Center.TotalSpeedMBps.ToString("F1") M/s</div>
+        }
+    </div>
+    <svg class="jg-taskdock-check" viewBox="0 0 1024 1024" aria-hidden="true">
+        <path d="M392.533333 806.4L85.333333 503.466667l59.733334-59.733334 247.466666 247.466667L866.133333 213.333333l59.733334 59.733334L392.533333 806.4z" fill="#ffffff"></path>
+        </svg>
+    </button>
+}
+
+@code {
+    private bool _done;          // whether the last render was in the "all-done circle" state, driving the morph
+    private bool _morphReady;    // don't trigger the animation before the first render
+
+    protected override void OnInitialized()
+    {
+        Center.OnChanged += Refresh;
+        ConfigService.Saved += Refresh;   // re-show/hide instantly when the settings toggle "Show task dock" changes
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Cursor-driven perspective tilt (same as the gsap cursor-driven-perspective-tilt demo), bound once
+        if (firstRender)
+        {
+            try { await JS.InvokeVoidAsync("junigridJs.taskDockTilt", ".jg-taskdock"); } catch { }
+        }
+        // Drag binding: the element may be recreated on show/hide toggles (the binding function has an
+        // internal duplicate guard), so re-bind after every render
+        try { await JS.InvokeVoidAsync("junigridJs.makeTaskDockDraggable", ".jg-taskdock"); } catch { }
+
+        // Pill ↔ circle morph (same as gsap smooth-morph): state flips are transitioned by a gsap timeline;
+        // the first placement snaps instantly with no animation
+        var done = Center.RunningCount == 0 && Center.Items.Count > 0;
+        if (!_morphReady)
+        {
+            _morphReady = true;
+            _done = done;
+            if (done)
+            {
+                try { await JS.InvokeVoidAsync("junigridJs.taskDockMorph", ".jg-taskdock", true, false); } catch { }
+            }
+        }
+        else if (done != _done)
+        {
+            _done = done;
+            try { await JS.InvokeVoidAsync("junigridJs.taskDockMorph", ".jg-taskdock", done, true); } catch { }
+        }
+    }
+
+    public void Dispose()
+    {
+        Center.OnChanged -= Refresh;
+        ConfigService.Saved -= Refresh;
+    }
+
+    // OnChanged may fire from a background download thread, so InvokeAsync is required to get back to the UI thread
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    // v1.06.6: the downloads page expand/collapse animation is disabled — a click is just a plain toggle;
+    // while on the downloads page, clicking the dock = history.back to the page before entering it
+    private void Go()
+    {
+        if (Nav.Uri.EndsWith("/tasks", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = JS.InvokeVoidAsync("junigridJs.goBack");
+            return;
+        }
+        Nav.NavigateTo("/tasks");
+    }
+}

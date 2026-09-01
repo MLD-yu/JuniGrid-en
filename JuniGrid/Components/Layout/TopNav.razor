@@ -1,0 +1,63 @@
+@namespace JuniGrid.Components.Layout
+@inject NavigationManager Nav
+@inject PageRefreshService PageRefresh
+@inject IJSRuntime JS
+@implements IDisposable
+
+<nav class="jg-topnav">
+    @* Selected highlight block: pale green background, extending down into the content area like "a block peeking out of the content area"; left/width are moved to the active item by JS *@
+    <div class="jg-topnav-thumb"></div>
+    @foreach (var item in Items)
+    {
+        @* v0.24.0: icon-only navigation with hover pill tooltips.
+           data-tip feeds the CSS ::after bubble; no text span is rendered anymore. *@
+        <NavLink class="jg-topnav-item" ActiveClass="active" Match="@item.Match" href="@item.Href"
+                 data-tip="@item.Label" aria-label="@item.Label"
+                 @onclick="() => OnIconClick(item)">
+            <img class="jg-topnav-icon" src="@item.Icon" alt="" draggable="false" />
+        </NavLink>
+    }
+</nav>
+
+@code {
+    private record NavItem(string Href, string Label, string Icon, NavLinkMatch Match);
+
+    private readonly NavItem[] Items =
+    {
+        new("",         "Home",       "assets/nav/home.svg",     NavLinkMatch.All),
+        new("mods",     "Mods",       "assets/nav/mods.svg",     NavLinkMatch.Prefix),
+        new("nexus",    "NEXUS MODS", "assets/nav/nexus.svg",    NavLinkMatch.Prefix),
+        new("logs",     "SMAPI Log",  "assets/nav/smapi.svg",    NavLinkMatch.Prefix),
+        new("settings", "Settings",   "assets/nav/settings.svg", NavLinkMatch.Prefix),
+    };
+
+    protected override void OnInitialized()
+    {
+        // v0.35.0: reposition the thumb immediately after route changes (.active moves) to eliminate "element moves first, background follows"
+        Nav.LocationChanged += async (_, _) =>
+        {
+            try { await InvokeAsync(StateHasChanged); } catch { }
+            try { await JS.InvokeVoidAsync("junigridJs.placeNavThumb"); } catch { }
+        };
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Reposition after every render (internally waits two rAFs for .active to be in place), also covering the mod force-refresh jump
+        try { await JS.InvokeVoidAsync("junigridJs.placeNavThumb"); } catch { }
+    }
+
+    public void Dispose() { }
+
+    // v1.06.7: only clicking the icon of the page you're currently on (mods/nexus) sends the refresh signal;
+    // the page subscribes and rescans/refetches/checks for updates; clicking the icon from another page =
+    // normal navigation (component rebuild loads naturally, no extra request). The old forceLoad:true
+    // full reload is deprecated.
+    private void OnIconClick(NavItem item)
+    {
+        if (item.Href is not ("mods" or "nexus")) return;
+        var path = Nav.ToAbsoluteUri(Nav.Uri).AbsolutePath.TrimEnd('/');
+        if (path.EndsWith(item.Href, StringComparison.OrdinalIgnoreCase))
+            PageRefresh.Request(item.Href);
+    }
+}

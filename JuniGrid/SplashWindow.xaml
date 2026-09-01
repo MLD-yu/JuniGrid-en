@@ -1,0 +1,45 @@
+<Window x:Class="JuniGrid.SplashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        WindowStartupLocation="CenterScreen"
+        Width="560" Height="240"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ResizeMode="NoResize">
+    <!-- Transparent splash window (this window has no WebView2, so AllowsTransparency=True is safe).
+         Layout: a centered Canvas stage containing the logo (shifted left on its own) /
+         transparent stroked text / white filled text.
+         StrokePath traces the glyphs stroke by stroke (stroke is transparent, used only to drive
+         fill timing); FillPath uses a Clip rectangle (in Path-local coordinates) expanding from
+         zero width to achieve the left-to-right fill. -->
+    <Canvas x:Name="Stage"
+            HorizontalAlignment="Center" VerticalAlignment="Center"
+            Width="560" Height="240"
+            Background="Transparent">
+
+        <!-- logo is static: no fade-in/scale/left-shift animation, fixed at the far left -->
+        <Image x:Name="LogoImg"
+               Source="pack://application:,,,/Assets/junigrid-logo-256.png"
+               Width="140" Height="140"
+               HorizontalAlignment="Left" VerticalAlignment="Top"
+               Opacity="1" />
+
+        <!-- v0.26.0: StrokePath restored to transparent, drives only stroke timing (visually invisible) -->
+        <Path x:Name="StrokePath"
+              Stroke="Transparent"
+              StrokeThickness="1.6"
+              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+              IsHitTestVisible="False" />
+
+        <!-- v0.26.0: FillPath white fill + black outer stroke (the splash itself stays transparent; only the wordmark carries the stroke) -->
+        <Path x:Name="FillPath"
+              Fill="#FFFFFF"
+              Stroke="#111111"
+              StrokeThickness="2.4"
+              StrokeLineJoin="Round"
+              IsHitTestVisible="False" />
+    </Canvas>
+</Window>

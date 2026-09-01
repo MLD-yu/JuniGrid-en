@@ -1,0 +1,132 @@
+@namespace JuniGrid.Components.Layout
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="jg-titlebar">
+    <div class="jg-titlebar-drag" @ref="_dragZone">
+        <div class="jg-brand">
+            <img class="jg-logo-img" src="assets/junigrid-logo-64.png" alt="JG" style="width:24px;height:24px;border-radius:6px" />
+            <div class="jg-brand-text">
+                <span class="jg-brand-name">JuniGrid</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="jg-titlebar-actions">
+        <button class="jg-winbtn" @onclick="Minimize" title="Minimize">—</button>
+        <button class="jg-winbtn" @onclick="ToggleMax" title="@(_isMax ? "Restore" : "Maximize")">@(_isMax ? "❐" : "☐")</button>
+        <button class="jg-winbtn jg-winbtn-close" @onclick="Close" title="Close">✕</button>
+    </div>
+</div>
+
+@code {
+    private ElementReference _dragZone;
+    private DotNetObjectReference<TitleBar>? _selfRef;
+    private bool _isMax;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _selfRef = DotNetObjectReference.Create(this);
+        // Safety net: if junigridJs isn't ready yet (script load failure), the first-render Task must not become an unobserved exception
+        try { await JS.InvokeVoidAsync("junigridJs.enableWindowDrag", _dragZone, _selfRef); }
+        catch { }
+
+        // Track window maximized state: when maximized, the button icon switches to the "restore" shape (❐) and
+        // the jg-max class is added to body to remove CSS rounded corners (DWM drops the rounded corners when maximized).
+        var w = GetWindow();
+        if (w is not null)
+        {
+            _isMax = w.WindowState == System.Windows.WindowState.Maximized;
+            w.StateChanged += OnWindowStateChanged;
+            await SyncMaxClass();
+        }
+    }
+
+    private void OnWindowStateChanged(object? sender, EventArgs e)
+    {
+        var w = GetWindow();
+        _isMax = w?.WindowState == System.Windows.WindowState.Maximized;
+        _ = InvokeAsync(async () =>
+        {
+            await SyncMaxClass();
+            StateHasChanged();
+        });
+    }
+
+    private async Task SyncMaxClass()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("junigridJs.setMaximized", _isMax);
+            await JS.InvokeVoidAsync("junigridJs.restored");   // remove the shrink fade-out style when restoring from minimized
+        }
+        catch { /* ignore if JS isn't ready yet */ }
+    }
+
+    // ---- Window dragging (JS mousedown → here; DragMove must be called while the left button is held)----
+    [JSInvokable]
+    public void BeginDrag()
+    {
+        var w = GetWindow();
+        if (w is null) return;
+        try
+        {
+            if (w.WindowState == System.Windows.WindowState.Maximized)
+                w.WindowState = System.Windows.WindowState.Normal;
+            w.DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+            // DragMove throws this when the mouse is already released — normal, ignore
+        }
+    }
+
+    [JSInvokable]
+    public void ToggleMaximize() => ToggleMax();
+
+    // ---- Window buttons ----
+    private async Task Minimize()
+    {
+        var w = GetWindow();
+        if (w is null) return;
+        // Borderless window minimize: use StaticMethod.ShowWindow (Win32) to force the minimize so the
+        // WebView child windows are withdrawn from the screen too, avoiding a leftover transparent
+        // interactive window (the desktop can't be clicked at the original position after minimizing).
+        try
+        {
+            await JS.InvokeVoidAsync("junigridJs.animateMinimize");
+        }
+        catch { }
+        MainWindow.MinimizeWindow();
+    }
+
+    private void ToggleMax()
+    {
+        var w = GetWindow();
+        if (w is null) return;
+        w.WindowState = w.WindowState == System.Windows.WindowState.Maximized
+            ? System.Windows.WindowState.Normal
+            : System.Windows.WindowState.Maximized;
+    }
+
+    private void Close() => GetWindow()?.Close();
+
+    private static System.Windows.Window? GetWindow()
+    {
+        var app = System.Windows.Application.Current;
+        if (app is null) return null;
+        if (app.MainWindow is not null) return app.MainWindow;
+        foreach (System.Windows.Window w in app.Windows)
+            return w;
+        return null;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        var w = GetWindow();
+        if (w is not null) w.StateChanged -= OnWindowStateChanged;
+        _selfRef?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

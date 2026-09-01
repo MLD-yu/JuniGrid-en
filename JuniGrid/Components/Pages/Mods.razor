@@ -1,0 +1,2500 @@
+@namespace JuniGrid.Components.Pages
+@page "/mods"
+@inject ConfigService Cfg
+@inject ModService ModSvc
+@inject GameService Game
+@inject UpdateService Updater
+@inject NexusService Nexus
+@inject InstallService Installer
+@inject UpdateQueueService Queue
+@inject PageRefreshService PageRefresh
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject TaskCenterService Center
+@implements IDisposable
+
+<div class="jg-page">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px">
+        <div>
+            <div style="display:flex;align-items:center;gap:14px">
+                <h1 style="margin-top:0;margin-bottom:4px">Mod Management</h1>
+                @* v1.07.3: plain folder icon; click opens the Mods directory; data-tip uses the same pill tooltip style as the nav bar *@
+                <button class="jg-mods-folder-btn" data-tip="Open mods folder" aria-label="Open mods folder"
+                        @onclick="OpenModsRootFolder">
+                    <svg viewBox="0 0 1024 1024" width="32" height="32" fill="#f2b544">
+                        <path d="M855.04 385.024q19.456 2.048 38.912 10.24t33.792 23.04 21.504 37.376 2.048 54.272q-2.048 8.192-8.192 40.448t-14.336 74.24-18.432 86.528-19.456 76.288q-5.12 18.432-14.848 37.888t-25.088 35.328-36.864 26.112-51.2 10.24l-567.296 0q-21.504 0-44.544-9.216t-42.496-26.112-31.744-40.96-12.288-53.76l0-439.296q0-62.464 33.792-97.792t95.232-35.328l503.808 0q22.528 0 46.592 8.704t43.52 24.064 31.744 35.84 12.288 44.032l0 11.264-53.248 0q-40.96 0-95.744-0.512t-116.736-0.512-115.712-0.512-92.672-0.512l-47.104 0q-26.624 0-41.472 16.896t-23.04 44.544q-8.192 29.696-18.432 62.976t-18.432 61.952q-10.24 33.792-20.48 65.536-2.048 8.192-2.048 13.312 0 17.408 11.776 29.184t29.184 11.776q31.744 0 43.008-39.936l54.272-198.656q133.12 1.024 243.712 1.024l286.72 0z"/>
+                    </svg>
+                </button>
+            </div>
+            <div style="opacity:.7;font-size:13px">
+                @* v1.06.9: cover the list with a skeleton while checking for updates; keep the header hint simple *@
+                @if (_initialLoading || _checkingUpdates) { <span>Loading mod list…</span> }
+                else { <text>@_mods.Count total (@_mods.Count(m => !m.Disabled) enabled)</text> }
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+            @* v0.47.0: profile dropdown moved to the far right; springy GSAP easeReverse open/close (based on the official demo) *@
+            <div class="jg-profile-dd @(_profileOpen ? "open" : "")">
+                @* v0.71.4: rename moved next to the dropdown button — clicking the pencil turns the button into an input and the pencil into a confirm; renaming happens only here *@
+                @if (_renamingProfile is not null)
+                {
+                    <input class="jg-profile-input jg-profile-headinput" maxlength="30"
+                           value="@_renameBuffer"
+                           @oninput="e => _renameBuffer = e.Value?.ToString() ?? string.Empty"
+                           @onkeydown="e => OnRenameKey(e, _renamingProfile!)"
+                           @onclick:stopPropagation />
+                    <button class="jg-profile-headconfirm" data-tip="Confirm" aria-label="Confirm"
+                            @onclick="() => ConfirmRename(_renamingProfile!)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"
+                             stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                            <path d="M20 6 9 17l-5-5"/>
+                        </svg>
+                    </button>
+                }
+                else
+                {
+                    <button class="jg-sort-trigger" @onclick="ToggleProfile">
+                        @ActiveProfileName
+                        <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                            <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                    @if (ActiveProfileName != "Default")
+                    {
+                        <button class="jg-profile-rename jg-profile-headrename" data-tip="Rename" aria-label="Rename"
+                                @onclick="() => StartRenameProfile(ActiveProfileName)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#3d3d3d" stroke-width="1.8"
+                                 stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
+                                <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                                <path d="m15 5 4 4"/>
+                            </svg>
+                        </button>
+                    }
+                }
+                <div class="jg-sort-menu jg-profile-menu">
+                    @foreach (var p in AllProfiles)
+                    {
+                        <div class="jg-profile-item @(p.Name == ActiveProfileName ? "active" : "")">
+                            @* v0.71.4: menu items only switch/delete; renaming is always started from the pencil entry to the right of the dropdown button *@
+                            <button class="jg-profile-name"
+                                    @onclick="() => ApplyProfileKeepOpen(p.Name)">@p.Name</button>
+                            @if (p.Name != "Default")
+                            {
+                                <button class="jg-profile-del" @onclick="() => AskDeleteProfile(p.Name)">×</button>
+                            }
+                        </div>
+                    }
+                    <div class="jg-profile-item">
+                        @if (_addingProfile)
+                        {
+                            <input class="jg-profile-input" placeholder="Profile name" maxlength="30"
+                                   @bind="_newProfileName" @bind:event="oninput" />
+                            <button class="jg-profile-name" style="font-weight:600;flex:none" @onclick="ConfirmAddProfile">OK</button>
+                        }
+                        else
+                        {
+                            @* dashed pill + hover pill tooltip (same data-tip style as the nav bar) *@
+                            <button class="jg-profile-addcap" data-tip="New profile" aria-label="New profile" @onclick="StartAddProfile">
+                                <span class="plus">＋</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* ── SMAPI is always shown first (with its own exe icon, no emoji) ── *@
+    <div class="jg-card jg-smapi-card" style="margin-top:12px">
+        <div style="display:flex;align-items:center;gap:12px">
+            @* v0.37.0: fall back to the bundled pufferchick when the exe icon cannot be extracted instead of a gray S placeholder *@
+            @if (_smapiIcon is not null)
+            {
+                <img class="jg-modrow-icon" src="@_smapiIcon" alt="SMAPI" />
+            }
+            else
+            {
+                <img class="jg-modrow-icon" src="assets/smapi-pufferchick.svg" alt="SMAPI"
+                     style="border-radius:8px;background:#fff;padding:2px" />
+            }
+            <div style="min-width:0;flex:1">
+                <div style="font-weight:700">
+                    SMAPI
+                    <span style="opacity:.6;font-weight:400;font-size:12px">Mod loader</span>
+                </div>
+                <div style="opacity:.75;font-size:12.5px;margin-top:3px">
+                    @if (_smapiVersion is null)
+                    {
+                        @* v0.36.0: dedicated hint when SMAPI is not installed *@
+                        @if (_smapiUpdate is { LatestVersion: not null, InstallerZipUrl: not null })
+                        {
+                            <span>Not installed · latest version @_smapiUpdate.LatestVersion — use the button on the right to download and install</span>
+                        }
+                        else if (_smapiUpdate is { Error: not null })
+                        {
+                            <span style="color:#c50f1f">Not installed · failed to get version info (@_smapiUpdate.Error)</span>
+                        }
+                        else
+                        {
+                            <span>Not installed · fetching latest version…</span>
+                        }
+                    }
+                    else
+                    {
+                        <text>Current version: @SmapiDisplay</text>
+                        @if (_smapiUpdate is { HasUpdate: true })
+                        {
+                            <span style="color:#b4009e;font-weight:600"> ⇧ New version @_smapiUpdate.LatestVersion available</span>
+                        }
+                    }
+                </div>
+            </div>
+            @* v0.36.0: not installed -> one-click download & install; installed with update -> update. Both paths use the same fully automatic installer *@
+            @if (_smapiVersion is null && _smapiUpdate is { LatestVersion: not null, InstallerZipUrl: not null })
+            {
+                <button class="jg-update-link" style="width:auto;padding:8px 16px"
+                        disabled="@_smapiUpdating" @onclick="InstallSmapi">
+                    @(_smapiUpdating ? "Installing…" : $"⬇ Install SMAPI {_smapiUpdate.LatestVersion}")
+                </button>
+            }
+            else if (_smapiUpdate is { HasUpdate: true })
+            {
+                <button class="jg-update-link" style="width:auto;padding:8px 16px"
+                        disabled="@_smapiUpdating" @onclick="UpdateSmapi">
+                    @(_smapiUpdating ? "Updating…" : $"⬇ Update to {_smapiUpdate.LatestVersion}")
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (_mods.Count == 0)
+    {
+        <div class="jg-card" style="margin-top:12px">
+            The Mods folder is empty or no game was located. Select the game directory in Settings first.
+        </div>
+    }
+
+    @* ── v0.34.0 toolbar: sort first -> filter chips -> search (expands to the right on click, SVG icon) ── *@
+    <div class="jg-mods-toolbar">
+        <div class="jg-sort-dd @(_sortOpen ? "open" : "")">
+            <button class="jg-sort-trigger" @onclick="ToggleSort">
+                Sort by
+                <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+            <div class="jg-sort-menu">
+                <button class="jg-sort-item @(_sortMode == "time-asc" ? "active" : "")" @onclick='() => SetSort("time-asc")'>Newest first</button>
+                <button class="jg-sort-item @(_sortMode == "time-desc" ? "active" : "")" @onclick='() => SetSort("time-desc")'>Oldest first</button>
+                <button class="jg-sort-item @(_sortMode == "alpha" ? "active" : "")" @onclick='() => SetSort("alpha")'>Alphabetical</button>
+            </div>
+        </div>
+        @* v0.71.6: while the sort dropdown is open, a transparent overlay covers the page; clicking anywhere outside the dropdown closes it *@
+        @if (_sortOpen)
+        {
+            <div class="jg-dd-overlay" @onclick="CloseSort"></div>
+        }
+        <div class="jg-chips" role="group">
+        @foreach (var f in _filterOptions)
+        {
+            <button class="jg-chip @(_filter == f.Key ? "active" : "")" @onclick="() => SetFilter(f.Key)">
+                @f.Label<span style="opacity:.7;font-weight:400"> · @CountFor(f.Key)</span>
+            </button>
+        }
+        </div>
+        <div class="jg-search-x @(_searchOpen ? "open" : "")">
+            <button class="jg-search-btn" @onclick="ToggleSearch">
+                <img src="assets/search.svg" alt="Search" style="width:18px;height:18px;display:block" />
+            </button>
+            <div class="jg-search-field">
+                <input class="jg-search-input" placeholder="Search mod name / Nexus ID"
+                       @bind="SearchText" @bind:event="oninput" />
+                <button class="jg-search-clear" @onclick="ClearSearchAndClose">✕</button>
+            </div>
+        </div>
+    </div>
+
+    @* ── single-row mod list ── *@
+    @* v1.06.9: on first load or while the update check is unfinished, always show the shimmer skeleton; the real list stays display:none *@
+    @if (_initialLoading || _checkingUpdates)
+    {
+        <div class="jg-modrows jg-modrows-skeleton">
+            @for (var i = 0; i < 8; i++)
+            {
+                <div class="jg-modrow-shimmer">
+                    <div class="jg-shimmer jg-shimmer-avatar"></div>
+                    <div class="jg-shimmer-lines">
+                        <div class="jg-shimmer jg-shimmer-line" style="width:38%"></div>
+                        <div class="jg-shimmer jg-shimmer-line" style="width:68%"></div>
+                    </div>
+                    <div class="jg-shimmer jg-shimmer-pill"></div>
+                </div>
+            }
+        </div>
+    }
+    <div class="jg-modrows" style="@((_initialLoading || _checkingUpdates) ? "display:none" : "")">
+        @foreach (var group in Groups)
+        {
+            @if (group.Key != "")
+            {
+                var isCollapsed = _collapsed.Contains(group.Key);
+                <div class="jg-group-head" @onclick="() => ToggleGroup(group.Key)">
+                    <span>@(isCollapsed ? "▶" : "▼")</span>
+                    <span style="font-weight:600">@group.Key</span>
+                    <span style="opacity:.55;font-size:11.5px">(@group.Items.Count)</span>
+                    @if (group.Missing.Count > 0)
+                    {
+                        <span style="color:#c50f1f;font-size:11.5px"> ⚠️ Missing dependencies: @group.Missing.Count</span>
+                    }
+                </div>
+            }
+
+            @if (group.Key == "" || !_collapsed.Contains(group.Key))
+            {
+                @foreach (var m in group.Items)
+                {
+                    var st = GetState(m.Folder);
+                    var cover = GetCover(m);
+                    var missing = MissingDeps(m);
+                    <div class="jg-modrow @(_selected.Contains(m.Folder) ? "selected" : "")"
+                         data-al
+                         @onclick="() => ToggleSelect(m.Folder)">
+
+                        @if (cover is not null)
+                        {
+                            <img class="jg-modrow-icon" src="@cover" loading="lazy" alt="" />
+                        }
+                        else
+                        {
+                            <div class="jg-modrow-icon jg-modrow-icon-fallback">
+                                @(m.Name.Length > 0 ? m.Name[..1].ToUpperInvariant() : "?")
+                            </div>
+                        }
+
+                        <div class="jg-modrow-text">
+                            <div class="jg-modrow-title">
+                                <span class="name">@RemarkName(m)</span>
+                                <span class="divider">|</span>
+                                <span class="ver">@m.Version</span>
+                                @if (st.RemoteVersion is not null && IsNewer(st.RemoteVersion, m.Version))
+                                {
+                                    <span class="upd">⇧ @st.RemoteVersion</span>
+                                }
+                                else if (st.Status is "updating")
+                                {
+                                    <span class="upd">⇧ Updating…</span>
+                                }
+                                @if (m.Disabled)
+                                {
+                                    <span class="jg-tag">Disabled</span>
+                                }
+                                @if (!m.HasManifest)
+                                {
+                                    <span class="jg-tag" style="background:rgba(232,17,35,.12);color:#c50f1f">No manifest</span>
+                                }
+                            </div>
+                            <div class="jg-modrow-desc">
+                                @if (GetNexusCategory(m) is { } _cat)
+                                {
+                                    <span class="jg-cat">@_cat</span>
+                                }
+                                @(string.IsNullOrWhiteSpace(m.Description) ? m.Folder : m.Description)
+                            </div>
+                            @if (missing.Count > 0)
+                            {
+                                <div class="jg-mod-updmsg failed" style="white-space:normal">
+                                    ⚠️ Missing dependencies: @string.Join(", ", missing)
+                                </div>
+                            }
+                            @if (st.Message is not null)
+                            {
+                                <div class="jg-mod-updmsg @st.Status" style="white-space:normal">@st.Message</div>
+                            }
+                        </div>
+
+                        @* ── action buttons revealed on hover ── *@
+                        <div class="jg-modrow-actions">
+                            @if (m.NexusModId is not null
+                                 && st.RemoteVersion is not null
+                                 && IsNewer(st.RemoteVersion, m.Version))
+                            {
+                                @* v0.41.0: only show the update button when a newer version is confirmed; if already up to date (st.RemoteVersion is null or not newer), never render it *@
+                                <button class="jg-rowbtn upd"
+                                        data-tip="Update"
+                                        @onclick:stopPropagation @onclick="() => OpenUpdatePage(m)">
+                                    <svg class="jg-rowbtn-icon" viewBox="0 0 1024 1024" aria-hidden="true">
+                                        <path d="M512 68.571429a441.897143 441.897143 0 1 1-172.571429 34.822857A440.514286 440.514286 0 0 1 512 68.571429m0-68.571429C229.234286 0 0 229.234286 0 512s229.234286 512 512 512 512-229.234286 512-512S794.765714 0 512 0z"/>
+                                        <path d="M709.291429 409.142857L541.394286 230.137143a34.205714 34.205714 0 0 0-29.108572-16.102857h-0.708571a34.285714 34.285714 0 0 0-29.234286 16.125714L314.685714 409.142857a34.285714 34.285714 0 0 0 50.057143 46.857143L477.714286 335.462857v440.228572a34.285714 34.285714 0 0 0 68.571428 0V335.508571L659.28 456a34.285714 34.285714 0 0 0 50.011429-46.857143z"/>
+                                    </svg>
+                                </button>
+                            }
+                            @if (m.NexusModId is not null)
+                            {
+                                <button class="jg-rowbtn" data-tip="Mod details"
+                                        @onclick:stopPropagation @onclick="() => OpenDetail(m)">
+                                    <svg class="jg-rowbtn-icon" viewBox="0 0 1024 1024" aria-hidden="true">
+                                        <path d="M182.044444 256m-28.444444 0a28.444444 28.444444 0 1 0 56.888889 0 28.444444 28.444444 0 1 0-56.888889 0Z"/>
+                                        <path d="M182.044444 199.111111c-34.133333 0-56.888889 22.755556-56.888888 56.888889s22.755556 56.888889 56.888888 56.888889 56.888889-22.755556 56.888889-56.888889-22.755556-56.888889-56.888889-56.888889z"/>
+                                        <path d="M182.044444 512m-28.444444 0a28.444444 28.444444 0 1 0 56.888889 0 28.444444 28.444444 0 1 0-56.888889 0Z"/>
+                                        <path d="M182.044444 455.111111c-34.133333 0-56.888882 22.755556-56.888882 56.888889s22.755549 56.888882 56.888882 56.888882 56.888882-22.755549 56.888882-56.888882-22.755549-56.888882-56.888882-56.888882z"/>
+                                        <path d="M182.044444 768m0 0a28.444444 28.444444 0 1 0 56.888889 0 28.444444 28.444444 0 1 0-56.888889 0Z"/>
+                                        <path d="M182.044444 711.111111c-34.133333 0-56.889333 22.755556-56.889333 56.888889s22.756 56.888889 56.889333 56.888889 56.889333-22.755556 56.889333-56.888889-22.756-56.888889-56.889333-56.888889z"/>
+                                        <path d="M381.155556 256h512"/>
+                                        <path d="M893.155556 284.444444h-512c-17.066667 0-28.444444-11.377778-28.444445-28.444444s11.377778-28.444444 28.444445-28.444444h512c17.066667 0 28.444444 11.377778 28.444444 28.444444s-17.066667 28.444444-28.444444 28.444444z"/>
+                                        <path d="M381.155556 512h512"/>
+                                        <path d="M893.155556 540.444444h-512c-17.066667 0-28.444444-11.377778-28.444445-28.444444s11.377778-28.444444 28.444445-28.444444h512c17.066667 0 28.444444 11.377778 28.444444 28.444444s-17.066667 28.444444-28.444444 28.444444z"/>
+                                        <path d="M381.155556 768h512"/>
+                                        <path d="M893.155556 796.444444h-512c-17.066667 0-28.444444-11.377778-28.444445-28.444444s11.377778-28.444444 28.444445-28.444444h512c17.066667 0 28.444444 11.377778 28.444444 28.444444s-17.066667 28.444444-28.444444 28.444444z"/>
+                                    </svg>
+                                </button>
+                            }
+                            <button class="jg-rowbtn" data-tip="Rename/alias"
+                                    @onclick:stopPropagation @onclick="() => OpenRemark(m)">
+                                <img class="jg-rowbtn-icon" src="assets/actions/rename.svg" alt="" draggable="false" />
+                            </button>
+                            <button class="jg-rowbtn" data-tip="Open file location"
+                                    @onclick:stopPropagation @onclick="() => OpenFolder(m)">
+                                <img class="jg-rowbtn-icon" src="assets/actions/folder.svg" alt="" draggable="false" />
+                            </button>
+                            @if (m.Disabled)
+                            {
+                                <button class="jg-rowbtn" data-tip="Enable"
+                                        @onclick:stopPropagation @onclick="() => SetDisabled(m, false)">
+                                    <img class="jg-rowbtn-icon" src="assets/actions/enable.svg" alt="" draggable="false" />
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="jg-rowbtn" data-tip="Disable"
+                                        @onclick:stopPropagation @onclick="() => SetDisabled(m, true)">
+                                    <img class="jg-rowbtn-icon" src="assets/actions/disable.svg" alt="" draggable="false" />
+                                </button>
+                            }
+                            <button class="jg-rowbtn danger" data-tip="Delete"
+                                    @onclick:stopPropagation @onclick="() => _pendingDeleteMod = m">
+                                <img class="jg-rowbtn-icon" src="assets/actions/delete.svg" alt="" draggable="false" />
+                            </button>
+                        </div>
+                    </div>
+                }
+            }
+        }
+
+        @if (FilteredMods.Count == 0)
+        {
+            <div class="jg-card" style="margin-top:4px">No mods match the current filters (try clearing the search or switching filters).</div>
+        }
+    </div>
+</div>
+
+@* ── batch action bar (appears after multi-select) ── *@
+@if (_selected.Count > 0)
+{
+    @* v0.42.0: icon-only buttons (SVG files) + pill tooltips (data-tip, also on disabled buttons) + Select All first *@
+    var anyUpdatable = _selected.Any(f => _mods.FirstOrDefault(m => m.Folder == f) is { } mm && IsUpdatable(mm));
+    var anyDisabled  = _selected.Any(f => _mods.FirstOrDefault(m => m.Folder == f)?.Disabled == true);
+    var anyEnabled   = _selected.Any(f => _mods.FirstOrDefault(m => m.Folder == f)?.Disabled == false);
+    <div class="jg-batchbar-anchor">
+    <div class="jg-batchbar">
+        <span class="jg-batchbar-count">@_selected.Count selected</span>
+        <button class="jg-mini-btn jg-ico" data-tip="Select all" @onclick="SelectAll">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 5.5h4M4 12h4M4 18.5h4"/>
+                <path d="M10 4.5l1.8 1.8L15.5 2.6"/>
+                <path d="M10 11l1.8 1.8 3.7-3.7"/>
+                <path d="M10 17.5l1.8 1.8 3.7-3.7"/>
+            </svg>
+        </button>
+        <button class="jg-mini-btn jg-ico" data-tip="Batch update" disabled="@(_selected.Count == 0 || !anyUpdatable)" @onclick="BatchUpdate">
+            <img src="assets/actions/batch-update.svg" alt="" draggable="false" />
+        </button>
+        <button class="jg-mini-btn jg-ico" data-tip="Enable" disabled="@(!anyDisabled)" @onclick="() => BatchSetDisabled(false)">
+            <img src="assets/actions/enable.svg" alt="" draggable="false" />
+        </button>
+        <button class="jg-mini-btn jg-ico" data-tip="Disable" disabled="@(!anyEnabled)" @onclick="() => BatchSetDisabled(true)">
+            <img src="assets/actions/disable.svg" alt="" draggable="false" />
+        </button>
+        <button class="jg-mini-btn danger-outline jg-ico" data-tip="Delete" @onclick="() => _pendingBatchDelete = true">
+            <img src="assets/actions/delete.svg" alt="" draggable="false" />
+        </button>
+        <button class="jg-mini-btn jg-ico" data-tip="Clear selection" @onclick="ClearSelection">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18"/>
+            </svg>
+        </button>
+    </div>
+</div>
+}
+
+@* ── rename/alias dialog (set a custom name for a mod; the list shows "alias (original name)") ── *@
+@if (_remarkFolder is not null)
+{
+    <div class="jg-dlg-overlay" @onclick:stopPropagation>
+        <div class="jg-dialog jg-remark-dialog">
+            <div class="jg-remark-title">Rename this mod</div>
+            <div class="jg-remark-mod">@(_remarkOriginal)</div>
+            <input class="jg-remark-input" maxlength="20" placeholder="Enter a name (max 20 characters; leave empty to clear)"
+                   @bind=" _remarkInput" @bind:event="oninput" @onkeydown="OnRemarkKeydown"
+                   autofocus />
+            <div class="jg-remark-count">@_remarkInput.Length / 20</div>
+            <div class="jg-dialog-actions">
+                <button class="jg-btn" @onclick="CancelRemark">Cancel</button>
+                <button class="jg-btn primary" @onclick="SaveRemark">Save</button>
+            </div>
+        </div>
+    </div>
+}
+
+    @if (_profileOpen)
+    {
+        @* v0.71.6: while the profile dropdown is open, a transparent overlay covers the page; clicking anywhere outside the dropdown closes it.
+           The profile dropdown's z-index (9500) sits above the overlay (9000), so clicks on the menu itself don't misfire. *@
+        <div class="jg-dd-overlay" @onclick="CloseProfile"></div>
+    }
+
+    @* v0.46.0: delete-profile confirmation dialog *@
+    @if (_deletingProfile is not null)
+    {
+        <div class="jg-modal-overlay" @onclick="CancelDeleteProfile">
+            <div class="jg-modal" @onclick:stopPropagation>
+                <div class="jg-modal-title">Delete Profile</div>
+                <div class="jg-modal-body">Delete the "@_deletingProfile" profile? (Only removes the mod profile; in-game saves are unaffected)</div>
+                <div class="jg-modal-actions">
+                    <button class="jg-mini-btn" @onclick="CancelDeleteProfile">Cancel</button>
+                    <button class="jg-mini-btn danger" @onclick="ConfirmDeleteProfile">Delete</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* delete-mod confirmation dialog (shared by single/batch; replaces the old inline two-step confirm) *@
+    @if (_pendingDeleteMod is not null || _pendingBatchDelete)
+    {
+        <div class="jg-modal-overlay" @onclick="CancelDeleteMods">
+            <div class="jg-modal" @onclick:stopPropagation>
+                <div class="jg-modal-title">Delete Mods</div>
+                <div class="jg-modal-body">Delete the selected mods?</div>
+                <div class="jg-modal-actions">
+                    <button type="button" class="jg-pill-ghost" @onclick="CancelDeleteMods">Cancel</button>
+                    <button type="button" class="jg-pill-danger" @onclick="ConfirmDeleteMods">Delete</button>
+                </div>
+            </div>
+        </div>
+    }
+
+@code {
+    private IReadOnlyList<ModEntry> _mods = Array.Empty<ModEntry>();
+    // v0.59.0: shimmer loading state on first page entry
+    private bool _initialLoading = true;
+    // v0.60.0: shimmer loading state while checking for updates
+    private bool _checkingUpdates = false;
+    private string _apiKey = "";
+    private string? _smapiVersion;
+    private string? _smapiIcon;
+    private SmapiUpdateInfo? _smapiUpdate;
+    private bool _smapiUpdating;
+    private long _checkingTick;
+    private ModEntry? _pendingDeleteMod;   // single mod awaiting delete confirmation (uninstalled once the dialog is confirmed)
+    private bool _pendingBatchDelete;      // batch delete awaiting confirmation (uninstalled once the dialog is confirmed)
+    private bool _coversDirty;
+
+    // ---- rename/alias dialog ----
+    private string? _remarkFolder;      // null = dialog closed; otherwise the Folder of the mod being renamed
+    private string _remarkOriginal = "";
+    private string _remarkInput = "";
+
+    // ---- filter / grouping / missing dependencies ----
+    private string _filter = "all";
+    private string SearchText { get; set; } = "";
+
+    // v0.32.0: sorting (alpha / time-desc / time-asc) + dropdown/search open state
+    private string _sortMode = "time-asc";
+    private bool _sortOpen;
+    private bool _searchOpen;
+
+    // ── v0.46.0: profile system, modeled after Stardrop ──
+    private bool _profileOpen;
+    private string? _renamingProfile;
+    private string _renameBuffer = "";
+
+    /// <summary>v0.71.1: click the pencil to start renaming.</summary>
+    private void StartRenameProfile(string name)
+    {
+        _renamingProfile = name;
+        _renameBuffer = name;
+    }
+
+    private void OnRenameKey(KeyboardEventArgs e, string oldName)
+    {
+        if (e.Key == "Enter") _ = ConfirmRename(oldName);
+        else if (e.Key == "Escape") { _renamingProfile = null; _renameBuffer = ""; }
+    }
+
+    private async Task ConfirmRename(string oldName)
+    {
+        var newName = _renameBuffer.Trim();
+        _renamingProfile = null;
+        _renameBuffer = "";
+        if (string.IsNullOrEmpty(newName) || newName == oldName) return;
+        if (AllProfiles.Any(p => p.Name == newName))
+        {
+            ShowNotice("err", "A profile with this name already exists: " + newName);
+            return;
+        }
+        try
+        {
+            var p = Cfg.Current.ModProfiles.FirstOrDefault(x => x.Name == oldName);
+            if (p is not null) p.Name = newName;
+            if (Cfg.Current.ActiveProfile == oldName) Cfg.Current.ActiveProfile = newName;
+            Cfg.Save(Cfg.Current);
+            ShowNotice("ok", $"Renamed to \"{newName}\"");
+        }
+        catch (Exception ex) { ShowNotice("err", "Rename failed: " + ex.Message); }
+    }
+
+    /// <summary>v0.71.1: keep the dropdown open after switching profiles (handy for comparing).</summary>
+    private async Task ApplyProfileKeepOpen(string name)
+    {
+        await ApplyProfile(name);
+        // do not close _profileOpen — the user may want to switch several profiles in a row
+    }
+
+    private bool _addingProfile;
+    private string _newProfileName = "";
+    private string? _deletingProfile;
+
+    private List<ModProfile> AllProfiles
+    {
+        get
+        {
+            var list = Cfg.Current.ModProfiles;
+            if (list.Count == 0 || list[0].Name != "Default")
+                list.Insert(0, new ModProfile { Name = "Default" });
+            return list;
+        }
+    }
+
+    private string ActiveProfileName =>
+        string.IsNullOrWhiteSpace(Cfg.Current.ActiveProfile) ? "Default" : Cfg.Current.ActiveProfile;
+
+    /// <summary>Writes the currently enabled set back to ActiveProfile (the "Default" profile is a runtime view and is not persisted).</summary>
+    private void PersistCurrentToActive()
+    {
+        var active = ActiveProfileName;
+        // v0.71.4: snapshot the "Default" profile too — the old version returned early, so the Default enabled list
+        // stayed stale forever; switching away and back "restored" the stale list (another cross-profile-mixing root cause).
+        var p = Cfg.Current.ModProfiles.FirstOrDefault(x => x.Name == active);
+        if (p is null) return;
+        // v0.50.0: rescan before writing back so _mods reflects the real disk state (otherwise
+        // _mods is still stale right after dependency linkage and stale data gets written back → cross-profile mixing)
+        // v0.51.0: Stardrop-style clean snapshot — store every currently enabled mod, without excluding
+        // dependency-linked items (excluding them caused state inconsistency and was a mixing root cause)
+        p.EnabledModUids = _mods
+            .Where(m => !m.Disabled && !string.IsNullOrWhiteSpace(m.UniqueID))
+            .Select(m => m.UniqueID)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+
+
+    private async Task ToggleProfile()
+    {
+        _profileOpen = !_profileOpen;
+        _renamingProfile = null; _renameBuffer = "";   // v0.71.4: exit rename mode when toggling the dropdown
+        if (!_profileOpen) { _addingProfile = false; _newProfileName = ""; }
+        try { await JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", _profileOpen); } catch { }
+    }
+
+    private async Task CloseProfile()
+    {
+        if (!_profileOpen) return;
+        _profileOpen = false;
+        _addingProfile = false; _newProfileName = "";
+        try { await JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", false); } catch { }
+    }
+
+    private void StartAddProfile() { _addingProfile = true; _newProfileName = ""; }
+
+    private async Task ConfirmAddProfile()
+    {
+        var name = _newProfileName.Trim();
+        _addingProfile = false;
+        _newProfileName = "";
+        if (string.IsNullOrWhiteSpace(name)) return;
+        if (AllProfiles.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+        {
+            ShowNotice("err", "A profile with this name already exists: " + name);
+            return;
+        }
+        // v0.49.0: write the current enabled state back to the old profile first to prevent cross-profile mixing
+        PersistCurrentToActive();
+        // the new profile snapshots the current enabled state (Stardrop-style: creating = recording the currently enabled mods)
+        var p = new ModProfile
+        {
+            Name = name,
+            EnabledModUids = _mods.Where(m => !m.Disabled && !string.IsNullOrWhiteSpace(m.UniqueID))
+                                  .Select(m => m.UniqueID).ToList()
+        };
+        Cfg.Current.ModProfiles.Add(p);
+        Cfg.Current.ActiveProfile = name;
+        Cfg.Save(Cfg.Current);
+        _profileOpen = false;
+        // v0.49.0: explicitly close the JS dropdown animation state; fixes "dropdown broken after creating"
+        try { await JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", false); } catch { }
+        ShowNotice("ok", $"Profile \"{name}\" created");
+    }
+
+    private void AskDeleteProfile(string name)
+    {
+        _deletingProfile = name;
+        if (_profileOpen)
+        {
+            _profileOpen = false;
+            _ = JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", false);
+        }
+    }
+    private void CancelDeleteProfile() => _deletingProfile = null;
+
+    private async Task ConfirmDeleteProfile()
+    {
+        var name = _deletingProfile;
+        _deletingProfile = null;
+        if (name is null) return;
+        var wasActive = ActiveProfileName == name;
+        Cfg.Current.ModProfiles.RemoveAll(p => p.Name == name);
+        if (wasActive)
+        {
+            // v0.71.4: do not set ActiveProfile before calling ApplyProfile — in the old order ApplyProfile
+            // hit "name == ActiveProfileName" and returned immediately, so the on-disk mod state never switched
+            // back to Default (the root cause of "Default" showing the deleted profile's state after deletion).
+            // The old profile is already removed from the list here, so ApplyProfile's PersistCurrentToActive
+            // cannot find it → no accidental write; ApplyProfile sets ActiveProfile itself after switching.
+            await ApplyProfile("Default");
+        }
+        Cfg.Save(Cfg.Current);
+        ShowNotice("ok", $"Profile \"{name}\" deleted");
+    }
+
+    /// <summary>Switch profile: batch enable/disable according to the profile's recorded UniqueID set (with dependency linkage); everything else is disabled.</summary>
+    private async Task ApplyProfile(string name)
+    {
+        if (name == ActiveProfileName) return;
+        // v0.50.0: Rescan before writing back to get the real disk state, preventing stale data → cross-profile mixing
+        Rescan();
+        PersistCurrentToActive();
+        var profile = AllProfiles.FirstOrDefault(p => p.Name == name);
+        if (profile is null) return;
+
+        var wantEnabled = new HashSet<string>(profile.EnabledModUids, StringComparer.OrdinalIgnoreCase);
+        // dependency linkage: dependencies of mods being enabled must be enabled too (recursive closure)
+        ExpandWithDependencies(wantEnabled);
+
+        // v0.72.8: collect operations deduplicated by "top-level physical directory" — multi-part mods
+        // (e.g. [CS]/[DLL]/[FTM] under Weather Wonders - Beta) have several sub-entries sharing one top-level
+        // directory; the old version moved each sub-entry separately, so after the first rename succeeded the
+        // rest inevitably "could not find the mod folder". Now each top-level directory is moved only once.
+        var topOps = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);  // topLevel -> disable
+        foreach (var m in _mods)
+        {
+            var uid = m.UniqueID;
+            var shouldEnable = !string.IsNullOrWhiteSpace(uid) && wantEnabled.Contains(uid);
+            if (m.Disabled == !shouldEnable)
+                continue;
+            var top = m.Folder.Split('/')[0];
+            topOps.TryAdd(top, !shouldEnable);
+        }
+
+        if (_modsWatcher is not null) _modsWatcher.EnableRaisingEvents = false;
+        try
+        {
+            var gamePath = Cfg.Current.GamePath;
+            // v0.72.8: structured error results instead of parsing strings back with Split(':') (folder names containing ':' would truncate)
+            var errs = await Task.Run(() =>
+            {
+                var list = new List<(string Folder, string Error)>();
+                foreach (var (top, disable) in topOps)
+                {
+                    var err = ModSvc.SetDisabled(gamePath, top, disable);
+                    if (err is not null) list.Add((top, err));
+                }
+                return list;
+            });
+            foreach (var (folder, err) in errs)
+                AppLog.Warn("Mods", $"Profile switch failed: {folder} - {err}");
+
+            // incrementally update in-memory state: update Disabled + Folder and migrate caches for each sub-entry
+            var errTops = new HashSet<string>(errs.Select(e => e.Folder), StringComparer.OrdinalIgnoreCase);
+            foreach (var m in _mods)
+            {
+                var uid = m.UniqueID;
+                var shouldEnable = !string.IsNullOrWhiteSpace(uid) && wantEnabled.Contains(uid);
+                if (m.Disabled == !shouldEnable) continue;
+                var top = m.Folder.Split('/')[0];
+                if (errTops.Contains(top)) continue;   // rename failed for this top-level directory; skip all its sub-entries
+                var disable = !shouldEnable;
+                var newFolder = disable
+                    ? (m.Folder.StartsWith('.') ? m.Folder : "." + m.Folder)
+                    : m.Folder.TrimStart('.');
+                if (newFolder != m.Folder)
+                {
+                    MigrateFolderCaches(m.Folder, disable);
+                    m.Folder = newFolder;
+                }
+                m.Disabled = disable;
+            }
+        }
+        finally
+        {
+            if (_modsWatcher is not null) _modsWatcher.EnableRaisingEvents = true;
+        }
+
+        Cfg.Current.ActiveProfile = name;
+        Cfg.Save(Cfg.Current);
+        ShowNotice("ok", $"Switched to profile \"{name}\"");
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Expands the to-enable set by dependency closure: if A depends on B, enabling A must enable B (recursive).</summary>
+    private void ExpandWithDependencies(HashSet<string> uids)
+    {
+        var byUid = _mods.Where(m => !string.IsNullOrWhiteSpace(m.UniqueID))
+                         .GroupBy(m => m.UniqueID, StringComparer.OrdinalIgnoreCase)
+                         .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<string>(uids);
+        while (queue.Count > 0)
+        {
+            var cur = queue.Dequeue();
+            if (!byUid.TryGetValue(cur, out var mod)) continue;
+            foreach (var dep in mod.Dependencies.Concat(mod.ContentPackIds))
+            {
+                if (!string.IsNullOrWhiteSpace(dep) && uids.Add(dep))
+                    queue.Enqueue(dep);   // newly added dependencies may have dependencies of their own
+            }
+        }
+    }
+
+    /// <summary>When disabling a mod, also disable enabled mods that depend on it (recursive) — same linkage as Stardrop.</summary>
+    private void DisableDependents(string uniqueId, HashSet<string> visited, Action<ModEntry> disableOne)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueId) || !visited.Add(uniqueId)) return;
+        foreach (var m in _mods)
+        {
+            if (m.Disabled || string.IsNullOrWhiteSpace(m.UniqueID)) continue;
+            if (m.Dependencies.Concat(m.ContentPackIds)
+                   .Any(d => d.Equals(uniqueId, StringComparison.OrdinalIgnoreCase)))
+            {
+                disableOne(m);
+                DisableDependents(m.UniqueID, visited, disableOne);
+            }
+        }
+    }
+
+    /// <summary>When enabling a mod, also enable its disabled dependencies (recursive).</summary>
+    private void EnableDependencies(ModEntry mod, HashSet<string> visited, Action<ModEntry> enableOne)
+    {
+        if (string.IsNullOrWhiteSpace(mod.UniqueID) || !visited.Add(mod.UniqueID)) return;
+        var byUid = _mods.Where(m => !string.IsNullOrWhiteSpace(m.UniqueID))
+                         .GroupBy(m => m.UniqueID, StringComparer.OrdinalIgnoreCase)
+                         .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        foreach (var dep in mod.Dependencies.Concat(mod.ContentPackIds))
+        {
+            if (string.IsNullOrWhiteSpace(dep) || !byUid.TryGetValue(dep, out var depMod)) continue;
+            if (depMod.Disabled)
+            {
+                enableOne(depMod);
+                EnableDependencies(depMod, visited, enableOne);
+            }
+        }
+    }
+
+    /// <summary>Site category (official Nexus category name, cached in config). Falls back to the manifest category when not cached.</summary>
+    private string? GetNexusCategory(ModEntry m)
+    {
+        // cached official category name
+        if (Cfg.Current.ModCategories.TryGetValue(m.Folder, out var name)) return name;
+        var norm = m.Folder.Split('/'); norm[0] = norm[0].TrimStart('.');
+        var key = string.Join('/', norm);
+        if (key != m.Folder && Cfg.Current.ModCategories.TryGetValue(key, out name)) return name;
+        // has a category_id but no cached name table -> wait for EnsureCategoriesAsync to fetch it
+        var st = GetState(m.Folder);
+        if (st.CategoryId is int cid && Cfg.Current.NexusCategories.TryGetValue(cid, out name))
+            return name;
+        // fallback: coarse manifest category
+        return string.IsNullOrEmpty(m.Category) ? null : m.Category;
+    }
+
+    /// <summary>If the category table is empty and an API key exists, fetch and cache the official category table once.</summary>
+    private async Task EnsureCategoriesAsync()
+    {
+        if (Cfg.Current.NexusCategories.Count > 0 || string.IsNullOrWhiteSpace(_apiKey)) return;
+        try
+        {
+            var cats = await Nexus.GetCategoriesAsync(_apiKey);
+            if (cats is { Count: > 0 })
+            {
+                Cfg.Current.NexusCategories = cats;
+                Cfg.Save(Cfg.Current);
+            }
+        }
+        catch (Exception ex) { AppLog.Warn("Mods", "Failed to fetch category table: " + ex.Message); }
+    }
+
+    private string SortLabel => _sortMode switch
+    {
+        "time-desc" => "Oldest first",
+        "time-asc"  => "Newest first",
+        _           => "Alphabetical",
+    };
+
+    /// <summary>v0.71.6: clicking the overlay outside the sort dropdown closes it.</summary>
+    private async Task CloseSort()
+    {
+        if (!_sortOpen) return;
+        _sortOpen = false;
+        try { await JS.InvokeVoidAsync("junigridJs.dropdownToggle", ".jg-sort-dd", false); } catch { }
+    }
+
+    private async Task ToggleSort()
+    {
+        _sortOpen = !_sortOpen;
+        try { await JS.InvokeVoidAsync("junigridJs.dropdownToggle", ".jg-sort-dd", _sortOpen); } catch { }
+    }
+
+    private async Task SetSort(string mode)
+    {
+        _sortMode = mode;
+        if (_sortOpen)
+        {
+            _sortOpen = false;
+            try { await JS.InvokeVoidAsync("junigridJs.dropdownToggle", ".jg-sort-dd", false); } catch { }
+        }
+    }
+
+    private async Task ToggleSearch()
+    {
+        _searchOpen = !_searchOpen;
+        try { await JS.InvokeVoidAsync("junigridJs.searchToggle", ".jg-search-x", _searchOpen); } catch { }
+    }
+
+    private async Task ClearSearchAndClose()
+    {
+        SearchText = "";
+        // v0.33.0: force collapse regardless of _searchOpen (avoids UI/state desync leaving it "stuck open")
+        _searchOpen = false;
+        try { await JS.InvokeVoidAsync("junigridJs.searchToggle", ".jg-search-x", false); } catch { }
+    }
+    private readonly HashSet<string> _collapsed = new();
+
+    private readonly (string Key, string Label)[] _filterOptions =
+    {
+        ("all",       "All"),
+        ("enabled",   "Enabled"),
+        ("disabled",  "Disabled"),
+        ("updatable", "Updatable"),
+    };
+
+    private HashSet<string> InstalledUids =>
+        _mods.Where(m => !string.IsNullOrWhiteSpace(m.UniqueID))
+             .Select(m => m.UniqueID)
+             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private IEnumerable<ModEntry> _filteredCache = Array.Empty<ModEntry>();
+
+    /// <summary>The mod list after filtering and search are applied.</summary>
+    private IReadOnlyList<ModEntry> FilteredMods
+    {
+        get
+        {
+            IEnumerable<ModEntry> q = _mods;
+            switch (_filter)
+            {
+                case "enabled": q = q.Where(m => !m.Disabled); break;
+                case "disabled": q = q.Where(m => m.Disabled); break;
+                case "updatable":
+                    q = q.Where(m => IsUpdatable(m));
+                    break;
+            }
+            if (!string.IsNullOrWhiteSpace(SearchText))
+            {
+                var s = SearchText.Trim();
+                // Purely numeric input is treated as a fuzzy Nexus ID (NexusModId) match — e.g. 4964794 or just 9647 both locate the mod.
+                bool numeric = int.TryParse(s, out _);
+                q = q.Where(m =>
+                    m.Name.Contains(s, StringComparison.OrdinalIgnoreCase)
+                    || m.Author.Contains(s, StringComparison.OrdinalIgnoreCase)
+                    || m.UniqueID.Contains(s, StringComparison.OrdinalIgnoreCase)
+                    || (numeric && m.NexusModId is not null
+                        && m.NexusModId.Value.ToString().Contains(s, StringComparison.Ordinal)));
+            }
+            return q.ToList();
+        }
+    }
+
+    private int CountFor(string key) => key switch
+    {
+        "all" => _mods.Count,
+        "enabled" => _mods.Count(m => !m.Disabled),
+        "disabled" => _mods.Count(m => m.Disabled),
+        "updatable" => _mods.Count(m => IsUpdatable(m)),
+        _ => 0,
+    };
+
+    private void SetFilter(string key) { _filter = key; }
+
+    private void ClearSearch() { SearchText = ""; }
+
+    // v0.36.0: AnimatedList scroll effect for the mod list (scale/opacity on entering viewport + top/bottom fade)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // v0.71.1: restore the scroll position when returning from the detail page — setScrollWhenReady polls
+        // until the container is tall enough, then sets it
+        // v0.72.0: carry the "was at bottom" flag from when we left; the restore logic no longer guesses via y>limit
+        var dedicatedRan = false;
+        if (!_initialLoading && _restoreScroll >= 0)
+        {
+            dedicatedRan = true;   // v1.06.8: this run used the dedicated snapshot restore; the firstRender fallback must yield
+            _entryRestoreRan = true;
+            var y = _restoreScroll;
+            var atBottom = _restoreAtBottom;
+            _restoreScroll = -1;
+            _restoreAtBottom = false;
+            _scrollRestoreClassPending = false;
+            AppLog.Warn("Mods", $"[diag] scroll restore started y={y} atBottom={atBottom}");
+            try
+            {
+                var reporter = DotNetObjectReference.Create(new ScrollRestoreReporter());
+                await JS.InvokeVoidAsync("junigridJs.setScrollWhenReady", ".jg-main", y, atBottom, reporter);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Mods", "[diag] scroll restore call failed: " + ex.Message);
+                try { await JS.InvokeVoidAsync("junigridJs.cancelScrollRestore", ".jg-main"); } catch { }
+            }
+        }
+        else if (!_initialLoading && _scrollRestoreClassPending)
+        {
+            // v0.72.4: returned to the list with the "restore pending" flag but no snapshot to restore
+            // (e.g. clicking top navigation from the detail page) -> remove the hiding flag so the list shows normally
+            _scrollRestoreClassPending = false;
+            _entryRestoreRan = true;
+            try { await JS.InvokeVoidAsync("junigridJs.cancelScrollRestore", ".jg-main"); } catch { }
+        }
+        try { await JS.InvokeVoidAsync("junigridJs.animatedListInit", ".jg-main", ".jg-modrows"); } catch { }
+        if (firstRender)
+        {
+            // v0.45.0: remember the /mods scroll position — when entering the detail page and returning,
+            // restore the previous scroll height instead of jumping back to the top
+            try { await JS.InvokeVoidAsync("junigridJs.scrollSpy", ".jg-main", "modslist", false); } catch { }
+        }
+
+        // vNext: entering the page always restores the position from when we left — no longer limited to popstate.
+        // Returning from another page via a nav icon (forward navigation) restores too: scrollSpy keeps writing the
+        // "position when leaving" to the modslist key, and we simply read it here. On cold start sessionStorage is
+        // empty (y≈0) so nothing restores; a manual refresh does not rebuild the component and skips this.
+        // The dedicated snapshot (detail-page return) takes priority.
+        // vNext: only run after the list is actually shown (_initialLoading=false) — during the skeleton phase the
+        // "restore pending" flag would hide the skeleton itself too (same .jg-modrows-skeleton class).
+        if (!_initialLoading && !_entryRestoreRan)
+        {
+            _entryRestoreRan = true;
+            if (!dedicatedRan && _restoreScroll < 0)
+            {
+                try
+                {
+                    var y = await JS.InvokeAsync<double>("junigridJs.readScrollKey", "modslist");
+                    if (y > 1)
+                    {
+                        AppLog.Warn("Mods", $"[diag] generic entry restore y={y}");
+                        // first attach the "restore pending" hiding flag (.jg-main persists across navigation);
+                        // setScrollWhenReady removes it in the same frame after landing, avoiding a one-frame
+                        // flash of the list at the top
+                        await JS.InvokeVoidAsync("junigridJs.markScrollRestorePending", ".jg-main");
+                        var reporter = DotNetObjectReference.Create(new ScrollRestoreReporter());
+                        await JS.InvokeVoidAsync("junigridJs.setScrollWhenReady", ".jg-main", y, false, reporter);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Error("Mods", "[diag] generic entry restore failed: " + ex.Message);
+                    try { await JS.InvokeVoidAsync("junigridJs.cancelScrollRestore", ".jg-main"); } catch { }
+                }
+            }
+        }
+    }
+
+    /// <summary>vNext: gate so the generic entry restore runs only once (skipped during the skeleton phase; runs on the first render after the list is shown).</summary>
+    private bool _entryRestoreRan;
+
+    private void ToggleGroup(string key)
+    {
+        if (!_collapsed.Add(key)) _collapsed.Remove(key);
+    }
+
+    /// <summary>Missing dependencies (declared in Dependencies but not present in the installed UniqueID set).</summary>
+    private List<string> MissingDeps(ModEntry m)
+    {
+        if (m.Dependencies == null || m.Dependencies.Count == 0) return new List<string>();
+        var uids = InstalledUids;
+        return m.Dependencies
+            .Where(d => !string.IsNullOrWhiteSpace(d) && !uids.Contains(d))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>Whether an update is available: the state has a remote version recorded and it is newer than the current one (same logic as the row).</summary>
+    private bool IsUpdatable(ModEntry m)
+    {
+        if (m.Disabled) return false;
+        var st = GetState(m.Folder);
+        return st.RemoteVersion is not null && IsNewer(st.RemoteVersion, m.Version);
+    }
+
+    /// <summary>Group by outermost folder (mods sitting directly in the Mods root belong to the "" group).</summary>
+    private IReadOnlyList<ModGroup> Groups
+    {
+        get
+        {
+            var list = new List<ModGroup>();
+            var installed = InstalledUids;
+            foreach (var g in FilteredMods.GroupBy(GroupKeyOf))
+            {
+                // v0.32.0: sort within each group by the selected mode
+                var items = _sortMode switch
+                {
+                    "time-desc" => g.OrderBy(x => x.LastWrite).ToList(),
+                    "time-asc"  => g.OrderByDescending(x => x.LastWrite).ToList(),
+                    _           => g.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+                };
+                list.Add(new ModGroup
+                {
+                    Key = g.Key,
+                    Items = items,
+                    Installed = installed,
+                    Missing = items
+                        .Where(x => x.Dependencies is { Count: > 0 })
+                        .SelectMany(x => x.Dependencies)
+                        .Where(d => !string.IsNullOrWhiteSpace(d) && !installed.Contains(d))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList()
+                });
+            }
+            // v0.32.0: group order also follows the sort mode (the root "" group always comes first)
+            return _sortMode switch
+            {
+                "time-desc" => list.OrderBy(x => x.Key == "" ? 0 : 1)
+                                   .ThenByDescending(x => x.Items.Count > 0 ? x.Items.Max(m => m.LastWrite) : DateTime.MinValue)
+                                   .ToList(),
+                "time-asc"  => list.OrderBy(x => x.Key == "" ? 0 : 1)
+                                   .ThenBy(x => x.Items.Count > 0 ? x.Items.Min(m => m.LastWrite) : DateTime.MaxValue)
+                                   .ToList(),
+                _           => list.OrderBy(x => x.Key == "" ? 0 : 1).ThenBy(x => x.Key).ToList(),
+            };
+        }
+    }
+
+    private static string GroupKeyOf(ModEntry m)
+    {
+        // Folder looks like "SVE/[CP] xx" or "xx": take the first segment as the group key.
+        var idx = m.Folder.IndexOf('/');
+        return idx > 0 ? m.Folder[..idx] : "";
+    }
+
+    private sealed class ModGroup
+    {
+        public string Key = "";
+        public List<ModEntry> Items = new();
+        public HashSet<string> Installed = new();
+
+        /// <summary>Union of all missing dependencies in this group (not in the installed set), deduplicated.</summary>
+        public List<string> Missing { get; set; } = new();
+    }
+
+    private readonly Dictionary<string, ModUpdateState> _states = new();
+    private static readonly Dictionary<string, RemoteVersionCache> _remoteVersionCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _selected = new();
+
+    private sealed class RemoteVersionCache(string version, DateTime at)
+    {
+        public string Version { get; } = version;
+        public DateTime At { get; } = at;
+    }
+
+    private sealed class ModUpdateState
+    {
+        public string Status = "idle";   // idle/checking/latest/available/updating/updated/premium/failed
+        public string? RemoteVersion;
+        public string? Message;
+        public string? PictureUrl;       // Nexus cover (picked up along the way during update checks)
+        public int? CategoryId;          // v0.46.0: site category ID (picked up by GetModAsync)
+    }
+
+    private string SmapiDisplay =>
+        _smapiVersion is null ? "Not installed"
+        : _smapiVersion == "installed" ? "Installed"
+        : _smapiVersion;
+
+    private ModUpdateState GetState(string folder) =>
+        _states.TryGetValue(folder, out var s) ? s : new ModUpdateState();
+
+    private void ApplyKnownRemoteVersions()
+    {
+        foreach (var m in _mods)
+        {
+            if (!_remoteVersionCache.TryGetValue(m.Folder, out var entry)) continue;
+            // v1.06.7: align the restore window with the check TTL (60 minutes) — the old 30-minute value
+            // left a 30-60 minute dead zone where the restore failed but a re-check was skipped by the TTL
+            if (DateTime.UtcNow - entry.At > UpdateCheckTtl) continue;
+            _states[m.Folder] = new ModUpdateState
+            {
+                Status = "latest",
+                RemoteVersion = entry.Version
+            };
+        }
+    }
+
+    // v0.44.0: update-check result cache (folder -> UTC time of last successful check);
+    // re-running "check for updates" within 60 minutes skips already-checked mods, so even hundreds of mods
+    // only issue requests for new/expired entries
+    private static readonly Dictionary<string, DateTime> _lastCheckedUtc = new();
+    private static readonly TimeSpan UpdateCheckTtl = TimeSpan.FromMinutes(60);
+
+    // vNext: fingerprint cache lifetime — if updatedAt is unchanged the entry is theoretically valid forever,
+    // but a 7-day cap is kept as a safeguard against the edge case "file list changed but updatedAt did not"
+    // (e.g. the author deleted the latest file) lingering indefinitely
+    private static readonly TimeSpan FingerprintMaxAge = TimeSpan.FromDays(7);
+    /// <summary>vNext: the fingerprint cache (Cfg.ModUpdateFingerprints) was written this round and needs to be saved.</summary>
+    private bool _fpDirty;
+
+    private static void RememberRemoteVersion(string folder, string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version)) return;
+        _remoteVersionCache[folder] = new RemoteVersionCache(version, DateTime.UtcNow);
+    }
+
+
+    private string? GetCover(ModEntry m)
+    {
+        var st = GetState(m.Folder);
+        if (st.PictureUrl is not null) return st.PictureUrl;
+        if (Cfg.Current.ModCovers.TryGetValue(m.Folder, out var url)) return url;
+        // v0.43.0: after disabling, the folder becomes ".X/..." while the cover cache still holds the
+        // enabled-time "X/..." key; fall back to the normalized key (top-level "." prefix stripped) so
+        // covers show in both the disabled and enabled states
+        var norm = NormCoverKey(m.Folder);
+        return norm != m.Folder && Cfg.Current.ModCovers.TryGetValue(norm, out var url2) ? url2 : null;
+    }
+
+    private static string NormCoverKey(string folder)
+    {
+        var parts = folder.Split('/');
+        parts[0] = parts[0].TrimStart('.');
+        return string.Join('/', parts);
+    }
+
+    // vNext: cross-page static snapshot — keep the scan results when leaving /mods; when returning from
+    // another page, show the list instantly from the snapshot (zero disk IO, zero wait), then rescan the disk
+    // in the background to refresh. Survives component disposal.
+    private static IReadOnlyList<ModEntry>? _svMods;
+    // vNext: cross-page cache for the SMAPI version/icon probe results (the icon is exe-extracted + base64; redoing it on every page entry would be wasteful)
+    private static string? _svSmapiPath;
+    private static string? _svSmapiVersionCache;
+    private static string? _svSmapiIconCache;
+
+    protected override void OnInitialized()
+    {
+        _apiKey = Cfg.Current.NexusApiKey;
+        var gp = Cfg.Current.GamePath;
+        if (_svSmapiPath == gp && _svSmapiVersionCache is not null)
+        {
+            _smapiVersion = _svSmapiVersionCache;
+            _smapiIcon = _svSmapiIconCache;
+        }
+        else
+        {
+            _smapiVersion = Game.ProbeSmapiVersion(gp);
+            _smapiIcon = Game.GetSmapiIconDataUri(gp);
+            _svSmapiPath = gp;
+            _svSmapiVersionCache = _smapiVersion;
+            _svSmapiIconCache = _smapiIcon;
+        }
+        Installer.OnChanged += OnInstallerChanged;
+        // v1.06.7: clicking the Mod Management "current page" icon in the top bar -> rescan + re-check updates
+        PageRefresh.OnRefresh += OnPageRefresh;
+    }
+
+    /// <summary>Top-bar refresh signal (only fires while already on this page).
+    /// Rescans and forces a full update re-check (ignoring the 60-minute TTL).</summary>
+    private void OnPageRefresh(string key)
+    {
+        if (key != "mods" || _disposed) return;
+        _ = InvokeAsync(async () =>
+        {
+            _initialLoading = true;
+            StateHasChanged();
+            var scanned = await Task.Run(() => ModSvc.Scan(Cfg.Current.GamePath));
+            if (_disposed) return;
+            Rescan(scanned);
+            _initialLoading = false;
+            await CheckUpdates(force: true);
+            StateHasChanged();
+            // vNext: manual refresh = start from the top — scroll to the top and write 0 into the scroll store,
+            // otherwise leaving without scrolling after the refresh would restore the stale pre-refresh position next time
+            try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
+            try { await JS.InvokeVoidAsync("junigridJs.saveScrollKey", "modslist", 0, false); } catch { }
+        });
+    }
+
+    // v0.72.8: dispose the FileSystemWatcher — the old version only unbound Installer and never destroyed the watcher.
+    // Every leave/return of /mods stacked another watcher; N round trips = N watchers all listening to Mods/,
+    // and a 63-item batch rename triggered 63×N Rescan callbacks → frozen UI (the root cause of "freezes only after visiting the detail page").
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Installer.OnChanged -= OnInstallerChanged;
+        PageRefresh.OnRefresh -= OnPageRefresh;
+        // vNext: keep the scan snapshot — show the list instantly from it when returning from another page, rescan the disk in the background
+        _svMods = _mods;
+        if (_modsWatcher is not null)
+        {
+            try { _modsWatcher.EnableRaisingEvents = false; } catch { }
+            try { _modsWatcher.Dispose(); } catch { }
+            _modsWatcher = null;
+        }
+    }
+
+    private void OnInstallerChanged() =>
+        InvokeAsync(() =>
+        {
+            Rescan();
+            StateHasChanged();
+        });
+
+    private FileSystemWatcher? _modsWatcher;
+    private int _pendingRescan;   // v0.72.8: watcher event-coalescing gate
+
+    protected override async Task OnInitializedAsync()
+    {
+        // vNext: two entry paths — (1) cross-page snapshot exists (returned from another page): show the list
+        // instantly from the snapshot, push the disk rescan to the background, and swap in results seamlessly;
+        // (2) cold start without a snapshot: shimmer skeleton + background thread scan.
+        if (_svMods is { Count: > 0 } snap)
+        {
+            _mods = snap;
+            _initialLoading = false;
+            StateHasChanged();
+            _ = InvokeAsync(async () =>
+            {
+                try
+                {
+                    var scanned = await Task.Run(() => ModSvc.Scan(Cfg.Current.GamePath));
+                    if (_disposed) return;
+                    Rescan(scanned);
+                    StateHasChanged();
+                }
+                catch { }
+            });
+        }
+        else
+        {
+            // v0.59.0: show the shimmer skeleton on first paint, then switch to the real list once Rescan finishes
+            _initialLoading = true;
+            StateHasChanged();
+            await Task.Yield();  // let the skeleton render one frame first
+            // vNext: move the disk scan off the UI thread — parsing manifests for hundreds of mods no longer blocks rendering
+            var scanned = await Task.Run(() => ModSvc.Scan(Cfg.Current.GamePath));
+            if (_disposed) return;
+            Rescan(scanned);
+            _initialLoading = false;
+        }
+        // v1.06.7: remote version markers must be restored after Rescan — once _mods is ready, backfill the
+        // "⇑ updatable" state by folder (the snapshot path must run this too: a new instance's _states is empty).
+        ApplyKnownRemoteVersions();
+        StateHasChanged();
+        if (ActiveProfileName != "Default"
+            && AllProfiles.Any(p => p.Name == ActiveProfileName))
+        {
+            _ = InvokeAsync(async () =>
+            {
+                // delay one frame so the first paint completes before applying the profile
+                await Task.Delay(300);
+                await ApplyProfile(ActiveProfileName);
+            });
+        }
+
+        // The SMAPI check and the mod update detection are independent; run both concurrently. Don't let the
+        // SMAPI network request block the whole page — mod rows start checking remote versions as soon as they appear.
+        var smapiTask = Updater.CheckSmapiAsync(_smapiVersion);
+        // v0.68.3: on entering the Mods page, behavior is decided entirely by the Settings page's "auto-install updates" toggle (EnableAutoInstall); no more prompt.
+        _ = InvokeAsync(async () => { await AutoUpdateOnEnterAsync(); await InvokeAsync(StateHasChanged); });
+
+        // Q4: watch the Mods folder so mods the user drops in manually appear immediately
+        try
+        {
+            var modsDir = System.IO.Path.Combine(Cfg.Current.GamePath, "Mods");
+            if (Directory.Exists(modsDir))
+            {
+                _modsWatcher = new FileSystemWatcher(modsDir)
+                {
+                    IncludeSubdirectories = false,
+                    NotifyFilter = NotifyFilters.DirectoryName | NotifyFilters.FileName | NotifyFilters.LastWrite
+                };
+                // v0.72.8: disposed guard + event coalescing — queued callbacks no longer fire after disposal;
+                // multiple file events in a short window coalesce into one RescanAndRestate (_pendingRescan debounce).
+                FileSystemEventHandler onChange = (_, _) =>
+                {
+                    if (_disposed) return;
+                    if (Interlocked.Exchange(ref _pendingRescan, 1) == 1) return;
+                    _ = InvokeAsync(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(120);   // coalescing window: consecutive events within 120ms trigger only one rescan
+                            if (_disposed) return;
+                            RescanAndRestate();
+                        }
+                        finally { Interlocked.Exchange(ref _pendingRescan, 0); }
+                    });
+                };
+                _modsWatcher.Created += onChange;
+                _modsWatcher.Deleted += onChange;
+                _modsWatcher.Renamed += (_, _) =>
+                {
+                    if (_disposed) return;
+                    if (Interlocked.Exchange(ref _pendingRescan, 1) == 1) return;
+                    _ = InvokeAsync(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(120);
+                            if (_disposed) return;
+                            RescanAndRestate();
+                        }
+                        finally { Interlocked.Exchange(ref _pendingRescan, 0); }
+                    });
+                };
+                _modsWatcher.EnableRaisingEvents = true;
+            }
+        }
+        catch { /* if the watcher cannot be created, so be it — the user can refresh manually */ }
+
+        _smapiUpdate = await smapiTask;
+        if (_smapiUpdate is not null) StateHasChanged();
+    }
+
+    private void RescanAndRestate()
+    {
+        Rescan();
+        StateHasChanged();
+    }
+
+    /// <summary>vNext: preScanned lets the caller scan the disk on a background thread first, then apply the
+    /// results back on the UI thread (the scan itself never touches UI state; selected-set cleanup happens on
+    /// the UI thread to avoid racing with rendering).</summary>
+    private void Rescan(IReadOnlyList<ModEntry>? preScanned = null)
+    {
+        _mods = preScanned ?? ModSvc.Scan(Cfg.Current.GamePath);
+        // drop selections that are no longer in the list
+        _selected.RemoveWhere(f => !_mods.Any(m => m.Folder == f));
+        // v0.72.7: Rescan only scans — it no longer secretly starts BackfillCoversAsync.
+        // The old version stacked a network backfill task on every Rescan (triggered by init/batch/watcher
+        // callbacks alike), which was the core amplifier of "random freezes". Cover backfill now starts
+        // on demand via an explicit entry point (with a concurrency gate).
+    }
+
+    // ------------------------------------------------------------------
+    // Row interaction: left-click multi-select / hover buttons
+    // ------------------------------------------------------------------
+    private void ToggleSelect(string folder)
+    {
+        if (!_selected.Remove(folder)) _selected.Add(folder);
+        _pendingBatchDelete = false;
+    }
+
+    private void ClearSelection()
+    {
+        _selected.Clear();
+        _pendingBatchDelete = false;
+    }
+
+    // v0.41.0: select all of the current filtered results (only visible rows, to avoid selecting filtered-out mods)
+    private void SelectAll()
+    {
+        foreach (var m in FilteredMods) _selected.Add(m.Folder);
+        _pendingBatchDelete = false;
+    }
+
+    // ── delete confirmation dialog: cancel / confirm (single goes through Uninstall, batch through BatchDelete) ──
+    private void CancelDeleteMods()
+    {
+        _pendingDeleteMod = null;
+        _pendingBatchDelete = false;
+    }
+
+    private void ConfirmDeleteMods()
+    {
+        var mod = _pendingDeleteMod;
+        var batch = _pendingBatchDelete;
+        _pendingDeleteMod = null;
+        _pendingBatchDelete = false;
+        if (mod is not null) Uninstall(mod);
+        else if (batch) BatchDelete();
+    }
+
+    /// <summary>v0.71.0: remember the list scroll position before navigating to the detail page (static field; survives component disposal).</summary>
+    private static double _restoreScroll = -1;
+    /// <summary>v0.72.0: whether we were at the bottom when leaving — the sole basis for target=limit on restore,
+    /// replacing the old setScrollWhenReady guess of "y > limit means at bottom".</summary>
+    private static bool _restoreAtBottom;
+    /// <summary>v0.72.4: whether the "restore pending" hiding flag (jg-restore-pending) is still on .jg-main.
+    /// Used as a fallback to remove the flag when returning to the list without a snapshot, so the list is never hidden forever.</summary>
+    private static bool _scrollRestoreClassPending;
+
+    /// <summary>v0.72.0: JS scroll snapshot (y + at-bottom flag).</summary>
+    private sealed record ScrollSnapshot(
+        [property: System.Text.Json.Serialization.JsonPropertyName("y")] double Y,
+        [property: System.Text.Json.Serialization.JsonPropertyName("atBottom")] bool AtBottom);
+
+    /// <summary>v0.72.2: scroll restore result report (diagnostics; fires once when setScrollWhenReady finishes).</summary>
+    private sealed class ScrollRestoreReporter
+    {
+        [JSInvokable]
+        public void Report(double target, double finalTop, int tries, string reason) =>
+            AppLog.Warn("Mods", $"[diag] scroll restore finished reason={reason} target={target} final scrollTop={finalTop} rounds={tries}");
+    }
+
+    private async Task OpenDetail(ModEntry m)
+    {
+        if (m.NexusModId is not null)
+        {
+            // v0.72.2: diagnostic logging — the scroll pipeline used to be fully silent, leaving failures untraceable.
+            // jsVer probes whether the loaded interop.js is new or old (exposes WebView2 serving a cached old JS).
+            try
+            {
+                var jsVer = await JS.InvokeAsync<string>("eval",
+                    "(window.junigridJs && window.junigridJs.getScrollState) ? 'interop-new' : 'interop-OLD-CACHED'");
+                var snap = await JS.InvokeAsync<ScrollSnapshot>("junigridJs.getScrollState", ".jg-main");
+                _restoreScroll = snap.Y;
+                _restoreAtBottom = snap.AtBottom;
+                AppLog.Warn("Mods", $"[diag] OpenDetail snapshot js={jsVer} y={snap.Y} atBottom={snap.AtBottom}");
+                // v0.72.4: tag .jg-main with the "restore pending" flag — the list stays hidden after returning
+                // until the position lands, so the browser never paints the "list at the top" frame (flash root cause)
+                await JS.InvokeVoidAsync("junigridJs.markScrollRestorePending", ".jg-main");
+                _scrollRestoreClassPending = true;
+                // v0.71.2: dual-write to sessionStorage (same key as scrollSpy) — static fields are timing-unstable
+                // under Blazor Server route caching, so sessionStorage is the durable fallback; setScrollWhenReady
+                // can read either on return.
+                await JS.InvokeVoidAsync("junigridJs.saveScrollKey", "modslist", _restoreScroll, _restoreAtBottom);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Mods", "[diag] OpenDetail snapshot failed: " + ex.Message);
+            }
+            Nav.NavigateTo($"mod/{m.NexusModId}" + (string.IsNullOrEmpty(m.UniqueID) ? "" : "/" + Uri.EscapeDataString(m.UniqueID)));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Rename/alias dialog
+    // ------------------------------------------------------------------
+    private void OpenRemark(ModEntry m)
+    {
+        _remarkFolder = m.Folder;
+        _remarkOriginal = m.Name;
+        Cfg.Current.ModRemarks.TryGetValue(m.Folder, out var cur);
+        _remarkInput = cur ?? "";
+    }
+
+    private void CancelRemark() => _remarkFolder = null;
+
+    private void SaveRemark()
+    {
+        var folder = _remarkFolder;
+        if (folder is not null)
+        {
+            var text = _remarkInput.Trim();
+            if (text.Length > 20) text = text[..20];
+            if (text.Length == 0) Cfg.Current.ModRemarks.Remove(folder);
+            else Cfg.Current.ModRemarks[folder] = text;
+            Cfg.Save(Cfg.Current);
+        }
+        _remarkFolder = null;
+    }
+
+    private void OnRemarkKeydown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") SaveRemark();
+        else if (e.Key == "Escape") CancelRemark();
+    }
+
+    /// <summary>The mod name shown in the list: if an alias exists, "alias (original name)"; otherwise the original name/translation.</summary>
+    private string RemarkName(ModEntry m)
+    {
+        var name = m.Name;
+        if (Cfg.Current.ModRemarks.TryGetValue(m.Folder, out var remark)
+            && !string.IsNullOrWhiteSpace(remark))
+            return $"{remark}({name})";
+        return name;
+    }
+
+    private void OpenUpdatePage(ModEntry m)
+    {
+        // v0.68.2: Nexus source first — mods with a Nexus ID (including dual-source mods like SDV-Glow)
+        // always send free users to the Nexus files page for manual download; Premium members install in-app
+        // (via the Nexus direct link). Only "GitHub-only" mods (no Nexus source) update in-app via GitHub.
+        var isPremium = Cfg.Current.NexusIsPremium;
+        if ((isPremium && m.NexusModId is not null)
+            || (m.NexusModId is null && m.GitHubRepo is not null))
+        {
+            _ = InvokeAsync(async () =>
+            {
+                await UpdateOne(m);
+                var st = GetState(m.Folder);
+                if (st.Status == "updated")
+                {
+                    ShowNotice("ok", $"Updated {m.Name} ✔");
+                    Rescan();
+                }
+                else if (st.Status == "premium" && m.NexusModId is not null)
+                {
+                    // account is actually not Premium (403) -> fall back to opening the site for manual download
+                    UpdateService.OpenUrl(
+                        $"https://www.nexusmods.com/stardewvalley/mods/{m.NexusModId}?tab=files");
+                    ShowNotice("err", "The current Nexus account is not Premium; opened the site download page instead");
+                }
+                else if (st.Status == "failed")
+                {
+                    ShowNotice("err", $"Update failed: {st.Message}");
+                }
+                else if (st.Status == "available")
+                {
+                    // v0.68.1: a new version was detected but in-app download is not possible (e.g. the GitHub
+                    // release has no zip asset) -> fall back to opening the download page (GitHub releases / Nexus
+                    // files tab) instead of "clicking does nothing"
+                    OpenUpdateDownloadPage(m);
+                    ShowNotice("ok", $"Opened the download page for {m.Name}; please download {st.RemoteVersion} manually");
+                }
+                StateHasChanged();
+            });
+            return;
+        }
+        if (m.NexusModId is not null)
+            UpdateService.OpenUrl(
+                $"https://www.nexusmods.com/stardewvalley/mods/{m.NexusModId}?tab=files");
+    }
+
+    // ------------------------------------------------------------------
+    // v1.07.0: header folder icon — opens the Mods root directory directly
+    private void OpenModsRootFolder()
+    {
+        try
+        {
+            var dir = Path.Combine(Cfg.Current.GamePath, "Mods");
+            if (Directory.Exists(dir))
+                System.Diagnostics.Process.Start("explorer.exe", $"\"{dir}\"");
+            else
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Please select a valid game directory", "err");
+        }
+        catch { }
+    }
+
+    // ------------------------------------------------------------------
+    private void OpenFolder(ModEntry m)
+    {
+        try
+        {
+            var dir = Path.Combine(Cfg.Current.GamePath, "Mods", m.Folder);
+            if (Directory.Exists(dir))
+                System.Diagnostics.Process.Start("explorer.exe", $"\"{dir}\"");
+        }
+        catch { }
+    }
+
+    // ------------------------------------------------------------------
+    // Single enable / disable / delete
+    // ------------------------------------------------------------------
+    private void SetDisabled(ModEntry m, bool disabled)
+    {
+        var err = ModSvc.SetDisabled(Cfg.Current.GamePath, m.Folder, disabled);
+        if (err is not null) ShowNotice("err", err);
+        else
+        {
+            // v0.46.0: dependency linkage (modeled after Stardrop) —
+            // disable: also disable enabled mods that depend on it; enable: also enable its disabled dependencies
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (disabled) DisableDependents(m.UniqueID, visited, x => SetDisabledDirect(x, true));
+            else EnableDependencies(m, visited, x => SetDisabledDirect(x, false));
+            ShowNotice("ok", $"{(disabled ? "Disabled" : "Enabled")} {m.Name}");
+            // v0.42.0: after renaming .X <-> X, migrate the update state + cover cache to the new name,
+            // otherwise GetCover misses the cache under the new folder name and falls back to the letter placeholder
+            MigrateFolderCaches(m.Folder, disabled);
+        }
+        Rescan();
+        // v0.49.0: write the current profile back immediately after a state change
+        PersistCurrentToActive();
+        Cfg.Save(Cfg.Current);
+    }
+
+    private void Uninstall(ModEntry m)
+    {
+        var err = ModSvc.Uninstall(Cfg.Current.GamePath, m.Folder);
+        if (err is not null) ShowNotice("err", err);
+        else ShowNotice("ok", $"Deleted {m.Name}");
+        Rescan();
+    }
+
+    // ------------------------------------------------------------------
+    // Batch operations
+    // ------------------------------------------------------------------
+    /// <summary>Low-level enable/disable without dependency linkage (used by the linkage recursion to avoid infinite loops).</summary>
+    private void SetDisabledDirect(ModEntry m, bool disabled)
+    {
+        var err = ModSvc.SetDisabled(Cfg.Current.GamePath, m.Folder, disabled);
+        if (err is not null) { AppLog.Warn("Mods", $"Linked {(disabled ? "disable" : "enable")} {m.Folder} failed: {err}"); return; }
+        MigrateFolderCaches(m.Folder, disabled);
+    }
+
+    /// <summary>After disable/enable, migrate the update state + cover/category caches to the new folder name (.X ↔ X).</summary>
+    private void MigrateFolderCaches(string folder, bool disabled)
+    {
+        var newFolder = disabled
+            ? (folder.StartsWith('.') ? folder : "." + folder)
+            : folder.TrimStart('.');
+        if (newFolder == folder) return;
+        if (_states.TryGetValue(folder, out var st)) { _states[newFolder] = st; _states.Remove(folder); }
+        MigrateDictKey(Cfg.Current.ModCovers, folder, newFolder);
+        MigrateDictKey(Cfg.Current.ModCategories, folder, newFolder);
+        _coversDirty = true;
+        Cfg.Save(Cfg.Current);
+    }
+
+    private static void MigrateDictKey(Dictionary<string, string> dict, string oldKey, string newKey)
+    {
+        if (dict.TryGetValue(oldKey, out var v)) { dict[newKey] = v; dict.Remove(oldKey); }
+    }
+
+    private async Task BatchSetDisabled(bool disabled)
+    {
+        // v0.72.7: batch enable/disable moved to a background thread (same pattern as ApplyProfile) — the old
+        // version ran N Directory.Move calls synchronously on the UI thread, and 63 mods froze the window.
+        // Watcher OFF/ON is wrapped in try/finally so a mid-way exception never leaves file watching disabled.
+        var topLevels = _selected
+            .Select(f => f.Split('/')[0])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var gamePath = Cfg.Current.GamePath;
+        var selCount = _selected.Count;
+
+        if (_modsWatcher is not null) _modsWatcher.EnableRaisingEvents = false;
+        int failed;
+        try
+        {
+            failed = await Task.Run(() =>
+            {
+                var f = 0;
+                foreach (var top in topLevels)
+                    if (ModSvc.SetDisabled(gamePath, top, disabled) is not null)
+                        f++;
+                return f;
+            });
+        }
+        finally
+        {
+            if (_modsWatcher is not null) _modsWatcher.EnableRaisingEvents = true;
+        }
+
+        ShowNotice(failed == 0 ? "ok" : "err",
+            failed == 0
+                ? $"{(disabled ? "Disabled" : "Enabled")} {selCount} mods"
+                : $"{failed} operations failed");
+        ClearSelection();
+
+        // v0.72.9: after a batch rename, migrate cover/category caches uniformly — v0.72.7 omitted
+        // MigrateFolderCaches from the batch path, so _states/ModCovers/ModCategories keys stayed on the old
+        // folder name and GetCover/GetNexusCategory missed → covers vanished and categories fell back to "code mod".
+        foreach (var top in topLevels)
+            MigrateFolderCaches(top, disabled);
+
+        Rescan();
+        // v0.72.9: explicitly trigger one cover backfill (concurrency-gated, never stacks) — folders changed
+        // after the batch rename, so covers under the new keys must be re-fetched.
+        if (!string.IsNullOrWhiteSpace(_apiKey)) _ = BackfillCoversAsync();
+
+        PersistCurrentToActive();
+        Cfg.Save(Cfg.Current);
+    }
+
+    private void BatchDelete()
+    {
+        _pendingBatchDelete = false;
+        var count = _selected.Count;
+        var failed = 0;
+        foreach (var folder in _selected.ToList())
+            if (ModSvc.Uninstall(Cfg.Current.GamePath, folder) is not null)
+                failed++;
+
+        ShowNotice(failed == 0 ? "ok" : "err",
+            failed == 0 ? $"Deleted {count} mods" : $"{failed} failed to delete");
+        ClearSelection();
+        Rescan();
+    }
+
+    private async Task BatchUpdate()
+    {
+        // v0.68.0: batch update — routed strictly by "verified Premium":
+        //  free users -> the browser opens the Nexus files page for each selected mod (one tab each);
+        //            v0.68.2: anything with a Nexus source goes to Nexus (dual-source mods included);
+        //            only GitHub-only mods (no Nexus source) update in-app for free;
+        //  Premium   -> everything auto-updates in-app one by one (Nexus first), no web pages opened.
+        var selectedMods = _mods.Where(m => _selected.Contains(m.Folder)).ToList();
+        if (selectedMods.Count == 0)
+        {
+            ShowNotice("err", "No mods selected.");
+            return;
+        }
+        var isPremium = Cfg.Current.NexusIsPremium;
+        var ghTargets = selectedMods
+            .Where(m => m.NexusModId is null && m.GitHubRepo is not null && !m.Disabled).ToList();
+
+        if (!isPremium)
+        {
+            var webTargets = selectedMods
+                .Where(m => m.NexusModId is not null).ToList();
+            foreach (var m in webTargets)
+            {
+                UpdateService.OpenUrl(
+                    $"https://www.nexusmods.com/stardewvalley/mods/{m.NexusModId}?tab=files");
+                await Task.Delay(200);   // open one at a time so the browser does not merge/block the tabs
+            }
+            if (webTargets.Count > 0)
+                ShowNotice("ok", $"Opened download pages for {webTargets.Count} mods (free accounts must download manually in the browser)");
+            if (webTargets.Count == 0 && ghTargets.Count == 0)
+            {
+                ShowNotice("err", "None of the selected mods has a Nexus ID or GitHub source, so they cannot be updated (mostly local/other-source mods)");
+                return;
+            }
+            if (ghTargets.Count > 0)
+            {
+                ShowNotice("ok", $"Updating {ghTargets.Count} GitHub-source mods in-app…");
+                await RunUpdatePipeline(ghTargets);
+            }
+            return;
+        }
+
+        var targets = selectedMods
+            .Where(m => (m.NexusModId is not null || m.GitHubRepo is not null) && !m.Disabled)
+            .ToList();
+        if (targets.Count == 0)
+        {
+            ShowNotice("err", "None of the selected mods can be auto-updated (missing Nexus/GitHub update markers, or disabled).");
+            return;
+        }
+        ShowNotice("ok", $"Updating {targets.Count} mods in-app one by one… (runs in the background; you will be notified when done)");
+        if (!string.IsNullOrEmpty(_apiKey))
+            _ = BackfillCoversAsync();
+        await RunUpdatePipeline(targets);
+        // v0.68.1: GitHub-source releases without a zip that cannot be installed in-app -> open their download page
+        foreach (var m in targets)
+        {
+            if (GetState(m.Folder).Status == "available" && m.GitHubRepo is not null)
+            { OpenUpdateDownloadPage(m); await Task.Delay(200); }
+        }
+    }
+
+    /// <summary>v0.41.0: back-fill Nexus covers for every mod missing one (disabled mods included).
+    /// v0.72.7: per-instance concurrency gate — at most one backfill task runs at a time.
+    /// vNext: switched from serial one-by-one fetching to 6-way concurrency (sharing the update-check
+    /// concurrency budget) — with dozens of missing covers the old serial version waited through dozens of
+    /// network round trips, with covers "popping in" one by one.</summary>
+    private int _backfillRunning;
+
+    private async Task BackfillCoversAsync()
+    {
+        // The old wrapper BackfillCoversCoreAsync recursively called itself in its try block (not the real
+        // implementation), so the moment the gate opened it dead-looped and blew the stack — deleted outright;
+        // the gate now lives at the top of this method
+        if (Interlocked.Exchange(ref _backfillRunning, 1) == 1) return;
+        try
+        {
+            var need = _mods
+                .Where(m => m.NexusModId is not null)
+                .Where(m => string.IsNullOrEmpty(GetState(m.Folder).PictureUrl)
+                            && !Cfg.Current.ModCovers.ContainsKey(m.Folder)
+                            && !Cfg.Current.ModCovers.ContainsKey(NormCoverKey(m.Folder)))
+                .ToList();
+            if (need.Count == 0) return;
+            var semaphore = new SemaphoreSlim(12);   // v1.06.8: doubled cover-backfill concurrency
+            await Task.WhenAll(need.Select(async m =>
+            {
+                await semaphore.WaitAsync();
+                try
+                {
+                    var info = await Nexus.GetModAsync(_apiKey, m.NexusModId!.Value);
+                    if (info is not null && !string.IsNullOrEmpty(info.PictureUrl))
+                    {
+                        GetState(m.Folder).PictureUrl = info.PictureUrl;
+                        Cfg.Current.ModCovers[m.Folder] = info.PictureUrl;
+                        _coversDirty = true;
+                    }
+                    // v0.46.0: cache the site category along the way (category_id -> name via the NexusCategories table)
+                    if (info?.CategoryId is int cid)
+                    {
+                        GetState(m.Folder).CategoryId = cid;
+                        if (Cfg.Current.NexusCategories.TryGetValue(cid, out var cname))
+                            Cfg.Current.ModCategories[m.Folder] = cname;
+                    }
+                }
+                catch (Exception ex) { AppLog.Warn("Mods", "Cover backfill failed (" + m.Folder + "): " + ex.Message); }
+                finally { semaphore.Release(); }
+            }));
+            if (_coversDirty)
+            {
+                Cfg.Save(Cfg.Current);
+                _coversDirty = false;
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+        finally { Interlocked.Exchange(ref _backfillRunning, 0); }
+    }
+
+    // ------------------------------------------------------------------
+    // Update checks + auto-update
+    // ------------------------------------------------------------------
+
+    private async Task AutoUpdateOnEnterAsync()
+    {
+        // v0.68.3: auto-update policy on entering the Mods page — decided entirely by the Settings page's
+        // "auto-install updates" toggle (EnableAutoInstall, Premium only); no more prompt.
+        //  (1) toggle off / free account -> CheckOnlyOne just marks ⇧, never installs
+        //  (2) toggle on (Premium)        -> after checking, RunUpdatePipeline installs every updatable mod in-app
+        await CheckUpdates();
+
+        if (!Cfg.Current.NexusIsPremium || !Cfg.Current.EnableAutoInstall) return;
+
+        var targets = _mods.Where(IsUpdatable).ToList();
+        if (targets.Count == 0) return;
+        ShowNotice("ok", $"Auto-updating {targets.Count} mods…");
+        await RunUpdatePipeline(targets);
+        // GitHub-source releases without a zip asset: open their download pages
+        foreach (var m in targets)
+        {
+            if (GetState(m.Folder).Status == "available" && m.GitHubRepo is not null)
+            { OpenUpdateDownloadPage(m); await Task.Delay(200); }
+        }
+    }
+
+    private async Task CheckUpdates(bool force = false)
+    {
+        var targets = _mods
+            .Where(m => (m.NexusModId is not null || m.GitHubRepo is not null) && !m.Disabled)
+            // v0.44.0: skip mods checked within 60 minutes (no request issued right now); their remote version
+            // state stays displayed
+            // v1.06.7: force=true (top-bar current-page icon refresh) ignores the TTL and re-checks everything —
+            // otherwise after installing an older mod version, a refresh within the hour would skip it and
+            // "no update found"
+            .Where(m => force || !_lastCheckedUtc.TryGetValue(m.Folder, out var t)
+                        || DateTime.UtcNow - t > UpdateCheckTtl)
+            .ToList();
+
+        // v0.46.0: fetch the official category table on the first update check (requires a key)
+        if (!string.IsNullOrEmpty(_apiKey)) _ = EnsureCategoriesAsync();
+
+        // works without a Nexus key too — GitHub-source mods need no key at all
+        if (string.IsNullOrEmpty(_apiKey))
+            targets = targets.Where(m => m.GitHubRepo is not null).ToList();
+
+        // vNext: nothing to check (all hit the TTL / no key and no GitHub sources) -> return silently
+        // instead of flashing the "checking for updates…" state every time you switch back to the page
+        if (targets.Count == 0) return;
+
+        // vNext: the list is already visible; the checking state only shows as small header text, no full-page skeleton swap
+        _checkingUpdates = true;
+        _checkingTick = Environment.TickCount64;
+        StateHasChanged();
+
+        // v0.41.0: cover backfill — disabled mods are excluded from update checks, but their covers are still
+        // fetched once via Nexus detail to avoid "disable = lose cover". Only the lightweight GetModAsync runs;
+        // it caches the PictureUrl and triggers no update logic.
+        // vNext: moved to AFTER the check pipeline — the fingerprint fast path already brings most covers back
+        // (zero requests in the vast majority of cases); the remainder (failed batches / GitHub sources / disabled
+        // rows) fall back to this, no longer competing with version checks for connections and rate-limit windows.
+        // v0.68.0: checking uses the "detect-only" pipeline (CheckOnlyOne never downloads or installs);
+        // installation only happens via RunUpdatePipeline after user confirmation.
+        await RunCheckPipeline(targets);
+        if (!string.IsNullOrEmpty(_apiKey))
+            _ = BackfillCoversAsync();
+    }
+
+    /// <summary>v0.68.0: parallel pipeline that only detects versions — never downloads or installs.
+    /// vNext: runs the "fingerprint batch fast path" first — one key-free GraphQL batch call (50 mods/batch)
+    /// fetches updatedAt for all Nexus mods and compares it verbatim against persisted fingerprints: mods whose
+    /// fingerprints match reuse the latest MAIN file version found by the last precise check (the file list has
+    /// not changed, so the result cannot be stale) and the whole batch returns instantly with zero requests.
+    /// Only the few mods with changed/missing fingerprints or missing batch results fall through to per-mod
+    /// files.json precise checks, whose results (plus new fingerprints) are written back to the cache.
+    /// A regular page entry (after app restart / past the 60-minute TTL) collapses from N requests to ~N/50,
+    /// and the shimmer skeleton drops from tens of seconds to about 1 second. If the whole batch fails, everything
+    /// falls back to precise checks (same behavior as before; slow is preferred over wrong).</summary>
+    private async Task RunCheckPipeline(List<ModEntry> targets)
+    {
+        var precise = targets;
+        Dictionary<int, string>? fpUpdatedAt = null;   // modId -> batch fingerprint updatedAt (written back to cache after a precise check succeeds)
+        if (!string.IsNullOrEmpty(_apiKey))
+        {
+            var nexusIds = targets.Where(m => m.NexusModId is not null).Select(m => m.NexusModId!.Value).ToList();
+            if (nexusIds.Count > 0)
+            {
+                var fps = await Nexus.GetModFingerprintsBatchAsync(nexusIds);
+                if (fps is not null)
+                {
+                    fpUpdatedAt = fps.ToDictionary(kv => kv.Key, kv => kv.Value.UpdatedAt);
+                    var rest = new List<ModEntry>();
+                    foreach (var m in targets)
+                    {
+                        if (m.NexusModId is int id && fps.TryGetValue(id, out var fp))
+                        {
+                            _lastCheckedUtc[m.Folder] = DateTime.UtcNow;
+                            // grab covers along the way: the batch comes with pictureUrl for free, eliminating most cover-backfill requests
+                            if (!string.IsNullOrEmpty(fp.PictureUrl)
+                                && string.IsNullOrEmpty(GetState(m.Folder).PictureUrl)
+                                && !Cfg.Current.ModCovers.ContainsKey(m.Folder)
+                                && !Cfg.Current.ModCovers.ContainsKey(NormCoverKey(m.Folder)))
+                            {
+                                Cfg.Current.ModCovers[m.Folder] = fp.PictureUrl;
+                                _coversDirty = true;
+                            }
+                            if (Cfg.Current.ModUpdateFingerprints.TryGetValue(id, out var cached)
+                                && string.Equals(cached.UpdatedAt, fp.UpdatedAt, StringComparison.Ordinal)
+                                && !string.IsNullOrWhiteSpace(cached.LatestFileVersion)
+                                && DateTime.UtcNow - cached.CheckedAtUtc < FingerprintMaxAge)
+                            {
+                                // fingerprint match -> remote file list unchanged -> reuse the file version from the last precise check
+                                RememberRemoteVersion(m.Folder, cached.LatestFileVersion);
+                                _states[m.Folder] = new ModUpdateState
+                                {
+                                    Status = IsNewer(cached.LatestFileVersion, m.Version) ? "available" : "latest",
+                                    RemoteVersion = cached.LatestFileVersion,
+                                };
+                                continue;
+                            }
+                        }
+                        rest.Add(m);   // fingerprint missing/changed / no cache / GitHub source -> precise check one by one
+                    }
+                    precise = rest;
+                    StateHasChanged();   // paint fast-path results first; precise-check states let the ⇧ markers appear gradually
+                }
+            }
+        }
+
+        if (precise.Count > 0)
+        {
+            var semaphore = new SemaphoreSlim(32);   // v1.06.8: detect-only (no downloads), so push concurrency to 32
+            // vNext: precise-check requests for the same modId are shared across the whole pipeline (a mod installed twice issues only one request)
+            var byId = new System.Collections.Concurrent.ConcurrentDictionary<int, Task<NexusFileInfo?>>();
+            await Task.WhenAll(precise.Select(async m =>
+            {
+                await semaphore.WaitAsync();
+                try { await CheckOnlyOne(m, byId, fpUpdatedAt); }
+                finally { semaphore.Release(); }
+            }));
+        }
+
+        if (_fpDirty)
+        {
+            // prune fingerprints of uninstalled mods so the cache does not grow without bound
+            var liveIds = _mods.Where(m => m.NexusModId is not null).Select(m => m.NexusModId!.Value).ToHashSet();
+            foreach (var staleId in Cfg.Current.ModUpdateFingerprints.Keys.Where(id => !liveIds.Contains(id)).ToList())
+                Cfg.Current.ModUpdateFingerprints.Remove(staleId);
+        }
+        if (_coversDirty || _fpDirty)
+        {
+            Cfg.Save(Cfg.Current);
+            _coversDirty = false;
+            _fpDirty = false;
+        }
+        // vNext: the list stays visible during checks (no more skeleton swap); the artificial 0.6s minimum delay was removed
+        _checkingUpdates = false;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// v0.68.0: "detect-only" for a single mod — fetches the remote version + cover + category;
+    /// if an update exists it only sets the ⇧ marker and never starts a download or install.
+    /// (Split out of UpdateOne: separating check from install is the prerequisite for "ask before updating")
+    /// </summary>
+    private async Task CheckOnlyOne(ModEntry m,
+        System.Collections.Concurrent.ConcurrentDictionary<int, Task<NexusFileInfo?>>? sharedFetch = null,
+        IReadOnlyDictionary<int, string>? fpUpdatedAt = null)
+    {
+        var prevRemote = _states.TryGetValue(m.Folder, out var prev) ? prev.RemoteVersion : null;
+        var st = _states[m.Folder] = new ModUpdateState { Status = "checking", RemoteVersion = prevRemote };
+        _lastCheckedUtc[m.Folder] = DateTime.UtcNow;
+        try
+        {
+            // v0.68.2: check the Nexus source first; only fall back to GitHub when there is no Nexus source or the fetch fails
+            // v0.72.0: detection source unified with the install source — the version of the latest MAIN file in
+            // files.json is authoritative (the same source as UpdateOne / one-click install's GetLatestMainFileAsync).
+            // The old logic read the top-level version of mods/{id}.json (author-maintained, often lagging the main
+            // file), which caused the contradiction "1.3.0 local judged up to date, yet clicking update installs 1.3.1".
+            if (m.NexusModId is not null && !string.IsNullOrEmpty(_apiKey))
+            {
+                // vNext: precise-check results are shared within the pipeline for the same modId — a mod installed
+                // twice (current + stale copy) issues a single files.json request and both rows share the result
+                NexusFileInfo? file;
+                if (sharedFetch is not null)
+                    file = await sharedFetch.GetOrAdd(m.NexusModId!.Value,
+                        k => Nexus.GetLatestMainFileAsync(_apiKey, k));
+                else
+                    file = await Nexus.GetLatestMainFileAsync(_apiKey, m.NexusModId!.Value);
+                var remoteVer = string.IsNullOrWhiteSpace(file?.Version) ? null : file!.Version;
+                if (remoteVer is null)
+                {
+                    // fallback when the main file has no version: use the mod's top-level version (also grabbing
+                    // the cover; routine cover gaps are BackfillCoversAsync's job, so no extra requests here)
+                    var info = await Nexus.GetModAsync(_apiKey, m.NexusModId!.Value);
+                    if (!string.IsNullOrEmpty(info?.Version))
+                    {
+                        remoteVer = info!.Version;
+                        if (!string.IsNullOrEmpty(info.PictureUrl))
+                        {
+                            st.PictureUrl = info.PictureUrl;
+                            Cfg.Current.ModCovers[m.Folder] = info.PictureUrl;
+                            _coversDirty = true;
+                        }
+                    }
+                }
+                if (remoteVer is not null)
+                {
+                    st.RemoteVersion = remoteVer;
+                    RememberRemoteVersion(m.Folder, remoteVer);
+                    st.Status = IsNewer(remoteVer, m.Version) ? "available" : "latest";
+                    // vNext: on precise-check success, persist the result together with this round's batch updatedAt
+                    // fingerprint; next entry with an unchanged fingerprint reuses this version directly (the data
+                    // source behind the fast path's zero-request hits)
+                    if (fpUpdatedAt is not null && fpUpdatedAt.TryGetValue(m.NexusModId!.Value, out var ua))
+                    {
+                        Cfg.Current.ModUpdateFingerprints[m.NexusModId!.Value] = new ModUpdateFingerprintEntry
+                        {
+                            UpdatedAt = ua,
+                            LatestFileVersion = remoteVer,
+                            CheckedAtUtc = DateTime.UtcNow,
+                        };
+                        _fpDirty = true;
+                    }
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            // GitHub fallback: mods with no Nexus source (or whose Nexus query failed)
+            if (m.GitHubRepo is not null)
+            {
+                var gh = await Updater.CheckModGitHubAsync(m.GitHubRepo);
+                if (gh is not null)
+                {
+                    st.RemoteVersion = gh.Tag;
+                    RememberRemoteVersion(m.Folder, gh.Tag);
+                    st.Status = IsNewer(gh.Tag, m.Version) ? "available" : "latest";
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            if (st.Status is "checking")
+                st.Status = st.RemoteVersion is not null && IsNewer(st.RemoteVersion, m.Version)
+                    ? "available" : "latest";
+        }
+        catch (Exception ex)
+        {
+            st.Status = "failed"; st.Message = ex.Message;
+        }
+        StateHasChanged();
+    }
+
+    private async Task RunUpdatePipeline(List<ModEntry> targets)
+    {
+        StateHasChanged();
+
+        // v0.60.0: run version detection in parallel (concurrency speedup) so one slow/timing-out source cannot drag the whole page's update states.
+        var semaphore = new SemaphoreSlim(16);
+        await Task.WhenAll(targets.Select(async m =>
+        {
+            await semaphore.WaitAsync();
+            try { await UpdateOne(m); }
+            finally { semaphore.Release(); }
+        }));
+
+        if (_coversDirty)
+        {
+            Cfg.Save(Cfg.Current);   // persist the covers picked up along the way
+            _coversDirty = false;
+        }
+
+        _checkingUpdates = false;
+
+        var states = targets.Select(t => GetState(t.Folder)).ToList();
+        var updated = states.Count(s => s.Status == "updated");
+        var failed = states.Count(s => s.Status == "failed");
+        var premiumBlocked = states.Count(s => s.Status == "premium");
+        if (updated > 0) Rescan();
+        // v0.68.0: merge into a single completion summary (the old two toasts kept displacing each other),
+        // and give clear feedback when premium-blocked (a free account that slipped into the pipeline) — no more "nothing happens"
+        var manualGh = states.Count(s => s.Status == "available");
+        if (updated > 0 || failed > 0 || premiumBlocked > 0 || manualGh > 0)
+            ShowNotice(failed == 0 && premiumBlocked == 0 ? "ok" : "err",
+                $"Auto-updated {updated} mods ✔"
+                + (failed > 0 ? $", {failed} failed (see each row's message)" : "")
+                + (premiumBlocked > 0 ? $", {premiumBlocked} require Premium (use the row update button to download manually on the site)" : "")
+                + (manualGh > 0 ? $", {manualGh} releases have no install package — download page opened / use the row ⇧ to update manually" : ""));
+
+        // vNext: the artificial 0.6s "loading feel" delay was removed — updating states render in-row in real time
+
+        StateHasChanged();
+    }
+
+    private async Task UpdateOne(ModEntry m)
+    {
+        // v0.61.0: keep the old RemoteVersion when creating a new state, so the updatable list is not wiped and rebuilt mid-check (flicker)
+        var prevRemote = _states.TryGetValue(m.Folder, out var prev) ? prev.RemoteVersion : null;
+        var st = _states[m.Folder] = new ModUpdateState { Status = "checking", RemoteVersion = prevRemote };
+        _lastCheckedUtc[m.Folder] = DateTime.UtcNow;
+        StateHasChanged();
+        try
+        {
+            // ── (1) Nexus source first (v0.68.2): mods with a Nexus source always detect and download via Nexus,
+            //    so dual-source mods like SDV-Glow are no longer snatched by the GitHub source
+            //    (free users' batch updates can also open Nexus pages) ──
+            if (m.NexusModId is not null && !string.IsNullOrEmpty(_apiKey))
+            {
+                // v0.72.0: resolve the "latest MAIN file" first; detection and installation share this one authoritative source.
+                // The old logic detected via the mods/{id}.json top-level version but only consulted the files.json main
+                // file at install time, so mismatched versions produced "no update detected, yet updating installs a higher version".
+                var file = await Nexus.GetLatestMainFileAsync(_apiKey, m.NexusModId!.Value);
+                var remoteVer = string.IsNullOrWhiteSpace(file?.Version) ? null : file!.Version;
+                if (remoteVer is null)
+                {
+                    // fallback when the main file has no version: use the mod's top-level version (grabbing the cover too)
+                    var info = await Nexus.GetModAsync(_apiKey, m.NexusModId!.Value);
+                    if (!string.IsNullOrEmpty(info?.Version))
+                    {
+                        remoteVer = info!.Version;
+                        if (!string.IsNullOrEmpty(info.PictureUrl))
+                        {
+                            st.PictureUrl = info.PictureUrl;
+                            Cfg.Current.ModCovers[m.Folder] = info.PictureUrl;
+                            _coversDirty = true;
+                        }
+                    }
+                }
+
+                if (remoteVer is not null)
+                {
+                    st.RemoteVersion = remoteVer;
+                    RememberRemoteVersion(m.Folder, remoteVer);
+
+                    if (IsNewer(remoteVer, m.Version))
+                    {
+                        // ── new version found -> auto-download & install via the Nexus direct link, no site redirect ──
+                        if (file is null)
+                        {
+                            // judged updatable but no downloadable file -> mark as available for the in-row ⇧ manual path instead of hard-failing
+                            st.Status = "available"; st.Message = null;
+                            StateHasChanged(); return;
+                        }
+                        st.Status = "updating";
+                        st.Message = $"New version {remoteVer} found (Nexus source), auto-updating…";
+                        StateHasChanged();
+
+                        var dl = await Nexus.GetDownloadUrlAsync(_apiKey, m.NexusModId!.Value, file.FileId);
+                        if (dl.NeedsPremium)
+                        {
+                            st.Status = "premium";
+                            st.Message = null;   // minimal: only the purple ⇧ new tag next to the version; no extra yellow text
+                            StateHasChanged(); return;
+                        }
+                        if (dl.Url is null)
+                        {
+                            st.Status = "failed"; st.Message = "Failed to get download URL: " + dl.Error;
+                            StateHasChanged(); return;
+                        }
+
+                        var zip = Path.Combine(StoragePaths.DownloadsDir,
+                            $"mod-{m.NexusModId}-{file.FileId}.zip");
+                        Directory.CreateDirectory(Path.GetDirectoryName(zip)!);
+                        await DownloadWithTask(
+                            dl.Url, zip,
+                            $"Update mod \"{m.Name}\"",
+                            $"Downloading {m.Name}…",
+                            (msg, pct, spd) => { st.Message = msg; StateHasChanged(); });
+
+                        var err = ModSvc.InstallUpdate(Cfg.Current.GamePath, m.Folder, zip, out var newVer);
+                        if (err is null)
+                        {
+                            st.Status = "updated";
+                            st.Message = null;   // v0.60.0: no green message row after a successful update
+                            // v0.69.0: record the download date (used by the detail page's "last downloaded")
+                            Cfg.Current.ModLastDownload[m.NexusModId!.Value.ToString()] = DateTime.Now.ToString("yyyy-MM-dd");
+                            Cfg.Current.ModFileLastDownload[file.FileId.ToString()] = DateTime.Now.ToString("yyyy-MM-dd");
+                            Cfg.Save(Cfg.Current);
+                        }
+                        else
+                        {
+                            st.Status = "failed"; st.Message = "Install failed: " + err;
+                        }
+                        StateHasChanged();
+                        return;
+                    }
+
+                    // already latest on Nexus: dual-source mods keep checking GitHub as a fallback; Nexus-only mods conclude here
+                    if (m.GitHubRepo is null)
+                    {
+                        st.Status = "latest"; st.Message = null;
+                        StateHasChanged(); return;
+                    }
+                }
+            }
+
+            // ── (2) GitHub fallback: GitHub-only mods (no Nexus source), or dual-source mods whose Nexus query failed ──
+            if (m.GitHubRepo is not null)
+            {
+                var gh = await Updater.CheckModGitHubAsync(m.GitHubRepo);
+                if (gh is not null)
+                {
+                    st.RemoteVersion = gh.Tag;
+                    RememberRemoteVersion(m.Folder, gh.Tag);
+                    if (IsNewer(gh.Tag, m.Version) && gh.ZipUrl is not null)
+                    {
+                        st.Status = "updating";
+                        st.Message = $"New version {gh.Tag} found (GitHub source), auto-updating…";
+                        StateHasChanged();
+
+                        var ghZip = Path.Combine(StoragePaths.DownloadsDir,
+                            "gh-" + m.GitHubRepo.Replace('/', '-') + ".zip");
+                        Directory.CreateDirectory(Path.GetDirectoryName(ghZip)!);
+                        await DownloadWithTask(
+                            gh.ZipUrl, ghZip,
+                            $"Update mod \"{m.Name}\"",
+                            $"Downloading {m.Name} (GitHub source)…",
+                            (msg, pct, spd) => { st.Message = msg; StateHasChanged(); });
+
+                        // expectedUniqueId safety lock: prevents installing into the wrong mod when several share a repo
+                        var ghErr = ModSvc.InstallUpdate(Cfg.Current.GamePath, m.Folder, ghZip,
+                            out var ghNewVer,
+                            expectedUniqueId: string.IsNullOrEmpty(m.UniqueID) ? null : m.UniqueID);
+                        if (ghErr is null)
+                        {
+                            st.Status = "updated";
+                            st.Message = null;
+                        }
+                        else
+                        {
+                            st.Status = "failed";
+                            st.Message = "GitHub update failed: " + ghErr;
+                        }
+                        StateHasChanged();
+                        return;
+                    }
+                    if (IsNewer(gh.Tag, m.Version))
+                    {
+                        st.Status = "available";
+                        st.Message = $"GitHub {gh.Tag}";
+                        StateHasChanged();
+                        return;
+                    }
+                }
+            }
+
+            // no update from either source / both queries failed -> keep the existing remote marker or conclude "latest"
+            if (st.Status is "checking")
+            {
+                st.Status = st.RemoteVersion is not null && IsNewer(st.RemoteVersion, m.Version)
+                    ? "available" : "latest";
+                st.Message = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            st.Status = "failed"; st.Message = ex.Message;
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Mod downloads also go through the task center (bottom-right task pill + /tasks page),
+    /// sharing the same download page as the SMAPI update. Reports percent/speed/current step while downloading.
+    /// </summary>
+    private async Task DownloadWithTask(
+        string url, string zipPath, string taskTitle, string startMsg,
+        Action<string, double?, double?>? onTick = null)
+    {
+        var task = Center.Start(taskTitle, "download");
+        try
+        {
+            Center.Report(task, startMsg, 0, 0);
+            onTick?.Invoke(startMsg, null, null);
+            var progress = new Progress<NexusDownloadProgress>(p =>
+                _ = InvokeAsync(() =>
+                {
+                    Center.Report(task, p.Message, p.Percent, p.SpeedMBps);
+                    onTick?.Invoke(p.Message, p.Percent, p.SpeedMBps);
+                }));
+            await Nexus.DownloadFileAsync(url, zipPath, progress);
+            Center.Finish(task, true, "Download complete");
+        }
+        catch (Exception ex)
+        {
+            Center.Finish(task, false, ex.Message);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// One-click SMAPI auto-update: downloads the official installer in the background -> runs
+    /// SMAPI.Installer.exe unattended (--install --no-prompt --game-path).
+    /// No windows pop up and no browser opens; the state refreshes automatically when done.
+    /// </summary>
+    /// <summary>v0.36.0: one-click download & install when SMAPI is missing — shares the same fully automatic
+    /// installer with UpdateSmapi (RunSmapiInstallerAsync just downloads the zip and deploys files silently);
+    /// no manual steps required from the user.</summary>
+    private async Task InstallSmapi()
+    {
+        if (_smapiUpdating) return;
+        if (_smapiUpdate is null || _smapiUpdate.LatestVersion is null || _smapiUpdate.InstallerZipUrl is null)
+        {
+            ShowNotice("err", "SMAPI download URL not available yet; try again later (or check your network).");
+            return;
+        }
+
+        _smapiUpdating = true;
+        StateHasChanged();
+
+        var task = Center.Start($"SMAPI {_smapiUpdate.LatestVersion}", "install");
+        var progress = new Progress<UpdateService.InstallProgress>(p =>
+            _ = InvokeAsync(() => Center.Report(task, p.Message, p.Percent, p.SpeedMBps)));
+
+        // jump to the tasks page to watch live progress
+        Nav.NavigateTo("/tasks");
+
+        try
+        {
+            var err = await Updater.RunSmapiInstallerAsync(
+                _smapiUpdate, Cfg.Current.GamePath, progress);
+
+            if (err is null)
+            {
+                Center.Finish(task, true, $"✅ SMAPI {_smapiUpdate.LatestVersion} installed");
+                _smapiVersion = Game.ProbeSmapiVersion(Cfg.Current.GamePath);
+                _smapiUpdate = await Updater.CheckSmapiAsync(_smapiVersion);
+                // rescan the mod list after installing (SMAPI's bundled ConsoleCommands/SaveBackup will appear in it)
+                _ = InvokeAsync(RescanAndRestate);
+            }
+            else
+            {
+                Center.Finish(task, false, "❌ " + err);
+            }
+        }
+        catch (Exception ex)
+        {
+            Center.Finish(task, false, "❌ " + ex.Message);
+        }
+        finally
+        {
+            _smapiUpdating = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task UpdateSmapi()
+    {
+        if (_smapiUpdating) return;
+        if (_smapiUpdate is null || _smapiUpdate.LatestVersion is null) return;
+
+        _smapiUpdating = true;
+        StateHasChanged();
+
+        var task = Center.Start($"SMAPI {_smapiUpdate.LatestVersion}", "update");
+        var progress = new Progress<UpdateService.InstallProgress>(p =>
+            _ = InvokeAsync(() => Center.Report(task, p.Message, p.Percent, p.SpeedMBps)));
+
+        // jump to the tasks page immediately to watch progress (the bottom-right pill updates in sync)
+        Nav.NavigateTo("/tasks");
+
+        try
+        {
+            var err = await Updater.RunSmapiInstallerAsync(
+                _smapiUpdate, Cfg.Current.GamePath, progress);
+
+            if (err is null)
+            {
+                Center.Finish(task, true, $"✅ SMAPI updated to {_smapiUpdate.LatestVersion}");
+                _smapiVersion = Game.ProbeSmapiVersion(Cfg.Current.GamePath);
+                _smapiUpdate = await Updater.CheckSmapiAsync(_smapiVersion);
+            }
+            else
+            {
+                Center.Finish(task, false, "❌ " + err);
+            }
+        }
+        catch (Exception ex)
+        {
+            Center.Finish(task, false, "❌ " + ex.Message);
+        }
+        finally
+        {
+            _smapiUpdating = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>v0.68.1: open the mod's download page (GitHub releases first, then the Nexus files page).</summary>
+    private static void OpenUpdateDownloadPage(ModEntry m)
+    {
+        if (m.GitHubRepo is not null)
+            UpdateService.OpenUrl($"https://github.com/{m.GitHubRepo}/releases/latest");
+        else if (m.NexusModId is not null)
+            UpdateService.OpenUrl($"https://www.nexusmods.com/stardewvalley/mods/{m.NexusModId}?tab=files");
+    }
+
+    private void ShowNotice(string kind, string text)
+    {
+        // v0.43.1: success/delete -> black toast with white text; errors -> red toast with white text; everything is also logged
+        if (kind == "err") AppLog.Error("Mods", text); else AppLog.Warn("Mods", text);
+        _ = JS.InvokeVoidAsync("junigridJs.toast", text, kind == "err" ? "err" : "ok");
+    }
+
+    private static bool IsNewer(string remote, string local)
+    {
+        // v0.71.8: numeric per-segment semantic version comparison. The old logic degraded to
+        // "string inequality = update available" whenever Version.TryParse failed — pre-release suffixes
+        // (0.2.8-beta), four-part versions (0.2.8.1), or space/hyphen differences could misjudge identical
+        // versions as updatable (the root cause of Event Lookup showing an update button while already current).
+        // Now the v/V prefix and -beta-style suffixes are stripped, segments are compared numerically,
+        // missing segments are padded with 0; full equality -> not an update.
+        static int[] Parts(string v)
+        {
+            var s = v.Trim().TrimStart('v', 'V');
+            var dash = s.IndexOfAny(new[] { '-', '+', ' ' });   // strip pre-release/build metadata
+            if (dash >= 0) s = s[..dash];
+            var segs = s.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            var nums = new int[segs.Length];
+            for (var i = 0; i < segs.Length; i++)
+            {
+                var digits = new string(segs[i].TakeWhile(char.IsDigit).ToArray());
+                nums[i] = int.TryParse(digits, out var n) ? n : 0;
+            }
+            return nums;
+        }
+        var rp = Parts(remote); var lp = Parts(local);
+        var len = Math.Max(rp.Length, lp.Length);
+        for (var i = 0; i < len; i++)
+        {
+            var r = i < rp.Length ? rp[i] : 0;
+            var l = i < lp.Length ? lp[i] : 0;
+            if (r != l) return r > l;
+        }
+        return false;   // numerically identical -> not an update
+    }
+}

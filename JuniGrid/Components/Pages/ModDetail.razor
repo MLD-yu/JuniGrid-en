@@ -1,0 +1,741 @@
+@namespace JuniGrid.Components.Pages
+@page "/mod/{ModId:int}/{UniqueID?}"
+@using System.Text.RegularExpressions
+@inject ConfigService Cfg
+@inject NexusService NexusApi
+@inject ModService ModSvc
+@inject InstallService Installer
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="jg-page">
+    <div class="jg-detail-topbar">
+    <button class="jg-detail-back" @onclick="GoBack" data-tip="Back" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#3d3d3d" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+    </button>
+
+
+    </div>
+
+    @if (_loading)
+    {
+        <div class="jg-shimmer-hero">
+            <div class="jg-shimmer-left">
+                <div class="jg-shimmer jg-shimmer-title"></div>
+                <div class="jg-shimmer jg-shimmer-line" style="width:70%"></div>
+                <div class="jg-shimmer jg-shimmer-line" style="width:55%"></div>
+                <div class="jg-shimmer jg-shimmer-btns">
+                    <div class="jg-shimmer jg-shimmer-btn"></div>
+                    <div class="jg-shimmer jg-shimmer-btn" style="width:110px"></div>
+                </div>
+                <div class="jg-shimmer jg-shimmer-line" style="width:80%;margin-top:12px"></div>
+            </div>
+            <div class="jg-shimmer jg-shimmer-cover"></div>
+        </div>
+        <div class="jg-shimmer-scrollstack">
+            <div class="jg-shimmer jg-shimmer-card"></div>
+            <div class="jg-shimmer jg-shimmer-card"></div>
+            <div class="jg-shimmer jg-shimmer-card"></div>
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="jg-card" style="margin-top:10px">@_error</div>
+    }
+    else if (_mod is not null)
+    {
+        @* ─── Download-4 layout: text left, image right ─── *@
+        <div class="jg-dl4-hero">
+            <div class="jg-dl4-left">
+                <h1 class="jg-dl4-title">@_mod.Name@if (_lastDownloaded is not null)
+                {
+                    <span class="jg-dl4-lastdl">Last installed @_lastDownloaded</span>
+                }</h1>
+                @if (!string.IsNullOrWhiteSpace(_mod.Summary))
+                {
+                    <p class="jg-dl4-sub">@_mod.Summary</p>
+                }
+
+                <div class="jg-dl4-actions">
+                    @{
+                        var alreadyInstalled = _installedFolder is not null;
+                        // v1.04.0: the installed check takes priority over the one-click install toggle — "already in the mod list" shows regardless of the toggle
+                        var installLabel = _installing ? "Installing…"
+                            : alreadyInstalled ? (HasUpdate ? "Update" : "Already in mod list")
+                            : !Cfg.Current.EnableOneClickInstall ? "Install in browser" : "Install";
+                        var disableInstall = _installing || (alreadyInstalled && !HasUpdate);
+                    }
+                    <button class="jg-dl4-cta" @onclick="Install" disabled="@disableInstall">
+                        @installLabel
+                        <span class="jg-dl4-cta-ico"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+                    </button>
+                    <button class="jg-dl4-ghost" @onclick="OpenPage" data-tip="Open on Nexus">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;vertical-align:-3px;margin-right:6px">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                            <polyline points="15 3 21 3 21 9"/>
+                            <line x1="10" y1="14" x2="21" y2="3"/>
+                        </svg>
+                        Open on Nexus
+                    </button>
+                </div>
+
+
+
+                @if (_installMsg is not null)
+                {
+                    <div class="jg-dl4-msg">@_installMsg</div>
+                }
+
+            @* ─── v0.69.5: three accordions (open independently / smooth expand / long content scrolls inside with a sticky header) ─── *@
+            <div class="jg-about-acc">
+                <div class="jg-acc @(_openAccs.Contains(1) ? "open" : "")" id="jgAcc1">
+                    <div class="jg-acc-inner">
+                        <button class="jg-acc-head" @onclick="() => ToggleAcc(1)">
+                            <span class="jg-acc-no">01</span><span class="jg-acc-name">Requirements@(_requirements is { Count: > 0 } ? $" ({_requirements.Count})" : "")</span>
+                            <svg class="jg-acc-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="jg-acc-body">
+                            @if (_requirements is null)
+                            {
+                                <div class="jg-shimmer" style="height:16px;border-radius:5px;margin:4px 0"></div>
+                                <div class="jg-shimmer" style="height:16px;border-radius:5px;margin:4px 0;width:60%"></div>
+                            }
+                            else if (_reqFailed)
+                            {
+                                <span style="opacity:.65">Failed to load requirement data — </span><button class="jg-linklike" @onclick="OpenPage">view it on the site</button>
+                            }
+                            else if (_requirements.Count == 0)
+                            {
+                                <span style="opacity:.6">This mod has no requirements.</span>
+                            }
+                            else
+                            {
+                                var nexusReqs = _requirements.Where(r => !r.External).ToList();
+                                var offsiteReqs = _requirements.Where(r => r.External).ToList();
+                                if (nexusReqs.Count > 0)
+                                {
+                                    <div class="jg-req-sub">Nexus requirements</div>
+                                    <div class="jg-req-table">
+                                        <div class="jg-req-th"><span>Mod</span><span>Notes</span></div>
+                                        @foreach (var r in nexusReqs)
+                                        {
+                                            <div class="jg-req-row">
+                                                <span class="jg-req-name">
+                                                    @if (!string.IsNullOrEmpty(r.PictureUrl))
+                                                    {
+                                                        <img class="jg-req-cover" src="@r.PictureUrl" alt="" loading="lazy" />
+                                                    }
+                                                    @if (r.ModId > 0)
+                                                    {
+                                                        <button class="jg-req-link" @onclick="() => GoDep(r.ModId, r.ModName)">@r.ModName</button>
+                                                    }
+                                                    else { @r.ModName }
+                                                </span>
+                                                <span class="jg-req-notes">@(string.IsNullOrWhiteSpace(r.Notes) ? "—" : r.Notes)</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                if (offsiteReqs.Count > 0)
+                                {
+                                    <div class="jg-req-sub" style="margin-top:10px">External requirements</div>
+                                    <div class="jg-req-table">
+                                        <div class="jg-req-th"><span>Mod</span><span>Notes</span></div>
+                                        @foreach (var r in offsiteReqs)
+                                        {
+                                            <div class="jg-req-row">
+                                                <span class="jg-req-name">
+                                                    @if (!string.IsNullOrEmpty(r.Url))
+                                                    {
+                                                        <button class="jg-req-link" @onclick="() => OpenExt(r.Url)">@r.ModName</button>
+                                                    }
+                                                    else { @r.ModName }
+                                                </span>
+                                                <span class="jg-req-notes">@(string.IsNullOrWhiteSpace(r.Notes) ? "—" : r.Notes)</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="jg-acc @(_openAccs.Contains(2) ? "open" : "")" id="jgAcc2">
+                    <div class="jg-acc-inner">
+                        <button class="jg-acc-head" @onclick="() => ToggleAcc(2)">
+                            <span class="jg-acc-no">02</span><span class="jg-acc-name">Translations@(_translations is { Count: > 0 } ? $" ({_translations.Count})" : "")</span>
+                            <svg class="jg-acc-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="jg-acc-body">
+                            @if (_translations is null) { <span style="opacity:.65">Loading…</span> }
+                            else if (_translations.Count == 0) { <span style="opacity:.6">No translations yet.</span> }
+                            else
+                            {
+                                @foreach (var t in _translations)
+                                {
+                                    <div class="jg-acc-row" style="align-items:center;gap:10px">
+                                        @if (!string.IsNullOrEmpty(t.PictureUrl))
+                                        {
+                                            <img class="jg-req-cover" src="@t.PictureUrl" alt="" loading="lazy" />
+                                        }
+                                        <button class="jg-req-link" style="flex:1;text-align:left" @onclick="() => GoDep(t.ModId, t.Name)">@t.Name</button>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="jg-acc @(_openAccs.Contains(3) ? "open" : "")" id="jgAcc3">
+                    <div class="jg-acc-inner">
+                        <button class="jg-acc-head" @onclick="() => ToggleAcc(3)">
+                            <span class="jg-acc-no">03</span><span class="jg-acc-name">Changelogs@(_changelogs is { Count: > 0 } ? $" ({_changelogs.Count} versions)" : "")</span>
+                            <svg class="jg-acc-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="jg-acc-body">
+                            @if (_changelogs is null) { <span style="opacity:.65">Loading…</span> }
+                            else if (_changelogs.Count == 0) { <span style="opacity:.6">No changelogs yet.</span> }
+                            else
+                            {
+                                var shownLogs = _changelogs;
+                                @foreach (var c in shownLogs)
+                                {
+                                    <div class="jg-acc-row" style="flex-direction:column;align-items:flex-start;gap:2px">
+                                        <b>v@(c.Version)</b>
+                                        @foreach (var line in c.Lines) { <span style="opacity:.75;font-size:12.5px">· @line</span> }
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+            <div class="jg-dl4-right">
+                @if (!string.IsNullOrEmpty(_mod.PictureUrl))
+                {
+                    <img class="jg-dl4-cover jg-flip-cover" src="@_mod.PictureUrl" alt="@_mod.Name" data-flip-src="@_mod.PictureUrl" />
+                }
+                else
+                {
+                    <div class="jg-dl4-cover jg-dl4-cover-fallback">
+                        @(_mod.Name.Length > 0 ? _mod.Name[..1].ToUpperInvariant() : "?")
+                    </div>
+                }
+
+                <div class="jg-dl4-meta jg-dl4-meta-under">
+                    <span class="jg-dl4-meta-item">by
+                        @* ─── v1.04.0: author name links to their profile + blur highlight (dark #3d3d3d / light #ffffff) + hover avatar preview (GSAP easeReverse) ─── *@
+                        <span class="jg-author-wrap" id="jgAuthorTip">
+                            <button type="button" class="jg-author-name" @onclick="OpenAuthorPage" aria-label="View author profile">
+                                <span class="jg-author-hl"></span>
+                                <span class="jg-author-name-txt">@(_mod.Author ?? "Unknown")</span>
+                            </button>
+                            <span class="jg-author-bubble" id="jgAuthorBubble">
+                                @if (!string.IsNullOrEmpty(_authorAvatar))
+                                {
+                                    <img class="jg-author-ava" src="@_authorAvatar" alt="" />
+                                }
+                                else
+                                {
+                                    <span class="jg-author-ava jg-author-ava-fb">@(_mod.Author is { Length: > 0 } a ? a[..1].ToUpperInvariant() : "U")</span>
+                                }
+                                <span class="jg-author-bubble-txt">View their profile →</span>
+                            </span>
+                        </span>
+                    </span>
+                    <span class="jg-dl4-dot">·</span>
+                    @* v1.06.7: prefer the latest MAIN file version — authors often forget to update the mod page's
+                       declared version field (it says 0.2.8 while the latest file is already 0.2.9); the file version
+                       is what stays consistent with the list update badge and the site *@
+                    <span class="jg-dl4-meta-item">v@(_latestFile?.Version is { Length: > 0 } lv ? lv : _mod.Version)</span>
+                    <span class="jg-dl4-dot">·</span>
+                    <span class="jg-dl4-meta-item"><svg class="jg-meta-ico" viewBox="0 0 24 24" fill="none" stroke="#3d3d3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>@FormatDownloads(_mod.Downloads)</span>
+                    <span class="jg-dl4-dot">·</span>
+                    <span class="jg-dl4-meta-item"><svg class="jg-meta-ico" viewBox="0 0 24 24" fill="none" stroke="#3d3d3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg>@_mod.Endorsements</span>
+                    @* ─── v1.04.0: mod size (box icon) fixed before "Updated"; 0 B is shown too ─── *@
+                    <span class="jg-dl4-dot">·</span>
+                    <span class="jg-dl4-meta-item"><svg class="jg-meta-ico" viewBox="0 0 24 24" fill="none" stroke="#3d3d3d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>@FormatBytes(_latestFile?.Size ?? 0)</span>
+                    @if (!string.IsNullOrEmpty(_mod.UpdatedAt))
+                    {
+                        <span class="jg-dl4-dot">·</span>
+                        <span class="jg-dl4-meta-item">Updated @_mod.UpdatedAt</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* ─── v0.69.8: full description (standalone full-width section below the hero; images/links rendered as-is; translation-aware) ─── *@
+        @if (!string.IsNullOrWhiteSpace(_mod.DescriptionHtml))
+        {
+            <div class="jg-detail-section jg-detail-full">
+                <div class="jg-detail-section-title">Description</div>
+                <div class="jg-moddetail-desc jg-desc-with-imgs">@((MarkupString)NormalizeGrayColors(_mod.DescriptionHtml))</div>
+            </div>
+        }
+
+        @* ─── modal container for the Flip zoom ─── *@
+        <div class="jg-flip-modal" id="jgFlipModal">
+            <div class="jg-flip-overlay"></div>
+            <div class="jg-flip-content"></div>
+        </div>
+    }
+</div>
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // v0.72.1: .jg-main is MainLayout's shared scroll container — scrolling the list to y then opening
+            // the detail page inherits y, so the detail page would open mid-scroll. The detail page always starts
+            // at the top; the list's return position is restored from the snapshot saved by the Mods page's
+            // OpenDetail. The two paths never interfere.
+            try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
+        }
+        if (!_loading && _mod is not null)
+        {
+            try { await JS.InvokeVoidAsync("junigridJs.modDetailInit"); } catch { }
+            // v1.04.0: "by" author name blur highlight + hover avatar preview (GSAP easeReverse)
+            try { await JS.InvokeVoidAsync("junigridJs.authorTipInit", "jgAuthorTip", "jgAuthorBubble"); } catch { }
+            if (_pendingAnimAcc > 0)
+            {
+                var animId = "jgAcc" + _pendingAnimAcc;
+                var animOpen = _pendingAnimOpening;
+                _pendingAnimAcc = 0;
+                try { await JS.InvokeVoidAsync("junigridJs.accAnimate", animId, animOpen); } catch { }
+            }
+            try { await JS.InvokeVoidAsync("junigridJs.accMeasureScroll"); } catch { }
+        }
+    }
+
+    [Parameter] public int ModId { get; set; }
+    /// <summary>A single Nexus mod may contain several sub-packages (sharing an UpdateKey); UniqueID pinpoints the exact one.</summary>
+    [Parameter] public string? UniqueID { get; set; }
+
+    private string _key = "";
+    private NexusModDetail? _mod;
+    // v0.72.0: latest MAIN file (same authoritative source for update detection and one-click InstallModDirectAsync)
+    private NexusFileInfo? _latestFile;
+    // v1.04.0: author avatar (data URI for the hover preview bubble; falls back to an initial on failure)
+    private string? _authorAvatar;
+    private bool _loading = true;
+    private string? _error;
+    private string? _installedFolder;
+    private bool _installing;
+    private string? _installMsg;
+
+    // image gallery (v0.69.3: gallery retired; this list remains only as a source for the cover Flip zoom)
+    private List<string> _imgUrls = new();
+
+    // v0.69.5: last install time / Requirements (GraphQL v2) / three accordions (independently openable)
+    private string? _lastDownloaded;
+    private bool _reqFailed;
+    private readonly HashSet<int> _openAccs = new();
+    private List<NexusRequirementEx>? _requirements;
+    private List<NexusTranslationItem>? _translations;
+    private List<NexusChangelog>? _changelogs;
+
+    // full set of locally installed mods (used for dependency matching)
+    private IReadOnlyList<ModEntry> _localMods = Array.Empty<ModEntry>();
+    /// <summary>The local entry for this detail page's mod (null = not installed). Its Dependencies list the requirements.</summary>
+    private ModEntry? _thisEntry;
+
+    // transitive dependency expansion result (includes indirect dependencies + CP hosts)
+    private List<ResolvedDep> _resolvedDeps = new();
+
+    // v1.06.8: in-memory detail cache — dependency hops A→B→back to A no longer hit the network; A opens instantly.
+    // Static fields survive across component instances; re-entering the same detail within the 10-minute TTL issues zero requests.
+    private static readonly Dictionary<int, (NexusModDetail Mod, NexusFileInfo? Latest, DateTime At)> _detailCache = new();
+    private static readonly TimeSpan DetailCacheTtl = TimeSpan.FromMinutes(10);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _error = null;
+        _mod = null;
+        _latestFile = null;
+        _imgUrls = new();
+        _lastDownloaded = null;
+        _reqFailed = false;
+        _openAccs.Clear();
+        _requirements = null;
+        _translations = null;
+        _changelogs = null;
+        _installMsg = null;
+        _key = Cfg.Current.NexusApiKey;
+
+        if (string.IsNullOrEmpty(_key))
+        {
+            _loading = false;
+            _error = "No Nexus API key configured — paste your Personal API Key on the Nexus page first.";
+            return;
+        }
+
+        // Is this mod already installed? If so the install button becomes "update into the original folder"
+        _localMods = ModSvc.Scan(Cfg.Current.GamePath);
+        // The same NexusModId may have several sub-packages (e.g. [CC]/[CS]/[DLL]/[FTM] sharing an UpdateKey).
+        // Prefer exact matching by the route's UniqueID; only fall back to the first entry by ModId when it is absent (old routes/dependency hops).
+        _thisEntry = !string.IsNullOrEmpty(UniqueID)
+            ? _localMods.FirstOrDefault(m => m.NexusModId == ModId
+                && string.Equals(m.UniqueID, UniqueID, StringComparison.OrdinalIgnoreCase))
+            : _localMods.FirstOrDefault(m => m.NexusModId == ModId);
+        _installedFolder = _thisEntry?.Folder;
+        ResolveDepTree();
+
+        try
+        {
+            // v1.06.8: on cache hit (seen within 10 minutes) use it directly — returning to A opens instantly with no spinner; only a miss goes to the network
+            if (!_detailCache.TryGetValue(ModId, out var hit) || DateTime.UtcNow - hit.At > DetailCacheTtl)
+            {
+                var mod = await NexusApi.GetModDetailAsync(_key, ModId);
+                if (mod is null) { _error = "Fetch failed — check your network or whether the API key is valid."; }
+                else
+                {
+                    // v0.72.0: fetch the latest MAIN file for update detection (same source as one-click install). Fails silently.
+                    NexusFileInfo? latest = null;
+                    try { latest = await NexusApi.GetLatestMainFileAsync(_key, ModId); }
+                    catch { latest = null; }
+                    hit = (mod, latest, DateTime.UtcNow);
+                    _detailCache[ModId] = hit;
+                }
+            }
+            if (_error is null && hit.Mod is not null)
+            {
+                _mod = hit.Mod;
+                _latestFile = hit.Latest;
+                _imgUrls = _mod.ImageUrls.Where(u => !string.IsNullOrWhiteSpace(u)).ToList();
+            }
+
+            // v0.69.0: last download time = local record ∪ Nexus download history (take the newer; silent if the endpoint is dead)
+            if (_mod is not null)
+            {
+                if (Cfg.Current.ModLastDownload.TryGetValue(ModId.ToString(), out var localDl))
+                    _lastDownloaded = localDl;
+                _ = Task.Run(async () =>
+                {
+                    // v0.69.5: fill in the rest in parallel in the background — Requirements (GraphQL v2) + extra page data + changelogs
+                    try
+                    {
+                        var req = await NexusApi.GetModRequirementsWithCoversAsync(ModId);
+                        if (req is null) { _reqFailed = true; _requirements = new(); }
+                        else _requirements = req;
+                        await InvokeAsync(StateHasChanged);
+                    }
+                    catch { _reqFailed = true; _requirements = new(); }
+                    try
+                    {
+                        _translations = await NexusApi.GetModTranslationsAsync(ModId, _mod?.Name ?? "") ?? new();
+                        await InvokeAsync(StateHasChanged);
+                    }
+                    catch { _translations = new(); }
+                    try
+                    {
+                        _changelogs = await NexusApi.GetChangelogsAsync(_key, ModId) ?? new();
+                        await InvokeAsync(StateHasChanged);
+                    }
+                    catch { _changelogs = new(); }
+                });
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var hist = await NexusApi.GetDownloadHistoryAsync(_key);
+                        if (hist is not null && hist.TryGetValue(ModId, out var remote)
+                            && (_lastDownloaded is null
+                                || string.Compare(remote, _lastDownloaded, StringComparison.Ordinal) > 0))
+                        {
+                            _lastDownloaded = remote;
+                            await InvokeAsync(StateHasChanged);
+                        }
+                    }
+                    catch { /* legacy endpoint; fail silently */ }
+                });
+                // v1.04.0: author avatar — used by the "by" author name hover preview bubble; silent failure (initial-letter fallback)
+                // v1.06.1: GetUploaderAvatarAsync moved to the GraphQL legacyModsByDomain path —
+                // the site HTML is Cloudflare-403'd and the old GraphQL modId filter is rejected server-side;
+                // both legacy channels are dead
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var av = await NexusApi.GetUploaderAvatarAsync(ModId);
+                        if (!string.IsNullOrEmpty(av))
+                        {
+                            _authorAvatar = await NexusApi.FetchAvatarAsync(av);
+                            await InvokeAsync(StateHasChanged);
+                        }
+                    }
+                    catch { }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = "Fetch failed: " + ex.Message;
+        }
+        _loading = false;
+    }
+
+    /// <summary>
+    /// One-click direct install: request a one-time Nexus download link in the background -> stream the download
+    /// -> install into Mods, all without leaving the launcher. If the server refuses the direct link (the mod is
+    /// Premium-forced), the built-in browser opens automatically as a fallback. With "one-click install" disabled
+    /// in Settings, the browser flow is used directly.
+    /// </summary>
+    /// <summary>Installed locally and the Nexus version is [genuinely higher] than local -> updatable.
+    /// v0.71.9: the old version judged "has update" by exact string equality — v1.3.0 vs 1.3.0, 1.3.0 vs 1.3.0.0,
+    /// trailing spaces, pre-release suffixes, and similar notation differences were all misjudged as updates
+    /// (detail page showed an update button while the list page did not — the two used different criteria).
+    /// Now uses the same numeric per-segment semantic comparison as the list page's IsUpdatable.
+    /// v0.72.0: the comparison target is now the "updatable version" EffectiveRemoteVersion — the same
+    /// authoritative source as one-click install (InstallModDirectAsync → GetLatestMainFileAsync). The old
+    /// version compared the mod's top-level version (author-maintained field): when the main file had reached
+    /// 1.3.1 but the top level still said 1.3.0, it would "judge no update yet install 1.3.1 on click".</summary>
+    private bool HasUpdate =>
+        _thisEntry is not null && _mod is not null
+        && !string.IsNullOrWhiteSpace(EffectiveRemoteVersion) && !string.IsNullOrWhiteSpace(_thisEntry.Version)
+        && IsNewer(EffectiveRemoteVersion, _thisEntry.Version);
+
+    /// <summary>v0.72.0: the authoritative remote version for update detection = the latest MAIN file's version;
+    /// if the main file has no version, falls back to the mod's top-level version (the old logic's only source).</summary>
+    private string EffectiveRemoteVersion =>
+        !string.IsNullOrWhiteSpace(_latestFile?.Version) ? _latestFile!.Version : _mod?.Version ?? "";
+
+    /// <summary>v0.71.9: same logic as Mods.razor's IsNewer — numeric per-segment semantic version comparison.
+    /// Strips the v/V prefix and -beta/+build-style suffixes, pads missing segments with 0; full equality -> not an update.</summary>
+    private static bool IsNewer(string remote, string local)
+    {
+        static int[] Parts(string v)
+        {
+            var s = v.Trim().TrimStart('v', 'V');
+            var dash = s.IndexOfAny(new[] { '-', '+', ' ' });
+            if (dash >= 0) s = s[..dash];
+            var segs = s.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            var nums = new int[segs.Length];
+            for (var i = 0; i < segs.Length; i++)
+            {
+                var digits = new string(segs[i].TakeWhile(char.IsDigit).ToArray());
+                nums[i] = int.TryParse(digits, out var n) ? n : 0;
+            }
+            return nums;
+        }
+        var rp = Parts(remote); var lp = Parts(local);
+        var len = Math.Max(rp.Length, lp.Length);
+        for (var i = 0; i < len; i++)
+        {
+            var r = i < rp.Length ? rp[i] : 0;
+            var l = i < lp.Length ? lp[i] : 0;
+            if (r != l) return r > l;
+        }
+        return false;
+    }
+
+    private async Task Install()
+    {
+        if (_mod is null) return;
+        if (string.IsNullOrEmpty(_key))
+        {
+            _installMsg = "Enter an API key in Settings → Nexus first to use one-click install";
+            return;
+        }
+        if (!Cfg.Current.EnableOneClickInstall)
+        {
+            // the one-click install toggle is off -> degrade to manual download in the system browser
+            MainWindow.OpenNexusOverlay(
+                $"https://www.nexusmods.com/stardewvalley/mods/{ModId}?tab=files");
+            return;
+        }
+        _installing = true;
+        _installMsg = "Downloading and installing in the background… (large files take a moment)";
+        StateHasChanged();
+        try
+        {
+            var err = await Installer.InstallModDirectAsync(ModId);
+            if (err is null)
+            {
+                _installMsg = null;   // v0.69.1: no message bar after a successful install (removed by user request)
+                _installedFolder ??= ModSvc.Scan(Cfg.Current.GamePath)
+                    .FirstOrDefault(m => m.NexusModId == ModId)?.Folder;
+            }
+            else if (err.Contains("premium", StringComparison.OrdinalIgnoreCase))
+            {
+                _installMsg = "This mod requires Premium for direct install — opened the site in your browser; click Mod Manager Download to install automatically";
+                MainWindow.OpenNexusOverlay(
+                    $"https://www.nexusmods.com/stardewvalley/mods/{ModId}?tab=files");
+            }
+            else
+            {
+                _installMsg = "Install failed: " + err;
+            }
+        }
+        catch (Exception ex)
+        {
+            _installMsg = "Failed: " + ex.Message;
+        }
+        finally
+        {
+            _installing = false;
+        }
+    }
+
+    private void OpenPage() =>
+        UpdateService.OpenUrl($"https://www.nexusmods.com/stardewvalley/mods/{ModId}");
+
+    /// <summary>v1.04.0: clicking the "by" author name opens the author's Nexus profile.
+    /// v1.05.0: uses the site's own /profile/{username}?gameId=1303 — /users/{name} returns 404 (page not found).</summary>
+    private void OpenAuthorPage()
+    {
+        var author = _mod?.Author;
+        if (string.IsNullOrWhiteSpace(author)) return;
+        UpdateService.OpenUrl("https://www.nexusmods.com/profile/"
+            + Uri.EscapeDataString(author) + "?gameId=1303");
+    }
+
+    private async Task GoBack()
+    {
+        // v0.93.0: return to the source page — browser history back (came from the Nexus browse page -> back to
+        // Nexus with page/tab restored from the state snapshot; came from the Mods list -> back to Mods with the
+        // scroll position restored); falls back to /mods when there is no history.
+        try { await JS.InvokeVoidAsync("junigridJs.goBack"); }
+        catch { Nav.NavigateTo("/mods"); }
+    }
+
+    /// <summary>Common dependency UniqueIDs -> friendly names. Missing, uninstalled dependencies have no local name; this table provides a readable one.</summary>
+    private static string FriendlyDepName(string uniqueId)
+    {
+        if (string.IsNullOrWhiteSpace(uniqueId)) return uniqueId;
+        // match case-insensitively; normalize to a lowercase first letter for lookup
+        var key = uniqueId.Trim();
+        if (_depNameMap.TryGetValue(key, out var name)) return name;
+        // common pitfall: also try when the casing differs
+        foreach (var (k, v) in _depNameMap)
+            if (string.Equals(k, key, StringComparison.OrdinalIgnoreCase)) return v;
+        return key;
+    }
+
+    private static readonly Dictionary<string, string> _depNameMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // common SMAPI framework dependencies (these names are certain; used in place of the raw UniqueID when a dependency is missing)
+        { "Pathoschild.ContentPatcher", "Content Patcher" },
+        { "Pathoschild.LookupAnything", "Lookup Anything" },
+        { "spacechase0.JsonAssets", "JsonAssets" },
+        { "spacechase0.GenericModConfigMenu", "Generic Mod Config Menu (GMCM)" },
+        { "spacechase0.SpaceCore", "SpaceCore" },
+        { "PeacefulEnd.CustomCompanions", "Custom Companions" },
+        { "Esca.FarmTypeManager", "Farm Type Manager (FTM)" },
+        { "Cherry.ExpandedPreconditionsUtility", "Expanded Preconditions Utility (EPU)" },
+        { "bcmpinc.StardewHack", "StardewHack" },
+        { "bcmpinc.WearMoreRings", "Wear More Rings" },
+        { "MuseumHeir.CJBCheatsMenu", "CJB Cheats Menu" },
+        { "SMAPI", "SMAPI" },
+    };
+
+    /// <summary>A dependency (one entry of the expanded indirect dependency set).</summary>
+    private sealed class ResolvedDep
+    {
+        public string UniqueID = "";
+        public string Name = "";
+        public string? Version;
+        public int? NexusModId;
+        public string? CoverUrl;
+        public bool Installed;
+        public bool Required = true;
+    }
+
+    /// <summary>
+    /// BFS-expands the current mod's "transitive dependencies + CP hosts" (cycle-safe, deduplicated).
+    /// Only "required" dependencies are collected; optional ones (already filtered out of Dependencies
+    /// by the backend) do not participate in the recursion.
+    /// </summary>
+    private void ResolveDepTree()
+    {
+        _resolvedDeps.Clear();
+        if (_thisEntry is null) return;
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // The same UniqueID may be installed multiple times (duplicate folders); strict ToDictionary would throw
+        // on duplicate keys, so keep the first occurrence on conflict and let the BFS use it to locate installed dependencies as usual.
+        var byUid = new Dictionary<string, ModEntry?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in _localMods)
+            if (!string.IsNullOrWhiteSpace(m.UniqueID))
+                byUid.TryAdd(m.UniqueID, m);
+
+        // start from this mod's dependencies + CP hosts
+        var queue = new Queue<string>();
+        foreach (var d in _thisEntry.HasManifest ? _thisEntry.Dependencies : new List<string>())
+            if (!string.IsNullOrWhiteSpace(d)) queue.Enqueue(d);
+        foreach (var h in _thisEntry.ContentPackIds)
+            if (!string.IsNullOrWhiteSpace(h)) queue.Enqueue(h);
+
+        while (queue.Count > 0)
+        {
+            var uid = queue.Dequeue();
+            if (!visited.Add(uid)) continue;
+
+            var installed = byUid.TryGetValue(uid, out var depEntry) ? depEntry : null;
+            var cover = installed is not null
+                && Cfg.Current.ModCovers.TryGetValue(installed.Folder, out var cu) ? cu : null;
+
+            _resolvedDeps.Add(new ResolvedDep
+            {
+                UniqueID = uid,
+                Name = installed?.Name ?? FriendlyDepName(uid),
+                Version = installed?.Version,
+                NexusModId = installed?.NexusModId,
+                CoverUrl = cover,
+                Installed = installed is not null
+            });
+
+            // recurse into its dependencies (only installed ones can be expanded further)
+            if (installed is not null)
+            {
+                foreach (var sub in installed.Dependencies.Concat(installed.ContentPackIds))
+                    if (!string.IsNullOrWhiteSpace(sub)) queue.Enqueue(sub);
+            }
+        }
+    }
+
+    /// <summary>Dependency -> open its detail page. If a mod_id is available, go to the internal detail; only fall back to Nexus search when it is (=0).</summary>
+    private void GoDep(int modId, string name)
+    {
+        if (modId > 0)
+        {
+            Nav.NavigateTo($"mod/{modId}");
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(name))
+            UpdateService.OpenUrl("https://www.nexusmods.com/stardewvalley/search/?gsearch="
+                + Uri.EscapeDataString(name));
+    }
+
+    // v0.69.2: accordion toggling / opening external links
+    private int _pendingAnimAcc;
+    private bool _pendingAnimOpening;
+    private void ToggleAcc(int n)
+    {
+        var opening = !_openAccs.Contains(n);
+        if (opening) _openAccs.Add(n); else _openAccs.Remove(n);
+        _pendingAnimAcc = n; _pendingAnimOpening = opening;   // GSAP plays in OnAfterRenderAsync after the DOM updates
+    }
+    private static void OpenExt(string url) => UpdateService.OpenUrl(url);
+
+    /// <summary>Replaces hard-coded gray text colors in the detail rich text with inherit, so they stay readable in dark mode.</summary>
+    private static string NormalizeGrayColors(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return html ?? "";
+        return Regex.Replace(html,
+            @"(?i)color\s*:\s*(#(77|88|99|aa){2,3}\b|gray|grey|dimgray|darkgray|darkgrey|lightgray|lightgrey)",
+            "color: inherit");
+    }
+
+    private static string FormatDownloads(long n) =>
+        n >= 1_000_000 ? $"{n / 1_000_000.0:0.#}M"
+        : n >= 1_000 ? $"{n / 1_000.0:0.#}K"
+        : n.ToString();
+
+    /// <summary>v1.04.0: file size formatting (the detail page's "size" stat; 0 renders as 0 B).</summary>
+    private static string FormatBytes(long b) => b >= 1_048_576 ? (b / 1_048_576.0).ToString("0.#") + " MB"
+        : b >= 1024 ? (b / 1024.0).ToString("0.#") + " KB" : b + " B";
+}

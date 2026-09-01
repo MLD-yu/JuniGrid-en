@@ -1,0 +1,1581 @@
+@namespace JuniGrid.Components.Pages
+@page "/nexus"
+@implements IDisposable
+@inject ConfigService Cfg
+@inject NexusService NexusApi
+@inject NexusSsoService Sso
+@inject ModService ModSvc
+@inject GameService Game
+@inject InstallService Installer
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject PageRefreshService PageRefresh
+
+<div class="jg-page jg-nexus-scope">
+    @* ─── v1.06.2: Two-part header — left (logo + search island) flex:1 / right (login/avatar) flex:1.
+         Search island restored to its pre-v1.05.4 shape: magnifier button right after the logo; the input
+         expands to the right on click (GSAP back.out). No longer permanently expanded (class is no longer
+         fixed to open; expand/collapse is driven by searchIslandInit). ─── *@
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:0;">
+        <div style="display:flex;align-items:center;gap:10px;flex:1 1 0;min-width:0">
+            <img class="jg-nexus-logo" src="assets/nexus-mods-logo.svg" alt="Nexus Mods"
+                 style="flex-shrink:0;height:50px;width:auto;cursor:pointer;"
+                 @onclick="OpenNexusHome" />
+            @* ─── Relatively-positioned wrapper for the search island + history panel.
+                 The history panel hangs off the wrapper so the island's overflow:hidden can't clip it. ─── *@
+            <div class="jg-island-wrap">
+                <div class="jg-nexus-island" id="jgNexusIsland">
+                    <button type="button" class="jg-island-btn" id="jgNexusIslandBtn" aria-label="Search">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    </button>
+                    <div class="jg-island-field">
+                        <input class="jg-island-input" id="jgNexusIslandInput" placeholder="Search mod name / Nexus mod ID" autocomplete="off"
+                               value="@_searchText" @oninput="OnIslandInput" @onkeydown="OnIslandKeyDown" />
+                        @if (!string.IsNullOrEmpty(_searchText))
+                        {
+                            <button type="button" class="jg-island-clear" @onclick="ClearSearch">✕</button>
+                        }
+                    </div>
+                </div>
+                @* ─── v1.05.1: Search history (clear button at the far left of the "Search history" label;
+                     keeps the latest 10 entries at most). Visibility is fully driven by JS toggling the
+                     .history-open class — in practice the focus event triggered by JS focus() never reaches
+                     Blazor (@onfocus never fires, so the panel never appeared), so DOM events are no longer relied on. ─── *@
+                @if (_searchHistory.Count > 0)
+                {
+                    <div class="jg-search-history">
+                        <div class="jg-search-history-head">
+                            <span>Search history</span>
+                            <button type="button" class="jg-search-history-clearall" @onclick="ClearAllHistory">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                Clear history
+                            </button>
+                        </div>
+                        @foreach (var h in _searchHistory)
+                        {
+                            <div class="jg-search-history-row" @onclick="() => PickHistory(h)">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                                <span class="jg-search-history-text">@h</span>
+                                <button type="button" class="jg-search-history-del" @onclick="() => RemoveHistory(h)" @onclick:stopPropagation>✕</button>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex:1 1 0;justify-content:flex-end">
+            @if (!string.IsNullOrEmpty(_key))
+            {
+                @* ─── v0.70.1: Avatar only; hovering pops up a user card with GSAP easeReverse tooltip ─── *@
+                <div class="jg-user-tip" id="jgUserTip">
+                    @if (!string.IsNullOrEmpty(_userAvatar))
+                    {
+                        <img class="jg-user-tip-avatar" src="@_userAvatar" alt="avatar" />
+                    }
+                    else
+                    {
+                        <div class="jg-user-tip-avatar jg-user-tip-fallback">
+                            @(_userName.Length>0 ? _userName[..1].ToUpperInvariant() : "N")
+                        </div>
+                    }
+                    <div class="jg-user-tip-bubble" id="jgUserTipBubble">
+                        <div class="jg-user-tip-name">
+                            @(_userName.Length==0 ? "Nexus user" : _userName)
+                            @if (_isPremium) { <span class="jg-premium-badge">Premium</span> }
+                            else { <span style="opacity:.55;font-size:11px;font-weight:400">Free account</span> }
+                        </div>
+                        @if (_userExtras is not null)
+                        {
+                            <div class="jg-user-tip-stats">
+                                @if (_userExtras.ModCount > 0) { <span>Released @_userExtras.ModCount mods</span> }
+                                @if (_userExtras.UniqueModDownloads > 0) { <span>@FormatNum(_userExtras.UniqueModDownloads) downloads</span> }
+                                @if (_userExtras.EndorsementsGiven > 0) { <span>@_userExtras.EndorsementsGiven endorsements</span> }
+                                @if (!string.IsNullOrEmpty(_userExtras.Joined)) { <span>Joined @_userExtras.Joined[..Math.Min(10, _userExtras.Joined.Length)]</span> }
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_userExtras.About))
+                            {
+                                <div class="jg-user-tip-about">@(_userExtras.About.Length > 90 ? _userExtras.About[..90] + "…" : _userExtras.About)</div>
+                            }
+                        }
+                        <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:9px;">
+                            <button class="jg-user-tip-link" style="margin-top:0" @onclick="OpenProfile">View profile →</button>
+                            <button class="jg-user-tip-logoutbtn" @onclick="LogoutNexus">Log out</button>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <button class="jg-login-btn" @onclick="OpenLoginDialog">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                    Log in
+                </button>
+            }
+        </div>
+    </div>
+    @if (!string.IsNullOrEmpty(_ssoMsg)) { <div class="jg-note" style="margin-top:6px;">@_ssoMsg</div> }
+    @* ─── v0.74.0: Site-style home page (Trending + Mods sections) ─── *@
+    @if (_viewMode == "home")
+    {
+        <section class="jg-home-sec jg-home-sec-hero jg-hero-cream">
+            <div class="jg-trend-grain" id="jgTrendGrain"></div>
+            <div class="jg-home-sec-head">
+                <span class="jg-home-sec-title" style="display:inline-flex;align-items:center;gap:6px"><svg width="18" height="18" viewBox="0 0 24 24" style="vertical-align:-3px"><defs><linearGradient id="jgFlameG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#bcd2ff"/></linearGradient></defs><path d="M12 14.5 21 9.2 12 4 3 9.2Z" fill="#f2994a"/><path d="M12 16.8 21 11.5 21 9.2 12 14.5 3 9.2 3 11.5Z" fill="#d17a26"/><path d="M12 0.8c1.7 2.2 3.6 3.6 3.6 5.9 0 2-1.6 3.4-3.6 3.4s-3.6-1.4-3.6-3.4c0-1.1.5-1.9 1.1-2.6.2.9.7 1.5 1.4 1.7-.5-1.8 0-3.7 1.1-5Z" fill="url(#jgFlameG)"/></svg><DepthText Text="Trending Mods" FontSize="15px" /></span>
+                <button type="button" class="jg-viewall" @onclick='@(() => EnterBrowse("trending"))'>View all@((MarkupString)ViewAllArrow)</button>
+            </div>
+            @* v0.75.0: Check login state first — show guidance text when logged out; while logged in, keep Shimmer until data arrives *@
+            @if (string.IsNullOrEmpty(_key))
+            {
+                <div style="font-size:12px;opacity:.6">Log in to view the official Nexus Trending list.</div>
+            }
+            else if (_homeLoading && _trendingHome.Count == 0)
+            {
+                <div class="jg-trend-grid">
+                    <div class="jg-trend-big jg-shimmer"></div>
+                    <div class="jg-trend-big jg-shimmer"></div>
+                </div>
+            }
+            else if (_trendingHome.Count > 0)
+            {
+                <div class="jg-trend-grid">
+                    @foreach (var mod in _trendingHome.Take(2))
+                    {
+                        <div class="jg-trend-big" @onclick="() => OpenDetail(mod.Id)">
+                            @if (!string.IsNullOrEmpty(mod.PictureUrl ?? mod.ThumbnailUrl))
+                            {
+                                <img class="jg-trend-big-cover" src="@(mod.PictureUrl ?? mod.ThumbnailUrl)" loading="lazy" alt="" />
+                            }
+                            <div class="jg-trend-big-info">
+                                <div class="jg-trend-big-name">@mod.Name</div>
+                                <div class="jg-trend-big-sub">by @(string.IsNullOrEmpty(mod.Uploader) ? "unknown" : mod.Uploader) · <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg> @mod.Endorsements</div>
+                                @if (!string.IsNullOrWhiteSpace(mod.Summary))
+                                {
+                                    <div class="jg-trend-big-sum">@mod.Summary</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+                @if (_trendingHome.Count > 2)
+                {
+                    <div class="jg-trend-smalls">
+                        @foreach (var mod in _trendingHome.Skip(2).Take(4))
+                        {
+                            <div class="jg-trend-sm" @onclick="() => OpenDetail(mod.Id)">
+                                @if (!string.IsNullOrEmpty(mod.ThumbnailUrl ?? mod.PictureUrl))
+                                {
+                                    <img class="jg-trend-sm-cover" src="@(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
+                                }
+                                else
+                                {
+                                    <div class="jg-trend-sm-cover jg-trend-sm-fb">@(mod.Name.Length>0 ? mod.Name[..1].ToUpperInvariant() : "?")</div>
+                                }
+                                <div class="jg-trend-sm-name">@mod.Name</div>
+                                <div class="jg-trend-sm-sub">by @(string.IsNullOrEmpty(mod.Uploader) ? "unknown" : mod.Uploader) · <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg> @mod.Endorsements</div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <div style="font-size:12px;opacity:.6">Failed to load the list — try refreshing later.</div>
+            }
+        </section>
+
+        <section class="jg-home-sec jg-home-sec-hero jg-hero-cream">
+            <div class="jg-home-sec-head">
+                <span class="jg-home-sec-title" style="display:inline-flex;align-items:center;gap:6px"><svg width="18" height="18" viewBox="0 0 24 24" style="vertical-align:-3px"><defs><linearGradient id="jgGemG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#c9d2ff"/></linearGradient></defs><path d="M12 4.5 21 9.8 12 15.2 3 9.8Z" fill="url(#jgGemG)" stroke="#aab4e8" stroke-width=".5"/><path d="M12 15.2 21 9.8 21 12 12 17.4 3 12 3 9.8Z" fill="#8f9bd6" opacity=".55"/></svg><DepthText Text="Mods" FontSize="15px" /></span>
+                <button type="button" class="jg-viewall" @onclick="() => EnterBrowse(_homeTab)">View all@((MarkupString)ViewAllArrow)</button>
+            </div>
+            <div class="jg-chips">
+                @foreach (var tab in _browseTabs)
+                {
+                    <button type="button" class="jg-chip @(_homeTab == tab.Key ? "active" : "")"
+                            disabled="@_homeLoading" @onclick="() => SetHomeTab(tab.Key)">
+                        @((MarkupString)TabIcon(tab.Key))@tab.Label
+                    </button>
+                }
+            </div>
+            @if (string.IsNullOrEmpty(_key))
+            {
+                <div style="font-size:12px;opacity:.6;margin-top:8px">Log in to view the official Nexus mod lists.</div>
+            }
+            else if (_homeLoading && _homeMods.Count == 0)
+            {
+                <div class="jg-browse2" style="margin-top:10px">
+                    @for (var i = 0; i < _pageSize; i++)
+                    {
+                        <div class="jg-modcard2 jg-modcard2-skel">
+                            <div class="jg-modcard2-cover-wrap"><div class="jg-modcard2-cover jg-shimmer"></div></div>
+                            <div class="jg-modcard2-body">
+                                <div class="jg-shimmer" style="height:14px;border-radius:4px"></div>
+                                <div class="jg-shimmer" style="height:11px;border-radius:4px;width:55%"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else if (_homeMods.Count > 0)
+            {
+                <div class="jg-browse2" style="margin-top:10px">
+                    @foreach (var mod in _homeMods)
+                    {
+                        <div class="jg-modcard2" @onclick="() => OpenDetail(mod.Id)">
+                            <div class="jg-modcard2-cover-wrap">
+                                @if (!string.IsNullOrEmpty(mod.ThumbnailUrl) || !string.IsNullOrEmpty(mod.PictureUrl))
+                                {
+                                    <img class="jg-modcard2-cover" src="@(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
+                                }
+                                else
+                                {
+                                    <div class="jg-modcard2-cover jg-modcard2-fb">@(mod.Name.Length>0 ? mod.Name[..1].ToUpperInvariant() : "?")</div>
+                                }
+                                @if (_installedIds.Contains(mod.Id))
+                                {
+                                    <span class="jg-modcard2-badge">Installed</span>
+                                }
+                            </div>
+                            <div class="jg-modcard2-body">
+                                @* ─── v1.04.0: Site-style compact layout — cover / title / category chip / two-line summary ─── *@
+                                <div class="jg-modcard2-title">@mod.Name</div>
+                                @if (!string.IsNullOrEmpty(mod.Category))
+                                {
+                                    <span class="jg-modcard2-cat-chip">@mod.Category</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(mod.Summary))
+                                {
+                                    <div class="jg-modcard2-summary">@(mod.Summary.Length > 90 ? mod.Summary[..90] + "…" : mod.Summary)</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+                @* ─── v1.04.0: The Mods section's bottom "View all" became a pill button (arrow after the text, follows text color) ─── *@
+                <div style="display:flex;justify-content:center;margin-top:14px;">
+                    <button type="button" class="jg-viewall-cap" @onclick="() => EnterBrowse(_homeTab)">View all@((MarkupString)ViewAllArrow)</button>
+                </div>
+            }
+        </section>
+    }
+
+    @* ─── v1.02.0: Search page (standalone view, no longer reuses the "view all" page; an ID match shows an "Exact match" card) ─── *@
+    else if (_viewMode == "search")
+    {
+        <section class="jg-home-sec">
+            <div class="jg-home-sec-head">
+                <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                    <button type="button" class="jg-back-btn" @onclick="BackFromSearch" aria-label="Back">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                    </button>
+                    <span class="jg-home-sec-title" style="font-size:15px;font-weight:700">Search: @_searchTitle</span>
+                </div>
+            </div>
+            @if (_exactMod is not null)
+            {
+                var exName = PropStr(_exactMod, "Name");
+                var exPic = PropStr(_exactMod, "PictureUrl");
+                var exVer = PropStr(_exactMod, "Version");
+                <div class="jg-search-exact" @onclick="() => OpenDetail(_exactMod.Id)">
+                    @if (!string.IsNullOrEmpty(exPic))
+                    {
+                        <img class="jg-search-exact-cover" src="@exPic" alt="" />
+                    }
+                    else
+                    {
+                        <div class="jg-search-exact-cover jg-search-exact-fb">@(!string.IsNullOrEmpty(exName) ? exName[..1].ToUpperInvariant() : "#")</div>
+                    }
+                    <div class="jg-search-exact-body">
+                        <div class="jg-search-exact-name">@(!string.IsNullOrEmpty(exName) ? exName : $"Mod with ID #{_exactMod.Id}")</div>
+                        <div class="jg-search-exact-sub">ID #@_exactMod.Id · Exact match@(string.IsNullOrEmpty(exVer) ? "" : $" · v{exVer}")</div>
+                    </div>
+                    <span class="jg-search-exact-go">View →</span>
+                </div>
+            }
+            @if (_browseLoading)
+            {
+                <div class="jg-browse2" style="margin-top:10px">
+                    @for (var i = 0; i < 8; i++)
+                    {
+                        <div class="jg-modcard2-cover jg-shimmer" style="aspect-ratio:16/10;border-radius:10px"></div>
+                    }
+                </div>
+            }
+            else if (_browse.Count > 0)
+            {
+                <div class="jg-browse2" style="margin-top:10px">
+                    @foreach (var mod in _browse)
+                    {
+                        <div class="jg-modcard2" @onclick="() => OpenDetail(mod.Id)">
+                            <div class="jg-modcard2-cover-wrap">
+                                @if (!string.IsNullOrEmpty(mod.ThumbnailUrl) || !string.IsNullOrEmpty(mod.PictureUrl))
+                                {
+                                    <img class="jg-modcard2-cover" src="@(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
+                                }
+                                else
+                                {
+                                    <div class="jg-modcard2-cover jg-modcard2-fb">@(mod.Name.Length>0 ? mod.Name[..1].ToUpperInvariant() : "?")</div>
+                                }
+                                @if (_installedIds.Contains(mod.Id))
+                                {
+                                    <span class="jg-modcard2-badge">Installed</span>
+                                }
+                            </div>
+                            <div class="jg-modcard2-body">
+                                @* ─── v1.04.0: Site-style compact layout — cover / title / category chip / two-line summary ─── *@
+                                <div class="jg-modcard2-title">@mod.Name</div>
+                                @if (!string.IsNullOrEmpty(mod.Category))
+                                {
+                                    <span class="jg-modcard2-cat-chip">@mod.Category</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(mod.Summary))
+                                {
+                                    <div class="jg-modcard2-summary">@(mod.Summary.Length > 90 ? mod.Summary[..90] + "…" : mod.Summary)</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="jg-pager">
+                    <div class="jg-pager-side">
+                        <span class="jg-pager-info">
+                            Page @_page@(TotalPages is int tp ? $" / {tp}" : "")@(TotalPages is not null && NexusApi.LastBrowseTotalCount is int tc ? $" · {tc:N0} total" : "")
+                        </span>
+                    </div>
+                    <div class="jg-pager-side">
+                        <button class="jg-pager-btn" disabled="@(_page <= 1)" @onclick="PrevPage">‹ Prev</button>
+                        @foreach (var it in PageNumbers)
+                        {
+                            if (it.Dots)
+                            {
+                                <span class="jg-pager-dots">…</span>
+                            }
+                            else
+                            {
+                                var p = it.Page;
+                                <button class="jg-pager-btn @(p == _page ? "cur" : "")" @onclick="() => GoToPage(p)">@p</button>
+                            }
+                        }
+                        <button class="jg-pager-btn" disabled="@(!_hasNextPage)" @onclick="NextPage">Next ›</button>
+                        <input class="jg-pager-jump" placeholder="Page" @bind="_jumpText" />
+                        <button class="jg-pager-btn" @onclick="JumpToPage">Go</button>
+                    </div>
+                </div>
+            }
+            else if (string.IsNullOrWhiteSpace(_searchTitle))
+            {
+                <div class="jg-note" style="margin-top:10px">Type a mod name or Nexus mod ID in the search box above to start searching.</div>
+            }
+            else if (_exactMod is null)
+            {
+                <div class="jg-note" style="margin-top:10px">No mods found for "@_searchTitle" — try another keyword or a Nexus mod ID.</div>
+            }
+            else
+            {
+                <div class="jg-note" style="margin-top:10px">No results by name, but one mod matched the ID exactly above.</div>
+            }
+        </section>
+    }
+
+    @* ─── v0.74.0: Browse page ("view all") — top bar with back + filters + full list + pagination ─── *@
+    else if (_viewMode == "browse")
+    {
+        <section class="jg-home-sec">
+            <div class="jg-home-sec-head">
+                <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                    <button type="button" class="jg-back-btn" @onclick="BackToHome" aria-label="Back">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                    </button>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    @* ─── v1.04.0: Filters (formerly the New/Updated/Downloads/Popular/Surprise button bar), time range, and
+                       sort direction — three GSAP easeReverse dropdowns (springy expand + arrow rotation + staggered menu items
+                       + accelerated reverse exit) ─── *@
+                    <div class="jg-sort-dd @(_kindOpen ? "open" : "")" id="jgKindDd">
+                        <button type="button" class="jg-sort-trigger" disabled="@_browseLoading" @onclick="ToggleKindDd">
+                            @((MarkupString)TabIcon(_browseKind))@KindLabel
+                            <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="jg-sort-menu">
+                            @* v1.07.0: Visual inner layer — the springy animation only applies to this layer; the outer box stays
+                               at its final rectangle (hit area equals the final position from the first frame of opening,
+                               so clicks no longer pass through to mod cards below during the animation) *@
+                            <div class="jg-sort-menu-in">
+                                @foreach (var tab in _browseTabs)
+                                {
+                                    <button type="button" class="jg-sort-item @(_browseKind == tab.Key ? "active" : "")"
+                                            disabled="@_browseLoading" @onclick="() => LoadBrowse(tab.Key)">
+                                        @((MarkupString)TabIcon(tab.Key))@tab.Label
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    <div class="jg-sort-dd jg-dd-right @(_timeOpen ? "open" : "")" id="jgTimeDd">
+                        <button type="button" class="jg-sort-trigger" disabled="@_browseLoading" @onclick="ToggleTimeDd">
+                            @TimeLabel
+                            <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="jg-sort-menu">
+                            @* v1.07.0: Visual inner layer (same as above) — outer box keeps its final rectangle; hit area doesn't scale with the animation *@
+                            <div class="jg-sort-menu-in">
+                                @* v1.04.0: The "Custom" time range and related code have been removed *@
+                                @foreach (var o in _timeOptions)
+                                {
+                                    <button type="button" class="jg-sort-item @(_timeRange == o.Key ? "active" : "")"
+                                            disabled="@_browseLoading" @onclick="() => SetTimeRange(o.Key)">@o.Label</button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    <div class="jg-sort-dd jg-dd-right @(_dirOpen ? "open" : "")" id="jgDirDd">
+                        <button type="button" class="jg-sort-trigger" disabled="@_browseLoading" @onclick="ToggleDirDd">
+                            @(_direction == "DESC" ? "Descending" : "Ascending")
+                            <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <div class="jg-sort-menu">
+                            @* v1.07.0: Visual inner layer (same as above) — outer box keeps its final rectangle; hit area doesn't scale with the animation *@
+                            <div class="jg-sort-menu-in">
+                                <button type="button" class="jg-sort-item @(_direction == "DESC" ? "active" : "")"
+                                        @onclick='() => SetDirection("DESC")'>Descending (most → least)</button>
+                                <button type="button" class="jg-sort-item @(_direction == "ASC" ? "active" : "")"
+                                        @onclick='() => SetDirection("ASC")'>Ascending (least → most)</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            @* v1.07.0: The overlay stays in the DOM permanently — previously the @if render lagged one beat behind the JS
+               menu (Blazor re-render is queued after interop), so during the "menu open but overlay not yet shown" window
+               clicks could pass through to mod cards below (most visible while the open animation plays).
+               The open/close class is flipped in the same frame as the menu by the dropdownToggle JS; this binding only
+               re-aligns state as a fallback on re-render. *@
+            <div class="jg-dd-overlay @((_kindOpen || _timeOpen || _dirOpen) ? "open" : "")" @onclick="CloseAllDd"></div>
+            @if (string.IsNullOrEmpty(_key))
+            {
+                <div style="font-size:12px;opacity:.6;margin-top:8px">Log in to view official Nexus lists.</div>
+            }
+            else if (_browseLoading)
+            {
+                <div class="jg-browse2" style="margin-top:10px">
+                    @for (var i = 0; i < _pageSize; i++)
+                    {
+                        <div class="jg-modcard2 jg-modcard2-skel">
+                            <div class="jg-modcard2-cover-wrap"><div class="jg-modcard2-cover jg-shimmer"></div></div>
+                            <div class="jg-modcard2-body">
+                                <div class="jg-shimmer" style="height:14px;border-radius:4px"></div>
+                                <div class="jg-shimmer" style="height:11px;border-radius:4px;width:55%"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+            else if (_browse.Count == 0)
+            {
+                <div style="font-size:12px;opacity:.6;margin-top:8px">No data yet (try different filters or retry later).</div>
+            }
+            else
+            {
+                <div class="jg-browse2" style="margin-top:10px">
+                    @foreach (var mod in _browse)
+                    {
+                        <div class="jg-modcard2" @onclick="() => OpenDetail(mod.Id)">
+                            <div class="jg-modcard2-cover-wrap">
+                                @if (!string.IsNullOrEmpty(mod.ThumbnailUrl) || !string.IsNullOrEmpty(mod.PictureUrl))
+                                {
+                                    <img class="jg-modcard2-cover" src="@(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
+                                }
+                                else
+                                {
+                                    <div class="jg-modcard2-cover jg-modcard2-fb">@(mod.Name.Length>0 ? mod.Name[..1].ToUpperInvariant() : "?")</div>
+                                }
+                                @if (_installedIds.Contains(mod.Id))
+                                {
+                                    <span class="jg-modcard2-badge">Installed</span>
+                                }
+                            </div>
+                            <div class="jg-modcard2-body">
+                                @* ─── v1.04.0: Site-style compact layout — cover / title / category chip / two-line summary ─── *@
+                                <div class="jg-modcard2-title">@mod.Name</div>
+                                @if (!string.IsNullOrEmpty(mod.Category))
+                                {
+                                    <span class="jg-modcard2-cat-chip">@mod.Category</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(mod.Summary))
+                                {
+                                    <div class="jg-modcard2-summary">@(mod.Summary.Length > 90 ? mod.Summary[..90] + "…" : mod.Summary)</div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+                @* ─── v0.90.0: Paginator (mirrors the site: page numbers + jump + refresh; v1.04.0 removed per-page size selection, fixed at 40) ─── *@
+                @if (!_browseLoading && _browse.Count > 0)
+                {
+                    <div class="jg-pager">
+                        @if (_browseKind == "surprise")
+                        {
+                            @* Surprise "shuffle" = change the server-side random seed and re-query (mirrors the site's random sort) *@
+                            <button class="jg-pager-btn" @onclick="ReshuffleSurpriseAsync">🎲 Shuffle</button>
+                        }
+                        else
+                        {
+                            <div class="jg-pager-side">
+                                <span class="jg-pager-info">
+                                    Page @_page@(TotalPages is int tp ? $" / {tp}" : "")@(TotalPages is not null && NexusApi.LastBrowseTotalCount is int tc ? $" · {tc:N0} total" : "")
+                                </span>
+                            </div>
+                            <div class="jg-pager-side">
+                                <button class="jg-pager-btn" disabled="@(_page <= 1)" @onclick="PrevPage">‹ Prev</button>
+                                @foreach (var it in PageNumbers)
+                                {
+                                    if (it.Dots)
+                                    {
+                                        <span class="jg-pager-dots">…</span>
+                                    }
+                                    else
+                                    {
+                                        var p = it.Page;
+                                        <button class="jg-pager-btn @(p == _page ? "cur" : "")" @onclick="() => GoToPage(p)">@p</button>
+                                    }
+                                }
+                                <button class="jg-pager-btn" disabled="@(!_hasNextPage)" @onclick="NextPage">Next ›</button>
+                                <input class="jg-pager-jump" placeholder="Page" @bind="_jumpText" />
+                                <button class="jg-pager-btn" @onclick="JumpToPage">Go</button>
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </section>
+    }
+
+</div>
+
+@* ── v0.39.0: Login dialog (method choice → API key entry → authorization wait → Pixel Reveal success card) ── *@
+@if (_loginStep != LoginStep.Closed)
+{
+    <div class="jg-login-overlay" @onclick="CloseLoginDialog">
+        <div class="jg-login-card @(_loginStep == LoginStep.Success ? "success" : "")" @onclick:stopPropagation>
+
+            @if (_loginStep == LoginStep.Choose)
+            {
+                <div class="jg-login-title">Choose a login method</div>
+                <div class="jg-login-sub">Connect your Nexus Mods account to unlock browsing and one-click install</div>
+                <div class="jg-login-options">
+                    <button class="jg-login-option" @onclick="() => _loginStep = LoginStep.ApiKey">
+                        <span class="jg-login-option-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9.5-9.5"/><path d="m15.5 7.5 3 3"/><path d="m18.5 4.5 2 2"/></svg>
+                        </span>
+                        <span class="jg-login-option-text">
+                            <span class="jg-login-option-name">Log in with API Key</span>
+                            <span class="jg-login-option-desc">Paste your personal API key to sign in instantly</span>
+                        </span>
+                    </button>
+                    @* v1.08.4: The SSO app name "junigrid" is not yet on Nexus's official whitelist, so the
+                       authorization page reports "invalid application ID" — this entry stays disabled until official approval *@
+                    <button class="jg-login-option jg-login-option-disabled" disabled
+                            title="Pending official approval: Nexus site authorization opens once the app name is approved. Please use API Key login for now.">
+                        <span class="jg-login-option-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                        </span>
+                        <span class="jg-login-option-text">
+                            <span class="jg-login-option-name">Website authorization login</span>
+                            <span class="jg-login-option-desc">Pending official approval — coming soon</span>
+                        </span>
+                    </button>
+                </div>
+                <button class="jg-login-cancel" @onclick="CloseLoginDialog">Cancel</button>
+            }
+            else if (_loginStep == LoginStep.ApiKey)
+            {
+                <div class="jg-login-title">Enter your API Key</div>
+                <div class="jg-login-sub">The API Key is stored only on this machine and is used to access official Nexus Mods data</div>
+                <input class="jg-login-input" placeholder="Paste your Nexus API Key"
+                       @bind="_apiKeyInput" @bind:event="oninput" disabled="@_apiKeyBusy" />
+                @if (!string.IsNullOrEmpty(_apiKeyError))
+                {
+                    <div class="jg-login-error">@_apiKeyError</div>
+                }
+                <div class="jg-login-actions">
+                    <button class="jg-login-get" @onclick="OpenApiKeyPage" disabled="@_apiKeyBusy">
+                        Get API Key
+                    </button>
+                    <button class="jg-login-confirm @(_apiKeyBusy ? "busy" : "")"
+                            disabled="@(_apiKeyBusy || string.IsNullOrWhiteSpace(_apiKeyInput))"
+                            @onclick="ConfirmApiKey">
+                        @if (_apiKeyBusy)
+                        {
+                            <span class="jg-login-spinner"></span>
+                        }
+                        else
+                        {
+                            <text>Confirm</text>
+                        }
+                    </button>
+                </div>
+                <button class="jg-login-cancel" @onclick="BackToChoose" disabled="@_apiKeyBusy">Back</button>
+            }
+            else if (_loginStep == LoginStep.SsoWaiting)
+            {
+                <div class="jg-login-title">Waiting for authorization</div>
+                <div class="jg-login-sub">The Nexus authorization page has opened — click Authorise in your browser to finish</div>
+                <div class="jg-login-waiting">
+                    <span class="jg-login-spinner large"></span>
+                    <span>Waiting for browser authorization…</span>
+                </div>
+                <button class="jg-login-cancel" @onclick="CancelSsoFlow">Cancel authorization</button>
+            }
+            else if (_loginStep == LoginStep.Success)
+            {
+                @* Pixel Reveal: a canvas pixel sweep reveals the content; avatar/nickname/welcome message are hidden under the pixel curtain *@
+                <canvas id="jg-pixel-reveal" class="jg-pixel-reveal"></canvas>
+                <div class="jg-login-success-inner">
+                    @if (!string.IsNullOrEmpty(_userAvatar))
+                    {
+                        <img class="jg-login-avatar" src="@_userAvatar" alt="avatar" />
+                    }
+                    else
+                    {
+                        <div class="jg-login-avatar fallback">@(_userName.Length>0 ? _userName[..1].ToUpperInvariant() : "N")</div>
+                    }
+                    <div class="jg-login-success-name">@(_userName.Length==0 ? "Nexus user" : _userName)</div>
+                    <div class="jg-login-success-welcome">Welcome to JuniGrid!</div>
+                </div>
+                <button class="jg-login-confirm" style="width:100%;justify-content:center" @onclick="CloseLoginDialog">Get started</button>
+            }
+
+        </div>
+    </div>
+}
+
+@* Success toast: centered black bar at the top of the screen *@
+@if (_loginToast)
+{
+    <div class="jg-login-toast">✓ Logged in</div>
+}
+
+@code {
+    // v0.59.0: First-paint shimmer
+
+    private string? _ssoMsg;
+
+    // ---- v0.39.0: Login dialog state machine ----
+    private enum LoginStep { Closed, Choose, ApiKey, SsoWaiting, Success }
+    private LoginStep _loginStep = LoginStep.Closed;
+    private string _apiKeyInput = "";
+    private bool _apiKeyBusy;
+    private string? _apiKeyError;
+    private bool _loginToast;
+
+    private void OpenLoginDialog()
+    {
+        _loginStep = LoginStep.Choose;
+        _apiKeyInput = "";
+        _apiKeyError = null;
+    }
+
+    private void CloseLoginDialog()
+    {
+        // Clicking the overlay while waiting for authorization is the same as canceling
+        if (_loginStep == LoginStep.SsoWaiting) { CancelSsoFlow(); return; }
+        _loginStep = LoginStep.Closed;
+    }
+
+    private void BackToChoose() => _loginStep = LoginStep.Choose;
+
+    private void OpenApiKeyPage()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "https://www.nexusmods.com/users/myaccount?tab=api") { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    // API Key login: validate → save → success card
+    private async Task ConfirmApiKey()
+    {
+        if (_apiKeyBusy) return;
+        _apiKeyBusy = true;
+        _apiKeyError = null;
+        StateHasChanged();
+        try
+        {
+            var key = _apiKeyInput.Trim();
+            var user = await NexusApi.ValidateAsync(key);
+            if (user is null)
+            {
+                _apiKeyError = "Invalid API Key — please check and try again";
+                return;
+            }
+            _key = key;
+            _userName = user.Name ?? "";
+            _isPremium = user.IsPremium;
+            // vNext: Persist user info right at login — saving only the key would make the Settings page
+            // flash "Not logged in" first (the name only appears after the Settings page's background
+            // validate self-heal, about 1s later)
+            {
+                var c0 = Cfg.Current;
+                c0.NexusApiKey = _key;
+                c0.NexusUserName = _userName;
+                c0.NexusUserEmail = user.Email ?? "";
+                c0.NexusProfileUrl = user.ProfileUrl ?? "";
+                c0.NexusIsPremium = _isPremium;
+                Cfg.Save(c0);
+            }
+            _userName = user.Name ?? "";
+            _isPremium = user.IsPremium;
+            // v1.08.3: The success card shows the initial-letter fallback first, then fetches the avatar in the
+            // background, converts it to a data URI and caches it — the pixel reveal animation runs 2.6s, enough
+            // time for the image to be in place; next visit to the page reads the cache and shows instantly
+            _userAvatar = "";
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var av = await NexusApi.FetchAvatarAsync(user.Avatar ?? "");
+                    if (!string.IsNullOrEmpty(av))
+                    {
+                        _userAvatar = av;
+                        var c = Cfg.Current; c.NexusAvatarDataUri = av; Cfg.Save(c);
+                        await InvokeAsync(StateHasChanged);
+                    }
+                }
+                catch { }
+            });
+            await ShowLoginSuccess();
+        }
+        catch (Exception ex)
+        {
+            _apiKeyError = "Validation failed: " + ex.Message;
+        }
+        finally
+        {
+            _apiKeyBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    // Site authorization: enter waiting state → SSO → success card
+    private async Task StartSsoFlow()
+    {
+        _loginStep = LoginStep.SsoWaiting;
+        StateHasChanged();
+        using var cts = _ssoCts = new CancellationTokenSource();
+        try
+        {
+            var key = await Sso.LoginAsync("junigrid", cts.Token);
+            if (!string.IsNullOrEmpty(key))
+            {
+                _key = key;
+                Save();
+                await LoadNexusUserAsync();
+                await ShowLoginSuccess();
+            }
+            else if (_ssoCts?.IsCancellationRequested != true)
+            {
+                // Non-cancellation failure: return to the method choice with a message
+                _loginStep = LoginStep.Choose;
+                _ssoMsg = "SSO not completed: " + (Sso.LastError ?? "Timed out (5 minutes)");
+            }
+        }
+        finally
+        {
+            _ssoCts = null;
+            if (_loginStep == LoginStep.SsoWaiting) _loginStep = LoginStep.Choose;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelSsoFlow()
+    {
+        _ssoCts?.Cancel();
+        _loginStep = LoginStep.Choose;
+    }
+
+    // Success card: switch to the Success step → play Pixel Reveal → toast
+    private async Task ShowLoginSuccess()
+    {
+        _loginStep = LoginStep.Success;
+        StateHasChanged();
+        try { await JS.InvokeVoidAsync("junigridJs.pixelReveal", "#jg-pixel-reveal"); } catch { }
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(2600);
+            _loginToast = true;
+            await InvokeAsync(StateHasChanged);
+            await Task.Delay(2400);
+            _loginToast = false;
+            await InvokeAsync(StateHasChanged);
+        });
+        // After login succeeds, refresh the current view's data (v0.97.1: previously only browse lists were
+        // refreshed — in home mode neither the Trending nor the Mods section had anything loading its data,
+        // so it always showed "failed to load")
+        if (!string.IsNullOrEmpty(_key))
+        {
+            if (_viewMode == "browse")
+                _ = LoadBrowse(_browseKind);
+            else
+                _ = LoadHomeAsync();
+        }
+    }
+    private CancellationTokenSource? _ssoCts;   // Cancellation token while waiting for authorization; used by the "cancel authorization" button to interrupt LoginAsync
+
+    private string _key = "";
+    private string _userName = "";
+    private string _userAvatar = "";
+    private bool _isPremium;
+    private string? _profileUrl;
+    private int _memberId;
+    private NexusUserExtras? _userExtras;
+    private static string FormatNum(long n) => n >= 10000 ? (n / 1000.0).ToString("0.#") + "K" : n >= 1000 ? (n / 1000.0).ToString("0.0") + "K" : n.ToString();
+
+    private string _browseKind = "new";
+    private string _searchText = "";
+    /// <summary>v1.05.0: The committed (Enter-pressed) search term — the search page title/hint uses it;
+    /// the in-progress _searchText no longer changes the page in real time (the root cause of the
+    /// "searching on every keystroke" look).</summary>
+    private string _searchTitle = "";
+    private NexusModInfo? _exactMod;                 // v1.02.0: ID exact-match card (shown at the top of the search page)
+    private static NexusModInfo? _svExact;           // v1.02.0: Search page snapshot (restored when returning from the detail page)
+    private bool _browseLoading;
+    // ─── v0.90.0: Pagination state (lazy loading removed) ───
+    private int _page = 1;
+    private int _pageSize = 40;
+    private string _jumpText = "";
+
+    // ─── v0.93.0: Static snapshot of browse state — restores view/page/tab/time range when returning from a mod detail page ───
+    private static string? _svMode; private static string? _svKind;
+    private static int _svPage = 1;
+    private static string? _svRange; private static string? _svSearch;
+    private static List<NexusModListEntry>? _svBrowse;   // v1.03.0: List data snapshot — restored directly on return, no server request
+    private static List<NexusModListEntry>? _svTrending;
+    private static List<NexusModListEntry>? _svHomeMods;
+    private static string? _svHomeTab;
+    private List<NexusModListEntry> _browse = new();
+    // v0.76.0: Cross-page dedup — under server-side truncation/random sort, offset boundaries can produce
+    // duplicates; infinite scroll must never append duplicate cards
+
+    private static string FormatCompact(long n) => n >= 1_000_000 ? (n / 1_000_000.0).ToString("0.#") + "M"
+        : n >= 1000 ? (n / 1000.0).ToString("0.#") + "K" : n.ToString();
+    /// <summary>v0.73.0: File size formatting (mirrors the site's stats line, e.g. 65.0KB / 190.0KB).</summary>
+    private static string FormatBytes(long b) => b >= 1_048_576 ? (b / 1_048_576.0).ToString("0.#") + " MB"
+        : b >= 1024 ? (b / 1024.0).ToString("0.#") + " KB" : b + " B";
+    /// <summary>v1.04.0: "View all" suffix arrow (user-supplied arrow-right icon path, fill=currentColor follows text color, transparent background).</summary>
+    private static readonly string ViewAllArrow = "<svg width=\"11\" height=\"11\" viewBox=\"0 0 1024 1024\" fill=\"currentColor\" aria-hidden=\"true\" style=\"margin-left:4px;vertical-align:-1px\"><path d=\"M629.963157 511.976464 282.01449 848.324932c-20.50808 19.85828-20.50808 51.997258 0 71.792093 20.507056 19.826558 53.778834 19.826558 74.28589 0l385.061936-372.252189c20.47738-19.825534 20.47738-51.981908 0-71.745021L356.30038 103.882975c-10.285251-9.91379-23.728424-14.869662-37.173644-14.869662-13.446243 0-26.889417 4.956895-37.112246 14.901385-20.50808 19.826558-20.50808 51.919487 0 71.746044L629.963157 511.976464\"/></svg>";
+
+    private readonly Dictionary<int, string?> _browseStates = new();
+    private readonly HashSet<int> _installing = new();
+    private HashSet<int> _installedIds = new();
+
+    // v0.73.0: Mirrors the site's Mods section's 5 tabs
+    // v1.04.0: Trending → Downloads (sorted by download count; user-supplied download icon, fill=currentColor follows text color)
+    private readonly (string Key, string Label)[] _browseTabs =
+    {
+        ("new",       "New"),
+        ("updated",   "Updated"),
+        ("downloads", "Downloads"),
+        ("popular",   "Popular"),
+        ("surprise",  "Surprise"),
+    };
+
+    /// <summary>v1.01.0: Tab icons (stroke=currentColor follows text color; sun/star fills). Transparent background.</summary>
+    private static string TabIcon(string key) => key switch
+    {
+        "new"      => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><circle cx=\"12\" cy=\"12\" r=\"4.5\"/><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"4.5\" fill=\"none\"/><line x1=\"12\" y1=\"19.5\" x2=\"12\" y2=\"22\" fill=\"none\"/><line x1=\"4.9\" y1=\"4.9\" x2=\"6.7\" y2=\"6.7\" fill=\"none\"/><line x1=\"17.3\" y1=\"17.3\" x2=\"19.1\" y2=\"19.1\" fill=\"none\"/><line x1=\"2\" y1=\"12\" x2=\"4.5\" y2=\"12\" fill=\"none\"/><line x1=\"19.5\" y1=\"12\" x2=\"22\" y2=\"12\" fill=\"none\"/><line x1=\"4.9\" y1=\"19.1\" x2=\"6.7\" y2=\"17.3\" fill=\"none\"/><line x1=\"17.3\" y1=\"6.7\" x2=\"19.1\" y2=\"4.9\" fill=\"none\"/></svg>",
+        "updated"  => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><path d=\"M21 12a9 9 0 1 1-2.64-6.36\"/><polyline points=\"21 3 21 9 15 9\"/><line x1=\"12\" y1=\"8\" x2=\"12\" y2=\"12\"/><line x1=\"12\" y1=\"12\" x2=\"15\" y2=\"14\"/></svg>",
+        "downloads" => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 1024 1024\" fill=\"currentColor\" aria-hidden=\"true\" style=\"vertical-align:-2px;margin-right:4px\"><path d=\"M828.975746 894.125047 190.189132 894.125047c-70.550823 0-127.753639-57.18542-127.753639-127.752616L62.435493 606.674243c0-17.634636 14.308891-31.933293 31.93227-31.933293l63.889099 0c17.634636 0 31.93227 14.298658 31.93227 31.933293l0 95.821369c0 35.282574 28.596292 63.877843 63.87682 63.877843L765.098927 766.373455c35.281551 0 63.87682-28.595268 63.87682-63.877843l0-95.821369c0-17.634636 14.298658-31.933293 31.943526-31.933293l63.877843 0c17.634636 0 31.933293 14.298658 31.933293 31.933293l0 159.699212C956.729385 836.939627 899.538849 894.125047 828.975746 894.125047L828.975746 894.125047zM249.938957 267.509636c12.921287-12.919241 33.884738-12.919241 46.807049 0l148.97087 148.971893L445.716876 94.89323c0-17.634636 14.300704-31.94762 31.933293-31.94762l63.875796 0c17.637706 0 31.945573 14.312984 31.945573 31.94762l0 321.588299 148.97087-148.971893c12.921287-12.919241 33.875528-12.919241 46.796816 0l46.814212 46.818305c12.921287 12.922311 12.921287 33.874505 0 46.807049L552.261471 624.930025c-1.140986 1.137916-21.664416 13.68365-42.315758 13.69286-20.87647 0.010233-41.878806-12.541641-43.020816-13.69286L203.121676 361.13499c-12.922311-12.933567-12.922311-33.884738 0-46.807049L249.938957 267.509636 249.938957 267.509636z\"/></svg>",
+        "popular"  => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><polygon points=\"12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2\"/></svg>",
+        "surprise" => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><polygon points=\"12 8.5 13.4 11.6 16.8 12 13.4 12.4 12 15.5 10.6 12.4 7.2 12 10.6 11.6 12 8.5\"/><polygon points=\"19 2 19.9 4.6 22.5 5.5 19.9 6.4 19 9 18.1 6.4 15.5 5.5 18.1 4.6 19 2\"/><polygon points=\"5 15 5.7 16.8 7.5 17.5 5.7 18.2 5 20 4.3 18.2 2.5 17.5 4.3 16.8 5 15\"/></svg>",
+        // The home Trending section's "View all" can still enter the trending list (by endorsements);
+        // the dropdown trigger shows this as a fallback
+        "trending" => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><polyline points=\"23 6 13.5 15.5 8.5 10.5 1 18\"/><polyline points=\"17 6 23 6 23 12\"/></svg>",
+        _          => "",
+    };
+
+    /// <summary>v0.73.0: Time range (mirrors the site's All time dropdown).
+    /// v1.04.0: The native select became a GSAP easeReverse custom dropdown; the "Custom" time range and related code have been removed.</summary>
+    private string _timeRange = "all";
+    private readonly (string Key, string Label)[] _timeOptions =
+    {
+        ("all",   "All time"),
+        ("day",   "Last 24 hours"),
+        ("week",  "Last 7 days"),
+        ("2week", "Last 14 days"),
+        ("month", "Last 28 days"),
+        ("year",  "Last 1 year"),
+    };
+    private string TimeLabel => _timeOptions.FirstOrDefault(o => o.Key == _timeRange).Label ?? "All time";
+
+    /// <summary>v1.05.1: Sort direction. DESC (most → least downloads) = default; ASC = ascending.</summary>
+    private string _direction = "DESC";
+
+    // ─── v1.04.0: Open/closed state of the three browse-page dropdowns (filter / time / direction) ───
+    private bool _kindOpen;
+    private bool _timeOpen;
+    private bool _dirOpen;
+
+    private string KindLabel =>
+        _browseTabs.FirstOrDefault(t => t.Key == _browseKind).Label
+        ?? (_browseKind == "trending" ? "Trending" : "New");
+
+    private async Task ToggleDdCore(bool current, Action<bool> set, string ddId)
+    {
+        var next = !current;
+        CloseAllDdCore(except: next ? ddId : null);
+        set(next);
+        try { await JS.InvokeVoidAsync("junigridJs.dropdownToggle", "#" + ddId, next); } catch { }
+    }
+
+    private Task ToggleKindDd() => ToggleDdCore(_kindOpen, v => _kindOpen = v, "jgKindDd");
+    private Task ToggleTimeDd() => ToggleDdCore(_timeOpen, v => _timeOpen = v, "jgTimeDd");
+    private Task ToggleDirDd() => ToggleDdCore(_dirOpen, v => _dirOpen = v, "jgDirDd");
+
+    private void CloseAllDdCore(string? except = null)
+    {
+        foreach (var (flag, id) in new[] { (_kindOpen, "jgKindDd"), (_timeOpen, "jgTimeDd"), (_dirOpen, "jgDirDd") })
+        {
+            if (!flag || id == except) continue;
+            _ = JS.InvokeVoidAsync("junigridJs.dropdownToggle", "#" + id, false);
+        }
+        if (except != "jgKindDd") _kindOpen = false;
+        if (except != "jgTimeDd") _timeOpen = false;
+        if (except != "jgDirDd") _dirOpen = false;
+    }
+
+    private Task CloseAllDd() { CloseAllDdCore(); return Task.CompletedTask; }
+
+    private async Task SetTimeRange(string key)
+    {
+        _timeRange = key;
+        CloseAllDdCore();
+        await ReloadBrowseAsync();
+    }
+
+    private async Task SetDirection(string dir)
+    {
+        _direction = dir;
+        CloseAllDdCore();
+        await ReloadBrowseAsync();
+    }
+
+    /// <summary>v0.77.0: Auto-correct the time range when switching tabs — Surprise's local shuffle is
+    /// time-independent, so force it back to all.</summary>
+    private void NormalizeTimeRangeForKind()
+    {
+        if (_browseKind == "surprise") _timeRange = "all";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        try { await JS.InvokeVoidAsync("junigridJs.userTipInit", "jgUserTip", "jgUserTipBubble"); } catch { }
+        try { await JS.InvokeVoidAsync("junigridJs.searchIslandInit", "jgNexusIsland", "jgNexusIslandBtn", "jgNexusIslandInput"); } catch { }
+        try { await JS.InvokeVoidAsync("junigridJs.grainientInit", "#jgTrendGrain"); } catch { }
+    }
+    // ─── v0.74.0: Site-style home mode (home = two sections / browse = full browse page) ───
+    private string _viewMode = "home";
+    private string _homeTab = "new";
+    // v0.75.0: First-paint defaults to loading with Shimmer; when logged out, init sets it false to show the login guidance right away
+    private bool _homeLoading = true;
+    private List<NexusModListEntry> _trendingHome = new();
+    private List<NexusModListEntry> _homeMods = new();
+
+    private async Task LoadHomeAsync()
+    {
+        if (string.IsNullOrEmpty(_key)) { _homeLoading = false; return; }
+        _homeLoading = true;
+        StateHasChanged();
+        try
+        {
+            // v0.96.0: Trending = released in the last 7 days, sorted by endorsements (mirrors ?sort=endorsements&timeRange=7).
+            // Take 10 so both large cards and all 4 small cards can be filled (occasional server truncation
+            // is compensated inside FetchChunkedAsync)
+            // v0.79.0: Home Trending + Mods fetched in parallel (Task.WhenAll); first paint roughly twice as fast
+            var tTask = NexusApi.BrowseModsAsync("trending", 0, 10, timeRange: "week");
+            // v0.88.0: Exactly 20 entries (FetchChunkedAsync loops to top up if truncated)
+            var mTask = NexusApi.BrowseModsAsync(_homeTab, 0, 20);
+            await Task.WhenAll(tTask, mTask);
+            var t = tTask.Result;
+            if (t is not null) _trendingHome = t;
+            // v0.75.0: The home Mods section shows 20 mods
+            var m = mTask.Result;
+            if (m is not null) _homeMods = m.Take(20).ToList();   // v0.84.0
+        }
+        catch { }
+        finally { _homeLoading = false; StateHasChanged(); }
+    }
+
+    private async Task SetHomeTab(string key)
+    {
+        if (_homeTab == key || _homeLoading || string.IsNullOrEmpty(_key)) return;
+        _homeTab = key;
+        _homeLoading = true;
+        StateHasChanged();
+        try
+        {
+            // v1.04.0: All home tab chips (New/Updated/Downloads/Popular/Surprise) default to all time
+            var m = await NexusApi.BrowseModsAsync(key, 0, 20, timeRange: "all");
+            if (m is not null) _homeMods = m;
+            // v1.06.8: Switching tab = new content → scroll back to top
+            try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
+        }
+        catch { }
+        finally { _homeLoading = false; StateHasChanged(); }
+    }
+
+    // View all: Trending browse page and Mods browse page
+    private async Task EnterBrowse(string kind)
+    {
+        _viewMode = "browse";
+        // v0.96.0: Mirror the site's default time range — Trending defaults to 7 days (?timeRange=7); other tabs use all time
+        _timeRange = kind == "trending" ? "week" : "all";
+        // v1.06.8: View switch (URL unchanged, scroll container shared) → scroll back to top so the browse page starts at the top
+        try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
+        await LoadBrowse(kind);
+    }
+
+    /// <summary>v0.96.0: Surprise "shuffle" — change the server-side random seed and reload.</summary>
+    private async Task ReshuffleSurpriseAsync()
+    {
+        NexusApi.ReshuffleSurprise();
+        await ReloadBrowseAsync();
+    }
+
+    /// <summary>v0.75.0: Browse page top-bar title (Trending annotated with its real scope: last N days + by endorsements).
+    /// v0.98.1: While searching, the search term takes priority.
+    /// v1.04.0: Trending slot replaced by Downloads (sorted by download count).</summary>
+    private string BrowseTitle => !string.IsNullOrWhiteSpace(_searchText)
+        ? "🔍 Search: " + _searchText.Trim()
+        : _browseKind switch
+        {
+            "updated"  => "🔄 Recently updated",
+            "trending" => _timeRange switch
+            {
+                "day"    => "🔥 Trending · last 24 hours · by endorsements",
+                "week"   => "🔥 Trending · last 7 days · by endorsements",
+                "2week"  => "🔥 Trending · last 14 days · by endorsements",
+                "month"  => "🔥 Trending · last 28 days · by endorsements",
+                "year"   => "🔥 Trending · by endorsements",
+                _        => "🔥 Popular · by endorsements",
+            },
+            "downloads" => $"⬇ Most downloaded · by downloads{(_direction == "ASC" ? " (ascending)" : "")}",
+            "popular"  => "⭐ Most popular · by downloads",
+            "surprise" => "🎲 Random picks",
+            _          => "✨ Newest releases",
+        };
+
+    /// <summary>v0.75.0: Return from the browse page to the site-style home page.</summary>
+    private void BackToHome()
+    {
+        _viewMode = "home";
+        _searchText = "";
+    }
+
+    // Search island input: only record the text, don't trigger a search — since v1.00.0, search runs on Enter
+    private void OnIslandInput(ChangeEventArgs e)
+    {
+        _searchText = (e.Value?.ToString() ?? "").Replace("*", "");
+    }
+
+    // ─── v1.01.0: Search history (mirrors the site's Recent Searches)
+    // v1.05.1: Visibility now toggled via the JS .history-open class (Blazor @onfocus can't receive events
+    // triggered by JS focus())
+    private List<string> _searchHistory = new();
+
+    private void LoadSearchHistory()
+    {
+        try { _searchHistory = Cfg.Current.NexusSearchHistory ?? new(); } catch { _searchHistory = new(); }
+    }
+
+    private void SaveSearchHistory()
+    {
+        try { var cfg = Cfg.Current; cfg.NexusSearchHistory = _searchHistory; Cfg.Save(cfg); } catch { }
+    }
+
+    private void PushSearchHistory(string q)
+    {
+        if (string.IsNullOrWhiteSpace(q)) return;
+        q = q.Trim();
+        _searchHistory.RemoveAll(x => string.Equals(x, q, StringComparison.OrdinalIgnoreCase));
+        _searchHistory.Insert(0, q);
+        // v1.04.0: Keep only the latest 10 entries
+        if (_searchHistory.Count > 10) _searchHistory = _searchHistory.Take(10).ToList();
+        SaveSearchHistory();
+    }
+
+    private async Task PickHistory(string q)
+    {
+        _searchText = q;
+        await OnIslandKeyDown(new KeyboardEventArgs { Key = "Enter" });
+    }
+
+    private void RemoveHistory(string q)
+    {
+        _searchHistory.RemoveAll(x => string.Equals(x, q, StringComparison.OrdinalIgnoreCase));
+        SaveSearchHistory();
+    }
+
+    private void ClearAllHistory()
+    {
+        _searchHistory.Clear();
+        SaveSearchHistory();
+    }
+
+    // Enter triggers the search: pure digits → direct lookup by mod ID; otherwise → server-side search on the browse page
+    private async Task OnIslandKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter") return;
+        await RunSearchAsync();
+    }
+
+    /// <summary>v1.02.0: Unified search — go to a dedicated search page; for pure digits, run a parallel
+    /// direct ID lookup whose result shows as an "Exact match" card instead of navigating straight to the
+    /// detail page (avoids a name/ID conflict when a mod's name happens to be numeric).</summary>
+    private async Task RunSearchAsync()
+    {
+        var q = _searchText.Trim();
+        if (string.IsNullOrEmpty(q) || string.IsNullOrEmpty(_key)) return;
+        PushSearchHistory(q);
+        _searchTitle = q;   // v1.05.0: The title/hint only updates after Enter commits the search
+        _viewMode = "search";
+        _browseKind = "new";
+        _page = 1;
+        _timeRange = "all";
+        _exactMod = null;
+        _browseLoading = true;
+        StateHasChanged();
+        // Pure digits → parallel direct ID lookup (mods/{id}.json), shown alongside name search results
+        var exactTask = q.All(char.IsDigit) ? NexusApi.GetModAsync(_key, int.Parse(q)) : null;
+        try
+        {
+            _browse = await NexusApi.BrowseModsAsync("new", 0, _pageSize, searchText: q,
+                timeRange: "all") ?? new();
+        }
+        catch { _browse = new(); }
+        if (exactTask is not null) { try { _exactMod = await exactTask; } catch { } }
+        _browseLoading = false;
+        StateHasChanged();
+    }
+
+    /// <summary>v1.02.0: Return from the search page — go home and clear the search state.</summary>
+    private void BackFromSearch()
+    {
+        _viewMode = "home";
+        _searchText = "";
+        _searchTitle = "";
+        _exactMod = null;
+    }
+
+    /// <summary>v1.02.0: Read a property as a string via reflection (NexusModInfo is a positional record whose
+    /// property names may change; reflection is the most robust).</summary>
+    private static string? PropStr(object o, string n) =>
+        o.GetType().GetProperty(n)?.GetValue(o)?.ToString();
+
+    // Avatar bubble "Log out": clear the key/user info and return to the login guidance
+    private void LogoutNexus()
+    {
+        Clear();
+        _viewMode = "home";
+        _trendingHome = new();
+        _homeMods = new();
+        _userExtras = null;
+        _ = JS.InvokeVoidAsync("junigridJs.toast", "Logged out");
+        StateHasChanged();
+    }
+
+    // Nexus website
+    private void OpenNexusHome() =>
+        UpdateService.OpenUrl("https://www.nexusmods.com/stardewvalley");
+
+    // v0.85.0: Dispose consolidated into the full implementation below (JS cleanup + reference release); the old single-line version was removed to avoid a duplicate definition
+
+    // v1.06.7: Clicking the NEXUS MODS logo in the top bar ("current page") → re-fetch data for the current view
+    protected override void OnInitialized()
+    {
+        PageRefresh.OnRefresh += OnPageRefresh;
+    }
+
+    private void OnPageRefresh(string key)
+    {
+        if (key != "nexus") return;
+        _ = InvokeAsync(async () =>
+        {
+            if (string.IsNullOrEmpty(_key)) return;
+            // vNext: Manual refresh = start over — scroll to the top and write 0 into the scroll archive
+            // (forward navigation restores position from the archive; without writing, it would restore the
+            // pre-refresh position)
+            try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
+            try { await JS.InvokeVoidAsync("junigridJs.saveCurrentUrlScroll", 0); } catch { }
+            if (_viewMode == "search") await RunSearchAsync();
+            else if (_viewMode == "browse") await LoadCurrentPageAsync();
+            else await LoadHomeAsync();
+        });
+    }
+
+    private bool _nexusDisposed;
+
+protected override async Task OnInitializedAsync()
+    {
+        // v0.75.0: No longer force-close the first-paint loading state after 400ms — keep the Shimmer skeleton up
+        // until user info + first-screen lists actually finish loading; when logged out, close immediately and show login guidance.
+        _key = Cfg.Current.NexusApiKey;
+        if (string.IsNullOrEmpty(_key)) _homeLoading = false;
+        // Arrived via the Settings page "Log in" pill (/nexus?login=1): when logged out, open the login dialog directly
+        if (string.IsNullOrEmpty(_key) && new Uri(Nav.Uri).Query.Contains("login=1"))
+        {
+            OpenLoginDialog();
+            StateHasChanged();
+        }
+        // v0.93.0: Returning from the detail page → restore the snapshot (empty snapshot on first visit → default home)
+        if (_svMode is not null)
+        {
+            _viewMode = _svMode; _browseKind = _svKind ?? "new";
+            _page = _svPage < 1 ? 1 : _svPage; _pageSize = 40;   // v1.04.0: fixed at 40
+            _timeRange = _svRange ?? "all"; _searchText = _svSearch ?? ""; _searchTitle = _svSearch ?? "";
+            _exactMod = _svExact;   // v1.02.0: search page snapshot restored
+            _browse = _svBrowse ?? new(); _trendingHome = _svTrending ?? new();
+            _homeMods = _svHomeMods ?? new(); _homeTab = _svHomeTab ?? "new";
+            _homeLoading = false;   // v1.03.0: snapshot restored = data already in hand, show directly without loading
+        }
+        LoadSearchHistory();   // v1.01.0: load history into memory on page entry so it pops on focus
+        // vNext: Scan the "Installed" badge set on a background thread — parsing manifests for hundreds of
+        // mods no longer blocks first paint (the old version scanned synchronously before requesting lists); fill in badges when done
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                var ids = await Task.Run(() => BuildInstalledIds());
+                if (!_nexusDisposed) { _installedIds = ids; await InvokeAsync(StateHasChanged); }
+            }
+            catch { /* on scan failure, treat everything as not installed */ }
+        });
+        // vNext: Fetch user info (validate + avatar) in the background — the UI shows cached data instantly,
+        // and the login-validation network round trip no longer blocks the mod lists
+        _ = InvokeAsync(async () =>
+        {
+            try { await LoadNexusUserAsync(); if (!_nexusDisposed) StateHasChanged(); }
+            catch { }
+        });
+        // Auto-load the default list on page entry (no need to click a tab first)
+        if (!string.IsNullOrEmpty(_key))
+        {
+            // v1.03.0: use snapshot data directly when present (no repeat request when returning); only re-fetch when the snapshot is missing (e.g. leftover mode after an app restart)
+            if (_viewMode == "search" && _browse.Count > 0) { /* search page snapshot restored, zero requests */ }
+            else if (_viewMode == "browse" && _browse.Count > 0) { /* browse page snapshot restored, zero requests */ }
+            else if (_viewMode == "home" && (_trendingHome.Count > 0 || _homeMods.Count > 0)) { /* home snapshot restored */ }
+            else if (_viewMode == "search") await RunSearchAsync();
+            else if (_viewMode == "browse") await LoadCurrentPageAsync();
+            else await LoadHomeAsync();
+        }
+        // v0.75.0: only close the first-paint loading state after the home page fully loads
+        StateHasChanged();
+        // v1.04.0: the category facets background fetch was removed along with the "category select" feature
+    }
+
+    private HashSet<int> BuildInstalledIds()
+    {
+        HashSet<int> ids = new();
+        try
+        {
+            var gamePath = Cfg.Current.GamePath;
+            if (string.IsNullOrWhiteSpace(gamePath)) return ids;
+            foreach (var m in ModSvc.Scan(gamePath))
+            {
+                if (m.NexusModId is int id) ids.Add(id);
+            }
+            // SMAPI lives in the game root, not the Mods folder, so the scan above misses it;
+            // when SMAPI is detected, add its Nexus mod ID so cards show the "Installed" badge
+            if (Game.ProbeSmapiVersion(gamePath) is not null) ids.Add(SmapiNexusId);
+        }
+        catch { /* on scan failure, treat everything as not installed */ }
+        return ids;
+    }
+
+    /// <summary>SMAPI's mod ID on Nexus (nexusmods.com/stardewvalley/mods/2400).</summary>
+    private const int SmapiNexusId = 2400;
+
+    private string? GetBrowseState(int id) =>
+        _browseStates.TryGetValue(id, out var s) ? s : null;
+
+    // ---- API key ----
+    private void Save()
+    {
+        var cfg = Cfg.Current;
+        cfg.NexusApiKey = _key;
+        Cfg.Save(cfg);
+    }
+
+    private void Clear()
+    {
+        _key = "";
+        _userName = "";
+        _userAvatar = "";
+        _isPremium = false;
+        _profileUrl = null;
+        Save();
+        var cfg = Cfg.Current;
+        cfg.NexusUserName = "";
+        cfg.NexusUserEmail = "";
+        cfg.NexusProfileUrl = "";
+        cfg.NexusIsPremium = false;
+        cfg.NexusAvatarDataUri = "";   // v1.08.3: clear the avatar cache too, so the previous account's avatar doesn't flash after switching accounts
+        Cfg.Save(cfg);
+    }
+
+    private async Task LoadNexusUserAsync()
+    {
+        if (string.IsNullOrEmpty(_key))
+        {
+            _userName = ""; _userAvatar = ""; _isPremium = false; _profileUrl = null;
+            return;
+        }
+        // Render fast from cached data first
+        _userName = Cfg.Current.NexusUserName;
+        _isPremium = Cfg.Current.NexusIsPremium;
+        _profileUrl = Cfg.Current.NexusProfileUrl;
+        // v1.08.3: Avatar cache first — the old logic started _userAvatar empty on every visit and needed two
+        // network round trips (validate + image download) before showing the real picture, flashing the initial-letter
+        // fallback the whole time ("the Nexus page flashes Y on every visit"). The cache is written back at the end
+        // of this method / on Settings refresh, shared with the Settings page via nexusAvatarDataUri.
+        var cachedAvatar = Cfg.Current.NexusAvatarDataUri;
+        _userAvatar = cachedAvatar is not null && cachedAvatar.StartsWith("data:image/", StringComparison.Ordinal) ? cachedAvatar : "";
+        try
+        {
+            var u = await NexusApi.ValidateAsync(_key);
+            if (u is null) return;
+            _userName = u.Name;
+            _isPremium = u.IsPremium;
+            _profileUrl = u.ProfileUrl;
+            _memberId = u.MemberId;
+            if (u.MemberId > 0)
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        _userExtras = await NexusApi.GetUserExtrasAsync(u.MemberId);
+                        // v1.08.0: GraphQL user.avatar is the authoritative direct link (/missing placeholder already filtered) —
+                        // v1.08.3: distinguish two kinds of "empty" — only fall back to the initial letter when GraphQL
+                        // explicitly has no avatar; a mere download failure keeps the existing (cached/fetched) value
+                        if (_userExtras is not null)
+                        {
+                            if (string.IsNullOrWhiteSpace(_userExtras.Avatar))
+                                _userAvatar = "";
+                            else
+                            {
+                                var gav = await NexusApi.FetchAvatarAsync(_userExtras.Avatar);
+                                if (!string.IsNullOrEmpty(gav) && gav != _userAvatar) _userAvatar = gav;
+                            }
+                        }
+                        await InvokeAsync(StateHasChanged);
+                    }
+                    catch { }
+                });
+            var cfg = Cfg.Current;
+            cfg.NexusUserName = u.Name;
+            cfg.NexusUserEmail = u.Email;
+            cfg.NexusProfileUrl = u.ProfileUrl;
+            cfg.NexusIsPremium = u.IsPremium;
+            Cfg.Save(cfg);
+            // v1.08.0: validate already built the avatar direct link from user_id → try fetching it;
+            // v1.08.3: only update and write back when different from the cache — the next visit shows the cache instantly, no fallback flash
+            if (!string.IsNullOrEmpty(u.Avatar))
+            {
+                var av = await NexusApi.FetchAvatarAsync(u.Avatar);
+                if (!string.IsNullOrEmpty(av) && av != _userAvatar)
+                {
+                    _userAvatar = av;
+                    var cfg2 = Cfg.Current;
+                    cfg2.NexusAvatarDataUri = av;
+                    Cfg.Save(cfg2);
+                }
+            }
+        }
+        catch { /* fail silently; the UI uses the cache or the initial-letter fallback */ }
+    }
+
+    private void OpenProfile()
+    {
+        // v1.05.0: use the site's own /profile/{username} — the profile_url cached from validate
+        // once sent users to wrong pages like avatars.nexusmods.com/missing
+        var name = string.IsNullOrWhiteSpace(_userName) ? Cfg.Current.NexusUserName : _userName;
+        if (!string.IsNullOrWhiteSpace(name))
+            UpdateService.OpenUrl("https://www.nexusmods.com/profile/" + Uri.EscapeDataString(name));
+        else if (!string.IsNullOrEmpty(_profileUrl))
+            UpdateService.OpenUrl(_profileUrl);
+    }
+
+    private void OpenApiKeysPage() =>
+        UpdateService.OpenUrl("https://www.nexusmods.com/users/myaccount?tab=api");
+
+    // ---- v0.70.2: Infinite scroll + GraphQL pagination ----
+    private async Task LoadBrowse(string kind)
+    {
+        _browseKind = kind;
+        NormalizeTimeRangeForKind();  // v0.77.0: force Surprise back to all
+        await ReloadBrowseAsync();
+    }
+
+    /// <summary>v0.90.0: Filters changed → back to page 1 and reload.</summary>
+    private async Task ReloadBrowseAsync()
+    {
+        _page = 1;
+        await LoadCurrentPageAsync();
+    }
+
+    /// <summary>v0.90.0: Load the current page (paged data source, offset = (page-1) × page size).
+    /// v1.04.0: Passes the sort direction; category and custom time parameters were removed with the feature.</summary>
+    private async Task LoadCurrentPageAsync()
+    {
+        if (string.IsNullOrEmpty(_key)) return;
+        _browseLoading = true;
+        StateHasChanged();
+        try
+        {
+            _browse = await NexusApi.BrowseModsAsync(_browseKind, (_page - 1) * _pageSize, _pageSize,
+                searchText: _searchText, timeRange: _timeRange, direction: _direction) ?? new();
+        }
+        catch { _browse = new(); }
+        _browseLoading = false;
+        StateHasChanged();
+    }
+
+    // ─── v0.90.0: Pagination ───
+    /// <summary>Total pages: since v0.96.0 moved time filtering server-side, every range has an exact totalCount, so the last page is always reachable.</summary>
+    private int? TotalPages => NexusApi.LastBrowseTotalCount is int tc && tc > 0
+        ? (int)Math.Ceiling(tc / (double)_pageSize) : null;
+    private bool _hasNextPage => TotalPages is int tp ? _page < tp : _browse.Count >= _pageSize;
+
+    /// <summary>Page number window: current ±2 plus first/last, ellipsis in between.</summary>
+    private List<(int Page, bool Dots)> PageNumbers
+    {
+        get
+        {
+            var list = new List<(int, bool)>();
+            var last = TotalPages ?? (_hasNextPage ? _page + 1 : _page);
+            var pages = new SortedSet<int> { 1, last };
+            for (var p = _page - 2; p <= _page + 2; p++) if (p >= 1 && p <= last) pages.Add(p);
+            var prev = 0;
+            foreach (var p in pages)
+            {
+                if (prev > 0 && p - prev > 1) list.Add((0, true));
+                list.Add((p, false));
+                prev = p;
+            }
+            return list;
+        }
+    }
+
+    private async Task GoToPage(int p)
+    {
+        if (_browseLoading || string.IsNullOrEmpty(_key)) return;
+        if (TotalPages is int t) p = Math.Min(p, t);
+        p = Math.Max(1, p);
+        if (p == _page) return;
+        _page = p;
+        await LoadCurrentPageAsync();
+        try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }   // scroll back to top on page change
+    }
+    private Task PrevPage() => GoToPage(_page - 1);
+    private Task NextPage() => GoToPage(_page + 1);
+    private async Task JumpToPage()
+    {
+        if (int.TryParse(_jumpText, out var p)) await GoToPage(p);
+        _jumpText = "";
+    }
+    // v1.04.0: per-page size selection removed — fixed at 40 (the _pageSize constant)
+
+    /// <summary>v1.05.0: Search box X — clears only the input, keeps the displayed results,
+    /// stays on the search page, and refocuses the input.</summary>
+    private async Task ClearSearch()
+    {
+        _searchText = "";
+        if (_viewMode == "search")
+        {
+            // keep the result list and exact-match card as-is — clearing the input ≠ clearing the results
+            StateHasChanged();
+            try { await JS.InvokeVoidAsync("junigridJs.focusElement", "#jgNexusIslandInput"); } catch { }
+        }
+        else
+        {
+            await ReloadBrowseAsync();
+        }
+    }
+
+    // v0.90.0: lazy loading removed; Dispose only needs to clean up state
+    public void Dispose()
+    {
+        // v0.93.0: snapshot the current browse state before leaving (restored on return)
+        _nexusDisposed = true;
+        PageRefresh.OnRefresh -= OnPageRefresh;
+        _svMode = _viewMode; _svKind = _browseKind; _svPage = _page;
+        _svRange = _timeRange; _svSearch = _searchText; _svExact = _exactMod;
+        _svBrowse = _browse; _svTrending = _trendingHome; _svHomeMods = _homeMods; _svHomeTab = _homeTab;
+    }
+
+    // ---- Install a new mod: one-click direct install (silent, in the background); fall back to the embedded browser only on failure ----
+    private async Task InstallBrowse(NexusModListEntry mod)
+    {
+        if (string.IsNullOrEmpty(_key)) return;
+        if (!Cfg.Current.EnableOneClickInstall)
+        {
+            // One-click install toggle is off → open the embedded browser for a manual download
+            OpenEmbedded(mod.Id);
+            return;
+        }
+        _installing.Add(mod.Id);
+        _browseStates[mod.Id] = null;   // the in-progress state is shown by the button's "Installing…" label
+        StateHasChanged();
+        try
+        {
+            var err = await Installer.InstallModDirectAsync(mod.Id);
+            if (err is null)
+            {
+                _browseStates[mod.Id] = "✅ Installed";
+            }
+            else if (err.Contains("premium", StringComparison.OrdinalIgnoreCase))
+            {
+                // v0.44.0: no long hint text on the card (it deforms the layout); download progress is visible in the download list
+                _browseStates[mod.Id] = null;
+                MainWindow.OpenNexusOverlay(
+                    $"https://www.nexusmods.com/stardewvalley/mods/{mod.Id}?tab=files");
+            }
+            else
+            {
+                _browseStates[mod.Id] = "Install failed: " + err;
+            }
+        }
+        catch (Exception ex)
+        {
+            _browseStates[mod.Id] = "Failed: " + ex.Message;
+        }
+        finally
+        {
+            _installing.Remove(mod.Id);
+        }
+    }
+
+    private void OpenModPage(int id) =>
+        UpdateService.OpenUrl($"https://www.nexusmods.com/stardewvalley/mods/{id}");
+
+    private void OpenDetail(int id) =>
+        Nav.NavigateTo($"mod/{id}");
+
+    private void OpenEmbedded(int id) =>
+        MainWindow.OpenNexusOverlay($"https://www.nexusmods.com/stardewvalley/mods/{id}");
+
+    private void OpenEmbeddedHome() =>
+        MainWindow.OpenNexusOverlay("https://www.nexusmods.com/stardewvalley");
+
+    private static string FormatDownloads(long n) =>
+        n >= 1_000_000 ? $"{n / 1_000_000.0:0.#}M"
+        : n >= 1_000 ? $"{n / 1_000.0:0.#}K"
+        : n.ToString();
+}

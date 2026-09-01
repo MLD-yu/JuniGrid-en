@@ -1,0 +1,54 @@
+using System.IO;
+
+namespace JuniGrid.Services;
+
+/// <summary>
+/// Unified runtime log (%AppData%\JuniGrid\juni-grid.log).
+/// Persists warnings and errors from all business layers so failures can be
+/// diagnosed ("which step failed and why"). Thread-safe; rolls over to .old
+/// and starts a fresh file past ~1MB to avoid unbounded growth.
+/// </summary>
+public static class AppLog
+{
+    private static readonly object Gate = new();
+    private static readonly string Dir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "JuniGrid");
+    private static readonly string FilePath = Path.Combine(Dir, "juni-grid.log");
+    private const long MaxBytes = 1024 * 1024;   // roll over at 1MB
+
+    /// <summary>Logs a warning (WRN). Don't call this indiscriminately; callers should only log actual failures/exceptions.</summary>
+    public static void Warn(string source, string message)
+        => Write("WRN", source, message);
+
+    /// <summary>Logs an error (ERR).</summary>
+    public static void Error(string source, string message)
+        => Write("ERR", source, message);
+
+    /// <summary>Logs an exception (ERR + stack trace). Best for catch blocks that have the ex object.</summary>
+    public static void Error(string source, Exception ex)
+        => Write("ERR", source, ex.ToString());
+
+    private static void Write(string level, string source, string message)
+    {
+        try
+        {
+            lock (Gate)
+            {
+                Directory.CreateDirectory(Dir);
+                RollIfNeeded();
+                File.AppendAllText(FilePath,
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{level}] [{source}] {message}{Environment.NewLine}");
+            }
+        }
+        catch { /* a logging failure must never crash the app */ }
+    }
+
+    private static void RollIfNeeded()
+    {
+        if (!File.Exists(FilePath)) return;
+        if (new FileInfo(FilePath).Length < MaxBytes) return;
+        File.Copy(FilePath, FilePath + ".old", overwrite: true);
+        File.Delete(FilePath);
+    }
+}
