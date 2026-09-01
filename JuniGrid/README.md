@@ -23,7 +23,7 @@ JuniGrid is a free desktop mod manager and launcher for **Stardew Valley**, buil
 - All gsap plugins are bundled locally; scripts are ordered so `interop.js` loads before `blazor.webview.js` to avoid a startup race.
 - Startup uses a WPF splash window; the web front end only hides the shell until Blazor has mounted (`jg-booting`).
 
-## v0.52.0 fixes
+## v1.0.0 (initial English release — full changelog of v0.52.0 below)
 
 1. **Empty `.junigrid_trash` folder fix**: empty recycle directories are deleted right after mods are removed; scans skip the trash; leftover trash from previous sessions (left behind while files were locked) is cleared at the start of each scan when possible.
 2. **Save profile cross-contamination fixed**: the root cause was an inverted "skip if state is consistent" condition in `ApplyProfile` (it skipped profiles that did need changes, so switching profiles effectively did nothing). After the fix, each save profile is truly independent.
