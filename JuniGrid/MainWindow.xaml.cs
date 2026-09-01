@@ -131,6 +131,7 @@ public partial class MainWindow : Window
             services.AddSingleton<TaskCenterService>();
             services.AddSingleton<InstallService>();
             services.AddSingleton<NexusSsoService>();
+            services.AddSingleton<NexusOAuthService>();
             // v0.2.1: cache/storage management + memory management
             services.AddSingleton<StorageService>();
             services.AddSingleton<MemoryService>();

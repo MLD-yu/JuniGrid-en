@@ -4,7 +4,7 @@ A desktop mod manager and launcher for Stardew Valley, built with .NET (WPF + Bl
 
 ## Features
 
-- **Nexus Mods integration** — sign in with your Nexus account via SSO (`wss://sso.nexusmods.com`) or a personal API key; browses mods through the Nexus GraphQL API and downloads files on behalf of the logged-in user through the authenticated download endpoints.
+- **Nexus Mods integration** — sign in with your Nexus account via SSO (`wss://sso.nexusmods.com`), an OAuth2 authorization-code flow with PKCE (`NexusOAuthService`, callback `http://localhost:49162/auth/callback`), or a personal API key; browses mods through the Nexus GraphQL API and downloads files on behalf of the logged-in user through the authenticated download endpoints.
 - **One-click installs** — registers as an `nxm://` protocol handler so "Mod Manager Download" buttons on Nexus Mods launch JuniGrid directly.
 - **Mod management** — scans the Mods folder (including nested manifests), enables/disables/uninstalls mods, dependency checks, and save/profile management.
 - **Task center** — unified progress view for downloads, installs, and updates with resumable downloads.
