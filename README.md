@@ -11,12 +11,21 @@ A desktop mod manager and launcher for Stardew Valley, built with .NET (WPF + Bl
 - **SMAPI support** — installs/updates SMAPI, streams the SMAPI console into an in-app log viewer with classification and filtering.
 - **Auto-update** — checks for launcher updates and applies them from the in-app update queue.
 
-## Building
+## Building & Running
 
-Open `JuniGrid.sln` in Visual Studio 2022 (.NET 8 or newer with the Windows Desktop workload), then build and run the `JuniGrid` project.
+Requirements: Windows 10 1809+ and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the Windows Desktop workload.
 
 ```bash
+# restore + build
 dotnet build JuniGrid.sln
+
+# run directly from the repository root
+dotnet run --project JuniGrid/JuniGrid.csproj
+
+# or open JuniGrid.sln in Visual Studio 2022+ and press F5
+
+# release build (output in JuniGrid/bin/Release/net10.0-windows10.0.17763.0/)
+dotnet publish JuniGrid/JuniGrid.csproj -c Release
 ```
 
 ## Security notes
