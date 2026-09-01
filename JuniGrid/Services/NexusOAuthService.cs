@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -45,6 +46,7 @@ public class NexusOAuthService
         var listener = new HttpListener();
         listener.Prefixes.Add(CallbackUrl + "/");
         HttpListenerContext? ctx = null;
+        string? code = null;
         try
         {
             listener.Start();
@@ -64,12 +66,13 @@ public class NexusOAuthService
 
             var query = ctx.Request.Url!.Query;
             var qs = System.Web.HttpUtility.ParseQueryString(query);
-            if (qs["state"] != state || qs["code"] is not { Length: > 0 } code)
+            if (qs["state"] != state || qs["code"] is not { Length: > 0 } receivedCode)
             {
                 LastError = string.IsNullOrEmpty(qs["error"]) ? "Callback state mismatch." : "Authorization page returned an error: " + qs["error"];
                 await Respond(ctx, LastError!);
                 return null;
             }
+            code = receivedCode;
             await Respond(ctx, "Authorization complete. You can close this window and return to JuniGrid.");
         }
         catch (Exception ex) { LastError = ex.Message; return null; }
@@ -95,14 +98,16 @@ public class NexusOAuthService
             var body = await resp.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            if (!resp.IsSuccessStatusCode || !root.TryGetProperty("access_token", out var at))
+            string? accessToken = null;
+            if (root.TryGetProperty("access_token", out var at)) accessToken = at.GetString();
+            if (!resp.IsSuccessStatusCode || accessToken is null)
             {
                 LastError = root.TryGetProperty("error_description", out var ed) ? ed.GetString() : "Token exchange failed (HTTP " + (int)resp.StatusCode + ").";
                 AppLog.Warn("NOAuth", "Token exchange failed: " + body[..Math.Min(body.Length, 200)]);
                 return null;
             }
             AppLog.Warn("NOAuth", "OAuth2 login succeeded, access_token received.");
-            return at.GetString();
+            return accessToken;
         }
         catch (Exception ex) { LastError = ex.Message; return null; }
     }
