@@ -15,7 +15,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\JuniGrid
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=release
+OutputDir=C:\Users\21092\AppData\Local\Temp\jg-release
 OutputBaseFilename=JuniGrid-v1.0.0-setup
 Compression=lzma2/max
 SolidCompression=yes
@@ -24,7 +24,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 SetupIconFile=JuniGrid\Assets\junigrid-logo.ico
 WizardImageFile=installer\wizard-side.png
-WizardSmallImageFile=installer\wizard-small.png
+WizardSmallImageFile=installer\wizard-small-blank.png
 
 [Messages]
 ; Branded wording instead of the stock lines
