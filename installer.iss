@@ -13,6 +13,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\JuniGrid
+DisableDirPage=no
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=C:\Users\21092\AppData\Local\Temp\jg-release
@@ -64,6 +65,6 @@ begin
   WizardForm.WelcomeLabel2.Color := $00202020;
   WizardForm.WelcomeLabel2.Font.Color := clWhite;
   WizardForm.FinishedLabel.Font.Color := clWhite;
-  WizardForm.PageNameLabel.Font.Color := $000023A6;   // amber #A62300 (BGR) accent
+  WizardForm.PageNameLabel.Font.Color := $0019943C;   // logo green #19943C (BGR) accent
   WizardForm.PageDescriptionLabel.Font.Color := clBlack;
 end;
