@@ -32,6 +32,14 @@ dotnet run --project JuniGrid/JuniGrid.csproj
 - No API keys or secrets are embedded in the source. Credentials (Nexus API key / OAuth tokens) are entered by the user at login and stored only in the local per-user configuration file on their machine.
 - All downloads act strictly on behalf of the currently logged-in Nexus user; the app does not proxy, redistribute, or cache mod files for other users.
 
+## Download or installation blocked?
+
+ Lesser-known desktop apps and unsigned installers are sometimes flagged by the browser, Windows Defender, or SmartScreen. First make sure the installer comes from the official GitHub Release above and the file name is `JuniGrid-v1.0.0-setup.exe` (portable version: `JuniGrid-v1.0.0-portable.zip`).
+
+1. If the browser download bar shows a risk warning, open the downloads list, click the `...` (three dots) next to the download, then choose `Keep` / `Keep anyway` / `Show more` to keep it.
+2. If a blue Windows SmartScreen window pops up, click `More info`, then `Run anyway`.
+3. If your antivirus explicitly reports a trojan or high-risk threat and quarantines the file, do not force-run it; delete the file and re-download from the official GitHub Release. If it is still flagged, open an [issue](https://github.com/MLD-yu/JuniGrid-en/issues) with a screenshot.
+
 ## License
 
 All rights reserved. This project is provided for review by the Nexus Mods API team as part of the API access registration process.
