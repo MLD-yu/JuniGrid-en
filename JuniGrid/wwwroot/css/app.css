@@ -126,6 +126,18 @@ body.jg-booting #app > * { opacity: 0 !important; visibility: hidden !important;
 .jg-brand-text { display: flex; flex-direction: column; line-height: 1.1; }
 .jg-brand-name { font-weight: 700; font-size: 13px; }
 
+/* Self-update button: hidden until a newer release exists; brand green from the logo */
+.jg-upd-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: transparent; border: 0; cursor: pointer;
+    color: #19943C;  /* logo green */
+    margin-left: 8px; padding: 3px; border-radius: 6px; line-height: 0;
+}
+.jg-upd-btn:hover { color: #21B04A; background: rgba(25, 148, 60, 0.12); }
+.jg-upd-btn:disabled { cursor: default; }
+.jg-upd-btn svg { fill: currentColor; }
+.jg-upd-pct { font-size: 11px; font-weight: 600; line-height: 1; color: inherit; }
+
 .jg-titlebar-actions { display: flex; }
 .jg-winbtn {
     width: 46px; height: 40px;

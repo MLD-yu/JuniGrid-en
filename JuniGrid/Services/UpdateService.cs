@@ -600,8 +600,75 @@ public sealed class UpdateService
         }
     }
 
+    // ---- Self-update: the launcher updating itself from its own GitHub Releases ----
+
+    private const string SelfRepoApi = "https://api.github.com/repos/MLD-yu/JuniGrid-en";
+
+    /// <summary>
+    /// Checks GitHub Releases for a newer launcher version. Returns null when up-to-date,
+    /// offline, or the repo has no published release yet — the title-bar update button stays
+    /// hidden in all those cases.
+    /// </summary>
+    public async Task<SelfUpdateInfo?> CheckSelfUpdateAsync()
+    {
+        try
+        {
+            var current = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version;
+            if (current is null) return null;
+
+            var json = await Http.GetStringAsync(SelfRepoApi + "/releases/latest");
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            var tag = root.TryGetProperty("tag_name", out var t) ? t.GetString() ?? "" : "";
+            var latest = ParseLooseVersion(tag);
+            if (latest is null || latest <= current) return null;
+
+            string? setupUrl = null;
+            if (root.TryGetProperty("assets", out var assets))
+            {
+                foreach (var a in assets.EnumerateArray())
+                {
+                    var name = a.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+                    if (name.EndsWith("-setup.exe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        setupUrl = a.TryGetProperty("browser_download_url", out var d) ? d.GetString() : null;
+                        break;
+                    }
+                }
+            }
+            return setupUrl is null ? null : new SelfUpdateInfo("v" + latest.ToString(3), setupUrl);
+        }
+        catch
+        {
+            return null;   // offline / rate-limited / no release yet — silently keep the button hidden
+        }
+    }
+
+    /// <summary>
+    /// Downloads the new setup.exe (resumable) and launches it silently. Inno Setup performs an
+    /// in-place upgrade and refreshes the shortcuts; the caller closes the app right after.
+    /// </summary>
+    public async Task DownloadAndRunSelfUpdateAsync(SelfUpdateInfo info, IProgress<InstallProgress>? progress)
+    {
+        var dest = Path.Combine(Path.GetTempPath(), "JuniGrid-update-setup.exe");
+        await DownloadToFileAsync(info.SetupUrl, dest, progress);
+        progress?.Report(new InstallProgress("Launching the installer…", 100));
+        Process.Start(new ProcessStartInfo(dest, "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS")
+        { UseShellExecute = true });
+    }
+
+    /// <summary>Parses "v1.2.3" / "1.2" / "release-1.2.3" into a Version, or null.</summary>
+    private static Version? ParseLooseVersion(string tag)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(tag, @"\d+(?:\.\d+)+");
+        return m.Success && Version.TryParse(m.Value, out var v) ? v : null;
+    }
+
     private static string Normalize(string? v) => (v ?? "").Trim().TrimStart('v', 'V');
 }
+
+public sealed record SelfUpdateInfo(string Version, string SetupUrl);
 
 public sealed record GitHubModRelease(string Tag, string? ZipUrl);
 

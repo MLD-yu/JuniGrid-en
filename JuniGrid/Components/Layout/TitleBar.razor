@@ -1,5 +1,6 @@
 @namespace JuniGrid.Components.Layout
 @inject IJSRuntime JS
+@inject JuniGrid.Services.UpdateService Upd
 @implements IAsyncDisposable
 
 <div class="jg-titlebar">
@@ -9,6 +10,21 @@
             <div class="jg-brand-text">
                 <span class="jg-brand-name">JuniGrid</span>
             </div>
+            @* Self-update button: completely absent (not rendered) until a newer release
+               exists on GitHub, so there is nothing to click when up-to-date. *@
+            @if (_selfUpdate is not null)
+            {
+                <button class="jg-upd-btn" @onclick="StartSelfUpdate" disabled="@_updating"
+                        title="@(_updating ? _updateStatus : $"Update to {_selfUpdate.Version} available — click to install")">
+                    <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
+                        <path d="M512 56.878545c251.345455 0 455.121455 203.776 455.121455 455.121455S763.345455 967.121455 512 967.121455 56.878545 763.345455 56.878545 512 260.654545 56.878545 512 56.878545z m1.629091 227.141819l-181.061818 181.061818a28.439273 28.439273 0 1 0 40.261818 40.215273l110.312727-110.312728v315.717818a28.439273 28.439273 0 0 0 56.878546 0V390.981818l114.408727 114.362182a28.439273 28.439273 0 1 0 40.215273-40.215273l-181.061819-181.061818z"></path>
+                    </svg>
+                    @if (_updating && _progressPercent is > 0)
+                    {
+                        <span class="jg-upd-pct">@($"{_progressPercent:0}%")</span>
+                    }
+                </button>
+            }
         </div>
     </div>
 
@@ -40,6 +56,52 @@
             _isMax = w.WindowState == System.Windows.WindowState.Maximized;
             w.StateChanged += OnWindowStateChanged;
             await SyncMaxClass();
+        }
+
+        // Quiet self-update check shortly after startup: keeps the button hidden unless a
+        // newer release is actually published.
+        _ = CheckForSelfUpdateAsync();
+    }
+
+    // ---- Self-update button ----
+    private JuniGrid.Services.SelfUpdateInfo? _selfUpdate;
+    private bool _updating;
+    private double? _progressPercent;
+    private string? _updateStatus;
+
+    private async Task CheckForSelfUpdateAsync()
+    {
+        var info = await Upd.CheckSelfUpdateAsync();
+        if (info is null) return;   // up-to-date or offline: button stays hidden
+        await InvokeAsync(() => { _selfUpdate = info; StateHasChanged(); });
+    }
+
+    private Progress<JuniGrid.Services.UpdateService.InstallProgress> MakeProgress() =>
+        new(p => InvokeAsync(() =>
+        {
+            _updateStatus = p.Message;
+            _progressPercent = p.Percent;
+            StateHasChanged();
+        }));
+
+    private async Task StartSelfUpdate()
+    {
+        if (_selfUpdate is null || _updating) return;
+        _updating = true;
+        _updateStatus = "Downloading the update…";
+        StateHasChanged();
+        try
+        {
+            await Upd.DownloadAndRunSelfUpdateAsync(_selfUpdate, MakeProgress());
+            // The silent installer is running — close the app so files can be replaced.
+            await Task.Delay(1500);
+            GetWindow()?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
+        }
+        catch (Exception ex)
+        {
+            _updateStatus = "Update failed: " + ex.Message;
+            _updating = false;
+            await InvokeAsync(StateHasChanged);
         }
     }
 

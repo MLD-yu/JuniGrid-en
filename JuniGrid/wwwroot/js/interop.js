@@ -147,9 +147,11 @@ window.junigridJs = {
         if (!el) return;
         el.addEventListener('mousedown', e => {
             if (e.button !== 0) return;              // left button only
+            if (e.target.closest && e.target.closest('.jg-upd-btn')) return;   // update button must not drag the window
             dotNetRef.invokeMethodAsync('BeginDrag');
         });
-        el.addEventListener('dblclick', () => {
+        el.addEventListener('dblclick', e => {
+            if (e.target.closest && e.target.closest('.jg-upd-btn')) return;
             dotNetRef.invokeMethodAsync('ToggleMaximize');
         });
     }
