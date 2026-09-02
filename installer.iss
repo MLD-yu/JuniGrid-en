@@ -24,6 +24,7 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 SetupIconFile=JuniGrid\Assets\junigrid-logo.ico
+UninstallIconFile=JuniGrid\Assets\junigrid-logo.ico
 WizardImageFile=installer\wizard-side.png
 WizardSmallImageFile=installer\wizard-small-blank.png
 
