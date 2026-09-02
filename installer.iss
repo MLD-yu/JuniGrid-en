@@ -22,6 +22,15 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
+SetupIconFile=JuniGrid\Assets\junigrid-logo.ico
+WizardImageFile=installer\wizard-side.png
+WizardSmallImageFile=installer\wizard-small.png
+
+[Messages]
+; Branded wording instead of the stock lines
+SetupAppTitle=JuniGrid Setup
+SetupWindowTitle=JuniGrid Setup — v{#MyAppVersion}
+WelcomeLabel2=This will install [name/ver] on your computer.%n%nA desktop mod manager and launcher for Stardew Valley, with Nexus Mods integration.%n%nIt is recommended that you close all other applications before continuing.
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -42,3 +51,19 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 [UninstallDelete]
 ; WebView2 user-data folder and logs created at runtime inside the install dir
 Type: filesandordirs; Name: "{app}\userdata"
+
+[Code]
+// Branded colors: warm amber accent over dark/white surfaces.
+// The sidebar/welcome area already carries the branded artwork; here we tint
+// the remaining plain surfaces so nothing stays stock grey-blue.
+procedure InitializeWizard();
+begin
+  WizardForm.Color := $00202020;            // dark frame around the page
+  WizardForm.WelcomePage.Color := $00202020;
+  WizardForm.FinishedPage.Color := $00202020;
+  WizardForm.WelcomeLabel2.Color := $00202020;
+  WizardForm.WelcomeLabel2.Font.Color := clWhite;
+  WizardForm.FinishedLabel.Font.Color := clWhite;
+  WizardForm.PageNameLabel.Font.Color := $000023A6;   // amber #A62300 (BGR) accent
+  WizardForm.PageDescriptionLabel.Font.Color := clBlack;
+end;
