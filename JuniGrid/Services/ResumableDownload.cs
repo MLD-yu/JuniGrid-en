@@ -16,7 +16,7 @@ namespace JuniGrid.Services;
 public static class ResumableDownload
 {
     public static async Task RunAsync(HttpClient http, string url, string destPath,
-        Action<string, double?, double?> report, int maxAttempts = 5)
+        Action<string, double?, double?> report, int maxAttempts = 5, CancellationToken ct = default)
     {
         long written = 0, totalBytes = 0;
         for (int attempt = 1; ; attempt++)
@@ -26,7 +26,7 @@ public static class ResumableDownload
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 if (written > 0)
                     req.Headers.Range = new RangeHeaderValue(written, null);
-                using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead);
+                using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
                 res.EnsureSuccessStatusCode();
 
                 // 206 = resumed successfully, keep writing; 200 = server doesn't honor ranges (or a fresh download) → write from the start
@@ -50,9 +50,9 @@ public static class ResumableDownload
                 var lastWritten = written;
                 while (true)
                 {
-                    int read = await src.ReadAsync(buffer);
+                    int read = await src.ReadAsync(buffer, ct);
                     if (read == 0) break;
-                    await dst.WriteAsync(buffer.AsMemory(0, read));
+                    await dst.WriteAsync(buffer.AsMemory(0, read), ct);
                     written += read;
 
                     var percent = totalBytes <= 0 ? 0.0 : Math.Min(100.0, written * 100.0 / totalBytes);
@@ -68,7 +68,7 @@ public static class ResumableDownload
                 }
                 return;
             }
-            catch (Exception ex) when (attempt < maxAttempts)
+            catch (Exception ex) when (attempt < maxAttempts && ex is not OperationCanceledException)
             {
                 var pct = totalBytes > 0 ? Math.Min(99.0, written * 100.0 / totalBytes) : 0.0;
                 report($"Connection lost ({ex.Message}), resuming from {FormatBytes(written)} (retry {attempt}/{maxAttempts - 1})…", pct, 0);

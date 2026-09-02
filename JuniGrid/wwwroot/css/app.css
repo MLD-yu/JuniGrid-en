@@ -138,6 +138,20 @@ body.jg-booting #app > * { opacity: 0 !important; visibility: hidden !important;
 .jg-upd-btn svg { fill: currentColor; }
 .jg-upd-pct { font-size: 11px; font-weight: 600; line-height: 1; color: inherit; }
 
+/* Ring progress around the update icon: fills clockwise from 12 o'clock; 100% = full circle */
+.jg-upd-ring { position: relative; display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+.jg-upd-ring svg { position: absolute; inset: 0; margin: auto; }
+.jg-upd-ring-track { fill: none; stroke: currentColor; opacity: 0.18; stroke-width: 2.4; }
+.jg-upd-ring-fill {
+    fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round;
+    transform: rotate(-90deg); transform-origin: 50% 50%;
+    transition: stroke-dashoffset 0.3s ease;
+}
+.jg-upd-icon { position: relative; }
+/* While downloading the icon dims slightly and the cursor says "cancel" */
+.jg-upd-running { color: #21B04A; }
+.jg-upd-running:hover .jg-upd-icon { opacity: 0.45; }
+
 .jg-titlebar-actions { display: flex; }
 .jg-winbtn {
     width: 46px; height: 40px;

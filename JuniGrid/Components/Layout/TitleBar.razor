@@ -11,18 +11,24 @@
                 <span class="jg-brand-name">JuniGrid</span>
             </div>
             @* Self-update button: completely absent (not rendered) until a newer release
-               exists on GitHub, so there is nothing to click when up-to-date. *@
+               exists on GitHub, so there is nothing to click when up-to-date. While the
+               download runs, a ring fills clockwise from 12 o'clock; 100% = installer launches.
+               Clicking mid-download cancels. *@
             @if (_selfUpdate is not null)
             {
-                <button class="jg-upd-btn" @onclick="StartSelfUpdate" disabled="@_updating"
-                        title="@(_updating ? _updateStatus : $"Update to {_selfUpdate.Version} available — click to install")">
-                    <svg viewBox="0 0 1024 1024" width="16" height="16" aria-hidden="true">
-                        <path d="M512 56.878545c251.345455 0 455.121455 203.776 455.121455 455.121455S763.345455 967.121455 512 967.121455 56.878545 763.345455 56.878545 512 260.654545 56.878545 512 56.878545z m1.629091 227.141819l-181.061818 181.061818a28.439273 28.439273 0 1 0 40.261818 40.215273l110.312727-110.312728v315.717818a28.439273 28.439273 0 0 0 56.878546 0V390.981818l114.408727 114.362182a28.439273 28.439273 0 1 0 40.215273-40.215273l-181.061819-181.061818z"></path>
-                    </svg>
-                    @if (_updating && _progressPercent is > 0)
-                    {
-                        <span class="jg-upd-pct">@($"{_progressPercent:0}%")</span>
-                    }
+                <button class="jg-upd-btn @(_updating ? "jg-upd-running" : "")" @onclick="OnUpdateClick"
+                        title="@UpdateTooltip">
+                    <span class="jg-upd-ring">
+                        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                            <circle class="jg-upd-ring-track" cx="12" cy="12" r="10" />
+                            <circle class="jg-upd-ring-fill" cx="12" cy="12" r="10"
+                                    stroke-dasharray="@RingCircumference.ToString("0.##")"
+                                    stroke-dashoffset="@RingOffset.ToString("0.##")" />
+                        </svg>
+                        <svg class="jg-upd-icon" viewBox="0 0 1024 1024" width="12" height="12" aria-hidden="true">
+                            <path d="M512 56.878545c251.345455 0 455.121455 203.776 455.121455 455.121455S763.345455 967.121455 512 967.121455 56.878545 763.345455 56.878545 512 260.654545 56.878545 512 56.878545z m1.629091 227.141819l-181.061818 181.061818a28.439273 28.439273 0 1 0 40.261818 40.215273l110.312727-110.312728v315.717818a28.439273 28.439273 0 0 0 56.878546 0V390.981818l114.408727 114.362182a28.439273 28.439273 0 1 0 40.215273-40.215273l-181.061819-181.061818z"></path>
+                        </svg>
+                    </span>
                 </button>
             }
         </div>
@@ -68,6 +74,20 @@
     private bool _updating;
     private double? _progressPercent;
     private string? _updateStatus;
+    private CancellationTokenSource? _updateCts;
+
+    // Ring geometry: r=10 in a 24x24 viewBox; the fill arc starts at 12 o'clock (CSS rotate)
+    // and closes into a full circle exactly when the download reaches 100%.
+    private const double RingCircumference = 2 * Math.PI * 10;
+    private double RingOffset => _updating && _progressPercent is > 0
+        ? RingCircumference * (1 - Math.Min(1, _progressPercent.Value / 100))
+        : RingCircumference;   // fully offset = invisible until bytes actually arrive
+
+    private string UpdateTooltip => _updating
+        ? (_progressPercent is > 0
+            ? $"{_progressPercent:0}% — click to cancel"
+            : _updateStatus ?? "Preparing download…")
+        : $"Update to {_selfUpdate?.Version} available — click to install";
 
     private async Task CheckForSelfUpdateAsync()
     {
@@ -84,22 +104,40 @@
             StateHasChanged();
         }));
 
-    private async Task StartSelfUpdate()
+    private void OnUpdateClick()
     {
-        if (_selfUpdate is null || _updating) return;
+        if (_selfUpdate is null) return;
+        if (_updating) { _updateCts?.Cancel(); return; }   // second click cancels the download
+        _ = StartSelfUpdateAsync();
+    }
+
+    private async Task StartSelfUpdateAsync()
+    {
         _updating = true;
-        _updateStatus = "Downloading the update…";
+        _progressPercent = null;
+        _updateStatus = "Preparing download…";
+        _updateCts = new CancellationTokenSource();
         StateHasChanged();
         try
         {
-            await Upd.DownloadAndRunSelfUpdateAsync(_selfUpdate, MakeProgress());
+            await Upd.DownloadAndRunSelfUpdateAsync(_selfUpdate, MakeProgress(), _updateCts.Token);
             // The silent installer is running — close the app so files can be replaced.
             await Task.Delay(1500);
             GetWindow()?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
         }
+        catch (OperationCanceledException)
+        {
+            // User cancelled mid-download: keep the partial temp file so the next click
+            // resumes from where it stopped; the button returns to its "available" state.
+            _updateStatus = null;
+            _progressPercent = null;
+            _updating = false;
+            await InvokeAsync(StateHasChanged);
+        }
         catch (Exception ex)
         {
             _updateStatus = "Update failed: " + ex.Message;
+            _progressPercent = null;
             _updating = false;
             await InvokeAsync(StateHasChanged);
         }

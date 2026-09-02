@@ -416,10 +416,10 @@ public sealed class UpdateService
     /// v1.07: resumable downloads / automatic retries go through ResumableDownload (a dropped
     /// connection no longer restarts from zero).</summary>
     private static Task DownloadToFileAsync(
-        string url, string dest, IProgress<InstallProgress>? progress)
+        string url, string dest, IProgress<InstallProgress>? progress, CancellationToken ct = default)
     {
         return ResumableDownload.RunAsync(DownloadHttp, url, dest,
-            (msg, pct, spd) => progress?.Report(new InstallProgress(msg, pct, spd)));
+            (msg, pct, spd) => progress?.Report(new InstallProgress(msg, pct, spd)), ct: ct);
     }
 
     /// <summary>Formats a byte count as readable KB/MB/GB text.</summary>
@@ -649,10 +649,10 @@ public sealed class UpdateService
     /// Downloads the new setup.exe (resumable) and launches it silently. Inno Setup performs an
     /// in-place upgrade and refreshes the shortcuts; the caller closes the app right after.
     /// </summary>
-    public async Task DownloadAndRunSelfUpdateAsync(SelfUpdateInfo info, IProgress<InstallProgress>? progress)
+    public async Task DownloadAndRunSelfUpdateAsync(SelfUpdateInfo info, IProgress<InstallProgress>? progress, CancellationToken ct = default)
     {
         var dest = Path.Combine(Path.GetTempPath(), "JuniGrid-update-setup.exe");
-        await DownloadToFileAsync(info.SetupUrl, dest, progress);
+        await DownloadToFileAsync(info.SetupUrl, dest, progress, ct);
         progress?.Report(new InstallProgress("Launching the installer…", 100));
         Process.Start(new ProcessStartInfo(dest, "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS")
         { UseShellExecute = true });
