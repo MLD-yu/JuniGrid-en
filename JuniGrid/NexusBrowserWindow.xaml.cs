@@ -5,11 +5,10 @@ using Microsoft.Extensions.DependencyInjection;
 namespace JuniGrid;
 
 /// <summary>
-/// Built-in Nexus browser. Free accounts complete the full download flow here:
-/// log in to Nexus → open the mod page → click "Mod Manager Download" →
-/// the nxm:// redirect is intercepted at the moment it fires → handed to InstallService
-/// for automatic download and installation, all without leaving the launcher.
-/// Login state is kept in the WebView2 user data directory, so no re-login next time.
+/// 内置 Nexus 浏览器。免费账户的完整下载流程在这里走完：
+/// 登录 Nexus → 打开 mod 页面 → 点「Mod Manager Download」→
+/// 页面跳 nxm:// 的瞬间被拦截 → 交给 InstallService 自动下载安装，
+/// 全程不出启动器。登录状态保存在 WebView2 用户数据目录，下次免登。
 /// </summary>
 public partial class NexusBrowserWindow : Window
 {
@@ -37,7 +36,7 @@ public partial class NexusBrowserWindow : Window
         Loaded += async (_, _) => await InitAsync();
     }
 
-    // ---- Update queue: after one install finishes → automatically open the next mod's files page ----
+    // ---- 更新队列：装完一个 → 自动打开下一个 mod 的文件页 ----
     private void OnQueueAdvanced()
     {
         Dispatcher.Invoke(() =>
@@ -58,8 +57,8 @@ public partial class NexusBrowserWindow : Window
         var q = App.Services?.GetService<UpdateQueueService>();
         if (q is null) return;
         Title = q.CurrentModId is not null
-            ? $"Update queue {q.Done + 1}/{q.Total} — click Mod Manager Download on the page"
-            : $"✅ Queue complete ({q.Total} installed) — you can close this window";
+            ? $"更新队列 {q.Done + 1}/{q.Total} —— 请在页面点 Mod Manager Download"
+            : $"✅ 队列全部装完（{q.Total} 个）—— 可以关窗口了";
     }
 
     private async System.Threading.Tasks.Task InitAsync()
@@ -69,7 +68,7 @@ public partial class NexusBrowserWindow : Window
             await web.EnsureCoreWebView2Async();
             var cwv = web.CoreWebView2;
 
-            // Intercept nxm:// — clicking Mod Manager Download on the page ultimately navigates to this protocol
+            // 拦截 nxm:// —— 网页点 Mod Manager Download 最终会跳这个协议
             cwv.NavigationStarting += (_, e) =>
             {
                 if (e.Uri.StartsWith("nxm://", StringComparison.OrdinalIgnoreCase))
@@ -79,11 +78,11 @@ public partial class NexusBrowserWindow : Window
                     if (installer is not null)
                         _ = installer.HandleNxmLinkAsync(e.Uri);
                     Dispatcher.Invoke(() =>
-                        Title = "✅ Download taken over — check install progress at the top of the launcher's Mods page");
+                        Title = "✅ 已接管下载 —— 去启动器「Mod 管理」页顶部看安装动态");
                 }
             };
 
-            // When the page wants to open a new window, open it in this window instead (e.g. login redirects)
+            // 网页想开新窗口时，就在本窗口打开（比如登录跳转）
             cwv.NewWindowRequested += (_, e) =>
             {
                 e.Handled = true;
@@ -98,7 +97,7 @@ public partial class NexusBrowserWindow : Window
         }
         catch (Exception ex)
         {
-            txtUrl.Text = "Browser initialization failed: " + ex.Message;
+            txtUrl.Text = "浏览器初始化失败：" + ex.Message;
         }
     }
 

@@ -2,38 +2,43 @@
 @inject NavigationManager Nav
 @inject PageRefreshService PageRefresh
 @inject IJSRuntime JS
-@implements IDisposable
+@inject ConfigService Cfg
 
 <nav class="jg-topnav">
-    @* Selected highlight block: pale green background, extending down into the content area like "a block peeking out of the content area"; left/width are moved to the active item by JS *@
+    @* 选中高亮块：淡绿底、向下延伸到内容区，像“从内容区露出的一块”；left/width 由 JS 平移到当前激活项 *@
     <div class="jg-topnav-thumb"></div>
     @foreach (var item in Items)
     {
-        @* v0.24.0: icon-only navigation with hover pill tooltips.
-           data-tip feeds the CSS ::after bubble; no text span is rendered anymore. *@
+        @* v0.24.0：纯图标导航 + 悬浮胶囊提示。
+           data-tip 供 CSS ::after 气泡显示，不再渲染文字 span。
+           （v1.0.17：更新提示统一收口到标题栏自更新按钮的悬浮气泡，
+             设置图标上的红点角标是设置页更新时代的残留，已移除） *@
         <NavLink class="jg-topnav-item" ActiveClass="active" Match="@item.Match" href="@item.Href"
                  data-tip="@item.Label" aria-label="@item.Label"
                  @onclick="() => OnIconClick(item)">
-            <img class="jg-topnav-icon" src="@item.Icon" alt="" draggable="false" />
+            @* v1.1.2：深浅双图标 —— 深色主题换 -on-dark 亮色变体（home/mods/settings 的
+               深灰填充在深色下看不见；nexus/smapi 本身彩色，两态共用同一张） *@
+            <img class="jg-topnav-icon jg-topnav-icon-light" src="@item.Icon" alt="" draggable="false" />
+            <img class="jg-topnav-icon jg-topnav-icon-dark" src="@(item.DarkIcon ?? item.Icon)" alt="" draggable="false" />
         </NavLink>
     }
 </nav>
 
 @code {
-    private record NavItem(string Href, string Label, string Icon, NavLinkMatch Match);
+    private record NavItem(string Href, string Label, string Icon, NavLinkMatch Match, string? DarkIcon = null);
 
     private readonly NavItem[] Items =
     {
-        new("",         "Home",       "assets/nav/home.svg",     NavLinkMatch.All),
-        new("mods",     "Mods",       "assets/nav/mods.svg",     NavLinkMatch.Prefix),
+        new("",         "Home",       "assets/nav/home.svg",     NavLinkMatch.All,   "assets/nav/home-on-dark.svg"),
+        new("mods",     "Mods",   "assets/nav/mods.svg",     NavLinkMatch.Prefix, "assets/nav/mods-on-dark.svg"),
         new("nexus",    "NEXUS MODS", "assets/nav/nexus.svg",    NavLinkMatch.Prefix),
-        new("logs",     "SMAPI Log",  "assets/nav/smapi.svg",    NavLinkMatch.Prefix),
-        new("settings", "Settings",   "assets/nav/settings.svg", NavLinkMatch.Prefix),
+        new("logs",     "SMAPI Logs", "assets/nav/smapi.svg",    NavLinkMatch.Prefix),
+        new("settings", "Settings",       "assets/nav/settings.svg", NavLinkMatch.Prefix, "assets/nav/settings-on-dark.svg"),
     };
 
     protected override void OnInitialized()
     {
-        // v0.35.0: reposition the thumb immediately after route changes (.active moves) to eliminate "element moves first, background follows"
+        // v0.35.0：路由变化（.active 挪项）后立即重定位滑块，杜绝"元素先动、背景后到"
         Nav.LocationChanged += async (_, _) =>
         {
             try { await InvokeAsync(StateHasChanged); } catch { }
@@ -43,16 +48,13 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Reposition after every render (internally waits two rAFs for .active to be in place), also covering the mod force-refresh jump
+        // 每次渲染后都重定位（双 rAF 内部保证等 .active 就位），Mod 强制刷新跳动一并覆盖
         try { await JS.InvokeVoidAsync("junigridJs.placeNavThumb"); } catch { }
     }
 
-    public void Dispose() { }
-
-    // v1.06.7: only clicking the icon of the page you're currently on (mods/nexus) sends the refresh signal;
-    // the page subscribes and rescans/refetches/checks for updates; clicking the icon from another page =
-    // normal navigation (component rebuild loads naturally, no extra request). The old forceLoad:true
-    // full reload is deprecated.
+    // v1.06.7：只有点击「当前已停留页面」的图标（mods/nexus）才发刷新信号，
+    // 页面订阅后重新扫描/拉取/检查更新；从其它页点图标 = 正常导航（组件重建自然加载，
+    // 不额外发请求）。旧的 forceLoad:true 整站重载已废弃。
     private void OnIconClick(NavItem item)
     {
         if (item.Href is not ("mods" or "nexus")) return;

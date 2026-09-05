@@ -11,14 +11,15 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject TaskCenterService Center
+@inject CoverCacheService Covers
 @implements IDisposable
 
 <div class="jg-page">
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px">
         <div>
             <div style="display:flex;align-items:center;gap:14px">
-                <h1 style="margin-top:0;margin-bottom:4px">Mod Management</h1>
-                @* v1.07.3: plain folder icon; click opens the Mods directory; data-tip uses the same pill tooltip style as the nav bar *@
+                <h1 style="margin-top:0;margin-bottom:4px">Mod Manager</h1>
+                @* v1.07.3：普通文件夹图标，点击打开 Mods 目录；data-tip 与导航栏同款胶囊提示 *@
                 <button class="jg-mods-folder-btn" data-tip="Open mods folder" aria-label="Open mods folder"
                         @onclick="OpenModsRootFolder">
                     <svg viewBox="0 0 1024 1024" width="32" height="32" fill="#f2b544">
@@ -27,15 +28,15 @@
                 </button>
             </div>
             <div style="opacity:.7;font-size:13px">
-                @* v1.06.9: cover the list with a skeleton while checking for updates; keep the header hint simple *@
-                @if (_initialLoading || _checkingUpdates) { <span>Loading mod list…</span> }
-                else { <text>@_mods.Count total (@_mods.Count(m => !m.Disabled) enabled)</text> }
+                @* v1.08：骨架屏只负责磁盘扫描阶段；检查更新期间列表照常显示 *@
+                @if (_initialLoading) { <span>Loading mod list…</span> }
+                else { <text>@_mods.Count mods (@_mods.Count(m => !m.Disabled) enabled)</text> }
             </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
-            @* v0.47.0: profile dropdown moved to the far right; springy GSAP easeReverse open/close (based on the official demo) *@
-            <div class="jg-profile-dd @(_profileOpen ? "open" : "")">
-                @* v0.71.4: rename moved next to the dropdown button — clicking the pencil turns the button into an input and the pencil into a confirm; renaming happens only here *@
+            @* v0.47.0：存档下拉挪到最右；GSAP easeReverse 弹性开合（参照官方 demo）*@
+            <div class="jg-profile-dd @(_profileOpen ? "open" : "")" data-dd="profile">
+                @* v0.71.4：重命名挪到下拉按钮右边 —— 点铅笔后按钮变输入框、铅笔变确定，改名只在这一个位置发生 *@
                 @if (_renamingProfile is not null)
                 {
                     <input class="jg-profile-input jg-profile-headinput" maxlength="30"
@@ -43,7 +44,7 @@
                            @oninput="e => _renameBuffer = e.Value?.ToString() ?? string.Empty"
                            @onkeydown="e => OnRenameKey(e, _renamingProfile!)"
                            @onclick:stopPropagation />
-                    <button class="jg-profile-headconfirm" data-tip="Confirm" aria-label="Confirm"
+                    <button class="jg-profile-headconfirm" data-tip="OK" aria-label="OK"
                             @onclick="() => ConfirmRename(_renamingProfile!)">
                         <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"
                              stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
@@ -75,7 +76,7 @@
                     @foreach (var p in AllProfiles)
                     {
                         <div class="jg-profile-item @(p.Name == ActiveProfileName ? "active" : "")">
-                            @* v0.71.4: menu items only switch/delete; renaming is always started from the pencil entry to the right of the dropdown button *@
+                            @* v0.71.4：菜单项只负责切换/删除；重命名统一由下拉按钮右侧的铅笔入口发起 *@
                             <button class="jg-profile-name"
                                     @onclick="() => ApplyProfileKeepOpen(p.Name)">@p.Name</button>
                             @if (p.Name != "Default")
@@ -93,7 +94,7 @@
                         }
                         else
                         {
-                            @* dashed pill + hover pill tooltip (same data-tip style as the nav bar) *@
+                            @* 虚线胶囊 + 悬停胶囊提示（导航栏同款 data-tip 风格）*@
                             <button class="jg-profile-addcap" data-tip="New profile" aria-label="New profile" @onclick="StartAddProfile">
                                 <span class="plus">＋</span>
                             </button>
@@ -104,10 +105,10 @@
         </div>
     </div>
 
-    @* ── SMAPI is always shown first (with its own exe icon, no emoji) ── *@
+    @* ── SMAPI 永远第一个显示（用自己的 exe 图标，不用 emoji）── *@
     <div class="jg-card jg-smapi-card" style="margin-top:12px">
         <div style="display:flex;align-items:center;gap:12px">
-            @* v0.37.0: fall back to the bundled pufferchick when the exe icon cannot be extracted instead of a gray S placeholder *@
+            @* v0.37.0：exe 抽不到图标时用自带的 pufferchick 兜底，不再显示灰色 S 占位块 *@
             @if (_smapiIcon is not null)
             {
                 <img class="jg-modrow-icon" src="@_smapiIcon" alt="SMAPI" />
@@ -115,7 +116,7 @@
             else
             {
                 <img class="jg-modrow-icon" src="assets/smapi-pufferchick.svg" alt="SMAPI"
-                     style="border-radius:8px;background:#fff;padding:2px" />
+                     style="border-radius:8px;background:var(--jg-card);padding:2px" />
             }
             <div style="min-width:0;flex:1">
                 <div style="font-weight:700">
@@ -125,14 +126,14 @@
                 <div style="opacity:.75;font-size:12.5px;margin-top:3px">
                     @if (_smapiVersion is null)
                     {
-                        @* v0.36.0: dedicated hint when SMAPI is not installed *@
+                        @* v0.36.0：未安装时的专属提示 *@
                         @if (_smapiUpdate is { LatestVersion: not null, InstallerZipUrl: not null })
                         {
-                            <span>Not installed · latest version @_smapiUpdate.LatestVersion — use the button on the right to download and install</span>
+                            <span>Not installed · latest @_smapiUpdate.LatestVersion, click the button to download &amp; install</span>
                         }
                         else if (_smapiUpdate is { Error: not null })
                         {
-                            <span style="color:#c50f1f">Not installed · failed to get version info (@_smapiUpdate.Error)</span>
+                            <span style="color:#c50f1f">Not installed · failed to fetch version info (@_smapiUpdate.Error)</span>
                         }
                         else
                         {
@@ -149,7 +150,7 @@
                     }
                 </div>
             </div>
-            @* v0.36.0: not installed -> one-click download & install; installed with update -> update. Both paths use the same fully automatic installer *@
+            @* v0.36.0：未安装 -> 一键下载安装；已装有更新 -> 更新。两条路都走同一个全自动安装器 *@
             @if (_smapiVersion is null && _smapiUpdate is { LatestVersion: not null, InstallerZipUrl: not null })
             {
                 <button class="jg-update-link" style="width:auto;padding:8px 16px"
@@ -170,15 +171,15 @@
     @if (_mods.Count == 0)
     {
         <div class="jg-card" style="margin-top:12px">
-            The Mods folder is empty or no game was located. Select the game directory in Settings first.
+            The Mods folder is empty or the game was not found. Pick the game folder in Settings first.
         </div>
     }
 
-    @* ── v0.34.0 toolbar: sort first -> filter chips -> search (expands to the right on click, SVG icon) ── *@
+    @* ── v0.34.0 工具条：排序在前 → 筛选 chips → 搜索（点击向右延伸，SVG 图标） ── *@
     <div class="jg-mods-toolbar">
-        <div class="jg-sort-dd @(_sortOpen ? "open" : "")">
+        <div class="jg-sort-dd @(_sortOpen ? "open" : "")" data-dd="sort">
             <button class="jg-sort-trigger" @onclick="ToggleSort">
-                Sort by
+                Sort
                 <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
                     <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
@@ -189,17 +190,30 @@
                 <button class="jg-sort-item @(_sortMode == "alpha" ? "active" : "")" @onclick='() => SetSort("alpha")'>Alphabetical</button>
             </div>
         </div>
-        @* v0.71.6: while the sort dropdown is open, a transparent overlay covers the page; clicking anywhere outside the dropdown closes it *@
-        @if (_sortOpen)
-        {
-            <div class="jg-dd-overlay" @onclick="CloseSort"></div>
-        }
-        <div class="jg-chips" role="group">
+        @* v1.1.2：遮罩改常驻 DOM + class 随状态绑定（原 @if 渲染比 JS 慢一拍：
+           dropdownToggle 同帧翻转 .open 时遮罩元素还不存在，开菜单后点外部收不掉） *@
+        <div class="jg-dd-overlay" data-dd="sort" @(_sortOpen ? "open" : "") @onclick="CloseSort"></div>
+        <div class="jg-chips" role="group" style="align-items:center">
         @foreach (var f in _filterOptions)
         {
-            <button class="jg-chip @(_filter == f.Key ? "active" : "")" @onclick="() => SetFilter(f.Key)">
+            <button class="jg-chip @(_filter == f.Key ? "active" : "")"
+                    style="@(f.Key == "updatable" && FailedCheckCount > 0 ? "position:relative" : "")"
+                    @onclick="() => SetFilter(f.Key)">
                 @f.Label<span style="opacity:.7;font-weight:400"> · @CountFor(f.Key)</span>
+                @if (f.Key == "updatable" && FailedCheckCount > 0)
+                {
+                    @* v1.08：有检查失败的 mod → 可更新标签右上角小红点 *@
+                    <span style="position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:#e81123;box-shadow:0 0 0 2px var(--jg-bg)"></span>
+                }
             </button>
+        }
+        @if (FailedCheckCount > 0)
+        {
+            <span style="font-size:12px;color:#c50f1f;opacity:.85;white-space:nowrap">Update check timed out — check your network (@FailedCheckCount pending)</span>
+        }
+        else if (_checkingUpdates)
+        {
+            <span style="font-size:12px;opacity:.6;white-space:nowrap">Checking for updates…</span>
         }
         </div>
         <div class="jg-search-x @(_searchOpen ? "open" : "")">
@@ -214,9 +228,9 @@
         </div>
     </div>
 
-    @* ── single-row mod list ── *@
-    @* v1.06.9: on first load or while the update check is unfinished, always show the shimmer skeleton; the real list stays display:none *@
-    @if (_initialLoading || _checkingUpdates)
+    @* ── 单行 mod 列表 ── *@
+    @* v1.06.9：首次加载 或 检查更新未完成 → 一律显示 shimmer 骨架屏，真实列表 display:none *@
+    @if (_initialLoading)
     {
         <div class="jg-modrows jg-modrows-skeleton">
             @for (var i = 0; i < 8; i++)
@@ -232,7 +246,7 @@
             }
         </div>
     }
-    <div class="jg-modrows" style="@((_initialLoading || _checkingUpdates) ? "display:none" : "")">
+    <div class="jg-modrows" style="@(_initialLoading ? "display:none" : "")">
         @foreach (var group in Groups)
         {
             @if (group.Key != "")
@@ -244,7 +258,7 @@
                     <span style="opacity:.55;font-size:11.5px">(@group.Items.Count)</span>
                     @if (group.Missing.Count > 0)
                     {
-                        <span style="color:#c50f1f;font-size:11.5px"> ⚠️ Missing dependencies: @group.Missing.Count</span>
+                        <span style="color:#c50f1f;font-size:11.5px"> ⚠️ missing dependencies: @group.Missing.Count</span>
                     }
                 </div>
             }
@@ -257,6 +271,7 @@
                     var cover = GetCover(m);
                     var missing = MissingDeps(m);
                     <div class="jg-modrow @(_selected.Contains(m.Folder) ? "selected" : "")"
+                         @key="m.Folder"
                          data-al
                          @onclick="() => ToggleSelect(m.Folder)">
 
@@ -303,22 +318,19 @@
                             @if (missing.Count > 0)
                             {
                                 <div class="jg-mod-updmsg failed" style="white-space:normal">
-                                    ⚠️ Missing dependencies: @string.Join(", ", missing)
+                                    ⚠️ missing deps: @string.Join(", ", missing)
                                 </div>
                             }
-                            @if (st.Message is not null)
-                            {
-                                <div class="jg-mod-updmsg @st.Status" style="white-space:normal">@st.Message</div>
-                            }
+                            @* v1.08：检查失败/超时不再在行内显示红字，统一收进筛选栏提示 *@
                         </div>
 
-                        @* ── action buttons revealed on hover ── *@
+                        @* ── hover 浮现的操作按钮 ── *@
                         <div class="jg-modrow-actions">
                             @if (m.NexusModId is not null
                                  && st.RemoteVersion is not null
                                  && IsNewer(st.RemoteVersion, m.Version))
                             {
-                                @* v0.41.0: only show the update button when a newer version is confirmed; if already up to date (st.RemoteVersion is null or not newer), never render it *@
+                                @* v0.41.0：只有确定有新版本才显示更新按钮；已是1.0（st.RemoteVersion 为 null 或不更高）一律不渲染 *@
                                 <button class="jg-rowbtn upd"
                                         data-tip="Update"
                                         @onclick:stopPropagation @onclick="() => OpenUpdatePage(m)">
@@ -348,11 +360,11 @@
                                     </svg>
                                 </button>
                             }
-                            <button class="jg-rowbtn" data-tip="Rename/alias"
+                            <button class="jg-rowbtn" data-tip="Note / rename"
                                     @onclick:stopPropagation @onclick="() => OpenRemark(m)">
                                 <img class="jg-rowbtn-icon" src="assets/actions/rename.svg" alt="" draggable="false" />
                             </button>
-                            <button class="jg-rowbtn" data-tip="Open file location"
+                            <button class="jg-rowbtn" data-tip="Open folder"
                                     @onclick:stopPropagation @onclick="() => OpenFolder(m)">
                                 <img class="jg-rowbtn-icon" src="assets/actions/folder.svg" alt="" draggable="false" />
                             </button>
@@ -371,7 +383,7 @@
                                 </button>
                             }
                             <button class="jg-rowbtn danger" data-tip="Delete"
-                                    @onclick:stopPropagation @onclick="() => _pendingDeleteMod = m">
+                                    @onclick:stopPropagation @onclick="() => AskDeleteMod(m)">
                                 <img class="jg-rowbtn-icon" src="assets/actions/delete.svg" alt="" draggable="false" />
                             </button>
                         </div>
@@ -382,15 +394,15 @@
 
         @if (FilteredMods.Count == 0)
         {
-            <div class="jg-card" style="margin-top:4px">No mods match the current filters (try clearing the search or switching filters).</div>
+            <div class="jg-card" style="margin-top:4px">No mods match (try clearing the search or changing the filter).</div>
         }
     </div>
 </div>
 
-@* ── batch action bar (appears after multi-select) ── *@
+@* ── 批量操作悬浮条（左键多选后出现）── *@
 @if (_selected.Count > 0)
 {
-    @* v0.42.0: icon-only buttons (SVG files) + pill tooltips (data-tip, also on disabled buttons) + Select All first *@
+    @* v0.42.0：纯图标按钮（SVG 文件）+ 胶囊提示（data-tip，禁用按钮也有）+ 全选在最前 *@
     var anyUpdatable = _selected.Any(f => _mods.FirstOrDefault(m => m.Folder == f) is { } mm && IsUpdatable(mm));
     var anyDisabled  = _selected.Any(f => _mods.FirstOrDefault(m => m.Folder == f)?.Disabled == true);
     var anyEnabled   = _selected.Any(f => _mods.FirstOrDefault(m => m.Folder == f)?.Disabled == false);
@@ -405,7 +417,7 @@
                 <path d="M10 17.5l1.8 1.8 3.7-3.7"/>
             </svg>
         </button>
-        <button class="jg-mini-btn jg-ico" data-tip="Batch update" disabled="@(_selected.Count == 0 || !anyUpdatable)" @onclick="BatchUpdate">
+        <button class="jg-mini-btn jg-ico" data-tip="Update selected" disabled="@(_selected.Count == 0 || !anyUpdatable)" @onclick="BatchUpdate">
             <img src="assets/actions/batch-update.svg" alt="" draggable="false" />
         </button>
         <button class="jg-mini-btn jg-ico" data-tip="Enable" disabled="@(!anyDisabled)" @onclick="() => BatchSetDisabled(false)">
@@ -414,7 +426,7 @@
         <button class="jg-mini-btn jg-ico" data-tip="Disable" disabled="@(!anyEnabled)" @onclick="() => BatchSetDisabled(true)">
             <img src="assets/actions/disable.svg" alt="" draggable="false" />
         </button>
-        <button class="jg-mini-btn danger-outline jg-ico" data-tip="Delete" @onclick="() => _pendingBatchDelete = true">
+        <button class="jg-mini-btn danger-outline jg-ico" data-tip="Delete" @onclick="AskBatchDelete">
             <img src="assets/actions/delete.svg" alt="" draggable="false" />
         </button>
         <button class="jg-mini-btn jg-ico" data-tip="Clear selection" @onclick="ClearSelection">
@@ -426,14 +438,14 @@
 </div>
 }
 
-@* ── rename/alias dialog (set a custom name for a mod; the list shows "alias (original name)") ── *@
+@* ── 备注/重命名弹窗（给 mod 起中文备注，列表里显示成 备注(原名)）── *@
 @if (_remarkFolder is not null)
 {
     <div class="jg-dlg-overlay" @onclick:stopPropagation>
         <div class="jg-dialog jg-remark-dialog">
-            <div class="jg-remark-title">Rename this mod</div>
+            <div class="jg-remark-title">Add a note for this mod</div>
             <div class="jg-remark-mod">@(_remarkOriginal)</div>
-            <input class="jg-remark-input" maxlength="20" placeholder="Enter a name (max 20 characters; leave empty to clear)"
+            <input class="jg-remark-input" maxlength="20" placeholder="Note (max 20 chars, empty to clear)"
                    @bind=" _remarkInput" @bind:event="oninput" @onkeydown="OnRemarkKeydown"
                    autofocus />
             <div class="jg-remark-count">@_remarkInput.Length / 20</div>
@@ -445,20 +457,18 @@
     </div>
 }
 
-    @if (_profileOpen)
-    {
-        @* v0.71.6: while the profile dropdown is open, a transparent overlay covers the page; clicking anywhere outside the dropdown closes it.
-           The profile dropdown's z-index (9500) sits above the overlay (9000), so clicks on the menu itself don't misfire. *@
-        <div class="jg-dd-overlay" @onclick="CloseProfile"></div>
-    }
+    @* v0.71.6：存档下拉打开时铺透明遮罩，点"除下拉框本身以外"的地方收回。
+       v1.1.2：改常驻 DOM + class 随状态绑定 —— 原 @if 渲染比 profileDropdown 的
+       同帧 .open 翻转慢一拍，遮罩永远追不上菜单，点外部收不掉。 *@
+    <div class="jg-dd-overlay" data-dd="profile" @(_profileOpen ? "open" : "") @onclick="CloseProfile"></div>
 
-    @* v0.46.0: delete-profile confirmation dialog *@
+    @* v0.46.0：删除存档确认对话框 *@
     @if (_deletingProfile is not null)
     {
         <div class="jg-modal-overlay" @onclick="CancelDeleteProfile">
             <div class="jg-modal" @onclick:stopPropagation>
-                <div class="jg-modal-title">Delete Profile</div>
-                <div class="jg-modal-body">Delete the "@_deletingProfile" profile? (Only removes the mod profile; in-game saves are unaffected)</div>
+                <div class="jg-modal-title">Delete profile</div>
+                <div class="jg-modal-body">Delete profile "@_deletingProfile"? (Only removes the mod profile — in-game saves are untouched.)</div>
                 <div class="jg-modal-actions">
                     <button class="jg-mini-btn" @onclick="CancelDeleteProfile">Cancel</button>
                     <button class="jg-mini-btn danger" @onclick="ConfirmDeleteProfile">Delete</button>
@@ -467,13 +477,17 @@
         </div>
     }
 
-    @* delete-mod confirmation dialog (shared by single/batch; replaces the old inline two-step confirm) *@
+    @* 删除 mod 确认对话框（单个 / 批量共用，替代旧的行内二段式确认） *@
     @if (_pendingDeleteMod is not null || _pendingBatchDelete)
     {
         <div class="jg-modal-overlay" @onclick="CancelDeleteMods">
             <div class="jg-modal" @onclick:stopPropagation>
-                <div class="jg-modal-title">Delete Mods</div>
+                <div class="jg-modal-title">Delete mods</div>
                 <div class="jg-modal-body">Delete the selected mods?</div>
+                <label class="jg-modal-trash-opt">
+                    <input type="checkbox" @bind="_deleteToTrash" />
+                    <span>Move to mod recycle bin (uncheck to delete permanently)</span>
+                </label>
                 <div class="jg-modal-actions">
                     <button type="button" class="jg-pill-ghost" @onclick="CancelDeleteMods">Cancel</button>
                     <button type="button" class="jg-pill-danger" @onclick="ConfirmDeleteMods">Delete</button>
@@ -484,9 +498,9 @@
 
 @code {
     private IReadOnlyList<ModEntry> _mods = Array.Empty<ModEntry>();
-    // v0.59.0: shimmer loading state on first page entry
+    // v0.59.0：首次进入页面的 shimmer 加载态
     private bool _initialLoading = true;
-    // v0.60.0: shimmer loading state while checking for updates
+    // v0.60.0：更新检查期间的 shimmer 加载态
     private bool _checkingUpdates = false;
     private string _apiKey = "";
     private string? _smapiVersion;
@@ -494,34 +508,44 @@
     private SmapiUpdateInfo? _smapiUpdate;
     private bool _smapiUpdating;
     private long _checkingTick;
-    private ModEntry? _pendingDeleteMod;   // single mod awaiting delete confirmation (uninstalled once the dialog is confirmed)
-    private bool _pendingBatchDelete;      // batch delete awaiting confirmation (uninstalled once the dialog is confirmed)
+    private ModEntry? _pendingDeleteMod;   // 待确认删除的单个 mod（弹窗确认后真正卸载）
+    private bool _pendingBatchDelete;      // 待确认的批量删除（弹窗确认后真正卸载）
+    // v1.09：删除确认弹窗里的"移入mod回收站"复选框 —— 默认不勾（沿用旧的彻底删除），
+    // 勾选后删除的 mod 进 Mods/.junigrid_trash 常驻回收站，可从 设置→存储 打开手动还原
+    private bool _deleteToTrash;
     private bool _coversDirty;
 
-    // ---- rename/alias dialog ----
-    private string? _remarkFolder;      // null = dialog closed; otherwise the Folder of the mod being renamed
+    // ---- 备注/重命名弹窗 ----
+    private string? _remarkFolder;      // null = 弹窗关闭；否则为当前编辑备注的 mod Folder
     private string _remarkOriginal = "";
     private string _remarkInput = "";
 
-    // ---- filter / grouping / missing dependencies ----
+    // ---- 过滤 / 分组 / 依赖缺失 ----
     private string _filter = "all";
     private string SearchText { get; set; } = "";
 
-    // v0.32.0: sorting (alpha / time-desc / time-asc) + dropdown/search open state
+    // v0.32.0：排序（alpha 首字母 / time-desc 时间倒序 / time-asc 时间正序）+ 下拉/搜索展开状态
     private string _sortMode = "time-asc";
     private bool _sortOpen;
     private bool _searchOpen;
 
-    // ── v0.46.0: profile system, modeled after Stardrop ──
+    // ── v0.46.0：存档（Profile）系统，仿 Stardrop ──
     private bool _profileOpen;
     private string? _renamingProfile;
     private string _renameBuffer = "";
 
-    /// <summary>v0.71.1: click the pencil to start renaming.</summary>
+    /// <summary>v0.71.1：双击开启重命名。</summary>
     private void StartRenameProfile(string name)
     {
         _renamingProfile = name;
         _renameBuffer = name;
+        // v1.08：改名时收起存档下拉 —— 输入框+确定按钮已经独立成头，下拉继续开着
+        // 只会挡视线，还允许同时点别的存档项，状态容易乱。
+        if (_profileOpen)
+        {
+            _profileOpen = false;
+            _ = JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", false);
+        }
     }
 
     private void OnRenameKey(KeyboardEventArgs e, string oldName)
@@ -552,11 +576,11 @@
         catch (Exception ex) { ShowNotice("err", "Rename failed: " + ex.Message); }
     }
 
-    /// <summary>v0.71.1: keep the dropdown open after switching profiles (handy for comparing).</summary>
+    /// <summary>v0.71.1：点存档切换后保持下拉框打开（方便连续切换对比）。</summary>
     private async Task ApplyProfileKeepOpen(string name)
     {
         await ApplyProfile(name);
-        // do not close _profileOpen — the user may want to switch several profiles in a row
+        // 不关 _profileOpen —— 用户可能想连续切几个存档
     }
 
     private bool _addingProfile;
@@ -568,27 +592,39 @@
         get
         {
             var list = Cfg.Current.ModProfiles;
-            if (list.Count == 0 || list[0].Name != "Default")
-                list.Insert(0, new ModProfile { Name = "Default" });
-            return list;
+            // v1.08：按名字（忽略大小写）去重 —— 历史 bug 曾写入重名档（如两个"默认"、
+            // 空壳"Default"）。同名保留第一个；若已有的空壳而后来的有启用清单，则用后者替换。
+            var deduped = new List<ModProfile>();
+            foreach (var p in list)
+            {
+                var same = deduped.FirstOrDefault(x => x.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase));
+                if (same is null) { deduped.Add(p); continue; }
+                if ((same.EnabledModUids?.Count ?? 0) == 0 && (p.EnabledModUids?.Count ?? 0) > 0)
+                    deduped[deduped.IndexOf(same)] = p;
+            }
+            if (deduped.Count == 0 || deduped[0].Name != "Default")
+                deduped.Insert(0, new ModProfile { Name = "Default" });
+            if (deduped.Count != list.Count)
+                Cfg.Current.ModProfiles = deduped;   // 去重结果同步回配置，下次落盘即修复
+            return deduped;
         }
     }
 
     private string ActiveProfileName =>
         string.IsNullOrWhiteSpace(Cfg.Current.ActiveProfile) ? "Default" : Cfg.Current.ActiveProfile;
 
-    /// <summary>Writes the currently enabled set back to ActiveProfile (the "Default" profile is a runtime view and is not persisted).</summary>
+    /// <summary>把当前启用集合写回 ActiveProfile（"默认"档是运行时视图，不参与持久化）。</summary>
     private void PersistCurrentToActive()
     {
         var active = ActiveProfileName;
-        // v0.71.4: snapshot the "Default" profile too — the old version returned early, so the Default enabled list
-        // stayed stale forever; switching away and back "restored" the stale list (another cross-profile-mixing root cause).
-        var p = Cfg.Current.ModProfiles.FirstOrDefault(x => x.Name == active);
+        // v0.71.4："默认"存档同样快照 —— 旧版直接 return，"默认"的启用清单永远停在旧状态，
+        // 切出去再切回来会被"还原"成陈旧清单（用户看到的串档另一根因）。
+        var p = Cfg.Current.ModProfiles.FirstOrDefault(x => x.Name.Equals(active, StringComparison.OrdinalIgnoreCase));
         if (p is null) return;
-        // v0.50.0: rescan before writing back so _mods reflects the real disk state (otherwise
-        // _mods is still stale right after dependency linkage and stale data gets written back → cross-profile mixing)
-        // v0.51.0: Stardrop-style clean snapshot — store every currently enabled mod, without excluding
-        // dependency-linked items (excluding them caused state inconsistency and was a mixing root cause)
+        // v0.50.0：写回前先重扫，确保 _mods 反映磁盘真实状态（否则依赖联动刚改完、
+        // _mods 还是旧的，写回的是陈旧数据 → 串档）
+        // v0.51.0：Stardrop 式纯净快照——存当前真实启用的全部 mod，不排除联动项
+        // （排除联动项反而导致状态不一致，是串档根因）
         p.EnabledModUids = _mods
             .Where(m => !m.Disabled && !string.IsNullOrWhiteSpace(m.UniqueID))
             .Select(m => m.UniqueID)
@@ -600,8 +636,15 @@
 
     private async Task ToggleProfile()
     {
+        if (_deletingProfile is not null) return;   // v1.08：删除确认期间禁开
         _profileOpen = !_profileOpen;
-        _renamingProfile = null; _renameBuffer = "";   // v0.71.4: exit rename mode when toggling the dropdown
+        // v1.08：两个下拉互斥 —— 开存档就关排序
+        if (_profileOpen && _sortOpen)
+        {
+            _sortOpen = false;
+            try { await JS.InvokeVoidAsync("junigridJs.dropdownToggle", ".jg-sort-dd", false); } catch { }
+        }
+        _renamingProfile = null; _renameBuffer = "";   // v0.71.4：开合下拉时退出重命名态
         if (!_profileOpen) { _addingProfile = false; _newProfileName = ""; }
         try { await JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", _profileOpen); } catch { }
     }
@@ -627,9 +670,9 @@
             ShowNotice("err", "A profile with this name already exists: " + name);
             return;
         }
-        // v0.49.0: write the current enabled state back to the old profile first to prevent cross-profile mixing
+        // v0.49.0：先把当前启用状态写回旧存档，防止切档后串档
         PersistCurrentToActive();
-        // the new profile snapshots the current enabled state (Stardrop-style: creating = recording the currently enabled mods)
+        // 新存档以当前启用状态为快照（仿 Stardrop：新建 = 记录此刻启用的 mod）
         var p = new ModProfile
         {
             Name = name,
@@ -640,7 +683,7 @@
         Cfg.Current.ActiveProfile = name;
         Cfg.Save(Cfg.Current);
         _profileOpen = false;
-        // v0.49.0: explicitly close the JS dropdown animation state; fixes "dropdown broken after creating"
+        // v0.49.0：显式关闭 JS 下拉动画状态，修"创建后下拉失效"
         try { await JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", false); } catch { }
         ShowNotice("ok", $"Profile \"{name}\" created");
     }
@@ -648,11 +691,35 @@
     private void AskDeleteProfile(string name)
     {
         _deletingProfile = name;
+        CloseDropdownsForDialog();
+    }
+
+    /// <summary>v1.1.1：任何模态弹窗（删除/备注）打开前收起全部下拉 ——
+    /// 弹窗遮罩(99998)虽已盖住下拉(9500)，但遮罩点击只关弹窗，下拉会一直挂在遮罩下。</summary>
+    private void CloseDropdownsForDialog()
+    {
+        if (_sortOpen)
+        {
+            _sortOpen = false;
+            _ = JS.InvokeVoidAsync("junigridJs.dropdownToggle", ".jg-sort-dd", false);
+        }
         if (_profileOpen)
         {
             _profileOpen = false;
             _ = JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", false);
         }
+    }
+
+    private void AskDeleteMod(ModEntry m)
+    {
+        CloseDropdownsForDialog();
+        _pendingDeleteMod = m;
+    }
+
+    private void AskBatchDelete()
+    {
+        CloseDropdownsForDialog();
+        _pendingBatchDelete = true;
     }
     private void CancelDeleteProfile() => _deletingProfile = null;
 
@@ -665,36 +732,34 @@
         Cfg.Current.ModProfiles.RemoveAll(p => p.Name == name);
         if (wasActive)
         {
-            // v0.71.4: do not set ActiveProfile before calling ApplyProfile — in the old order ApplyProfile
-            // hit "name == ActiveProfileName" and returned immediately, so the on-disk mod state never switched
-            // back to Default (the root cause of "Default" showing the deleted profile's state after deletion).
-            // The old profile is already removed from the list here, so ApplyProfile's PersistCurrentToActive
-            // cannot find it → no accidental write; ApplyProfile sets ActiveProfile itself after switching.
+            // v0.71.4：不要先设 ActiveProfile 再调 ApplyProfile —— 旧顺序会让 ApplyProfile 里
+            // name == ActiveProfileName 直接 return，磁盘 mod 状态根本没切回默认（删除后"默认"
+            // 显示成被删存档的状态就是这个根因）。此时旧存档已从列表移除，ApplyProfile 内的
+            // PersistCurrentToActive 找不到它 → 不会误写，切完由 ApplyProfile 自己置 ActiveProfile。
             await ApplyProfile("Default");
         }
         Cfg.Save(Cfg.Current);
         ShowNotice("ok", $"Profile \"{name}\" deleted");
     }
 
-    /// <summary>Switch profile: batch enable/disable according to the profile's recorded UniqueID set (with dependency linkage); everything else is disabled.</summary>
+    /// <summary>切换存档：按存档记录的 UniqueID 集合批量启禁（含依赖联动），其他全部禁用。</summary>
     private async Task ApplyProfile(string name)
     {
         if (name == ActiveProfileName) return;
-        // v0.50.0: Rescan before writing back to get the real disk state, preventing stale data → cross-profile mixing
+        // v0.50.0：写回前先 Rescan 拿磁盘真实状态，防止写陈旧数据 → 串档
         Rescan();
         PersistCurrentToActive();
         var profile = AllProfiles.FirstOrDefault(p => p.Name == name);
         if (profile is null) return;
 
         var wantEnabled = new HashSet<string>(profile.EnabledModUids, StringComparer.OrdinalIgnoreCase);
-        // dependency linkage: dependencies of mods being enabled must be enabled too (recursive closure)
+        // 依赖联动：要启用的 mod 的依赖也要跟着启用（递归闭包）
         ExpandWithDependencies(wantEnabled);
 
-        // v0.72.8: collect operations deduplicated by "top-level physical directory" — multi-part mods
-        // (e.g. [CS]/[DLL]/[FTM] under Weather Wonders - Beta) have several sub-entries sharing one top-level
-        // directory; the old version moved each sub-entry separately, so after the first rename succeeded the
-        // rest inevitably "could not find the mod folder". Now each top-level directory is moved only once.
-        var topOps = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);  // topLevel -> disable
+        // v0.72.8：按"顶层物理目录"去重收集操作 —— 多分包 mod（如 Weather Wonders - Beta
+        // 下的 [CS]/[DLL]/[FTM]）的多个子条目共享同一顶层目录，旧版按子条目各 Move 一次，
+        // 第一条改名成功后后续条目必然"找不到 Mod 文件夹"。现在每个顶层目录只 Move 一次。
+        var topOps = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);  // topLevel → disable
         foreach (var m in _mods)
         {
             var uid = m.UniqueID;
@@ -709,7 +774,7 @@
         try
         {
             var gamePath = Cfg.Current.GamePath;
-            // v0.72.8: structured error results instead of parsing strings back with Split(':') (folder names containing ':' would truncate)
+            // v0.72.8：结构化错误结果，不再用字符串 Split(':') 反解析（文件夹名含 ':' 会截断）
             var errs = await Task.Run(() =>
             {
                 var list = new List<(string Folder, string Error)>();
@@ -721,9 +786,9 @@
                 return list;
             });
             foreach (var (folder, err) in errs)
-                AppLog.Warn("Mods", $"Profile switch failed: {folder} - {err}");
+                AppLog.Warn("Mods", $"存档切换失败：{folder} - {err}");
 
-            // incrementally update in-memory state: update Disabled + Folder and migrate caches for each sub-entry
+            // 增量更新内存状态：按子条目统一更新 Disabled + Folder + 缓存迁移
             var errTops = new HashSet<string>(errs.Select(e => e.Folder), StringComparer.OrdinalIgnoreCase);
             foreach (var m in _mods)
             {
@@ -731,7 +796,7 @@
                 var shouldEnable = !string.IsNullOrWhiteSpace(uid) && wantEnabled.Contains(uid);
                 if (m.Disabled == !shouldEnable) continue;
                 var top = m.Folder.Split('/')[0];
-                if (errTops.Contains(top)) continue;   // rename failed for this top-level directory; skip all its sub-entries
+                if (errTops.Contains(top)) continue;   // 该顶层目录改名失败，跳过其所有子条目
                 var disable = !shouldEnable;
                 var newFolder = disable
                     ? (m.Folder.StartsWith('.') ? m.Folder : "." + m.Folder)
@@ -755,7 +820,7 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    /// <summary>Expands the to-enable set by dependency closure: if A depends on B, enabling A must enable B (recursive).</summary>
+    /// <summary>把要启用的集合按依赖闭包扩展：A 依赖 B，则启用 A 必须启用 B（递归）。</summary>
     private void ExpandWithDependencies(HashSet<string> uids)
     {
         var byUid = _mods.Where(m => !string.IsNullOrWhiteSpace(m.UniqueID))
@@ -769,12 +834,12 @@
             foreach (var dep in mod.Dependencies.Concat(mod.ContentPackIds))
             {
                 if (!string.IsNullOrWhiteSpace(dep) && uids.Add(dep))
-                    queue.Enqueue(dep);   // newly added dependencies may have dependencies of their own
+                    queue.Enqueue(dep);   // 新加入的依赖自己可能还有依赖
             }
         }
     }
 
-    /// <summary>When disabling a mod, also disable enabled mods that depend on it (recursive) — same linkage as Stardrop.</summary>
+    /// <summary>禁用某 mod 时，把"依赖它的已启用 mod"也一并禁用（递归）——Stardrop 同款联动。</summary>
     private void DisableDependents(string uniqueId, HashSet<string> visited, Action<ModEntry> disableOne)
     {
         if (string.IsNullOrWhiteSpace(uniqueId) || !visited.Add(uniqueId)) return;
@@ -790,7 +855,7 @@
         }
     }
 
-    /// <summary>When enabling a mod, also enable its disabled dependencies (recursive).</summary>
+    /// <summary>启用某 mod 时，把它依赖的已禁用 mod 一并启用（递归）。</summary>
     private void EnableDependencies(ModEntry mod, HashSet<string> visited, Action<ModEntry> enableOne)
     {
         if (string.IsNullOrWhiteSpace(mod.UniqueID) || !visited.Add(mod.UniqueID)) return;
@@ -808,23 +873,23 @@
         }
     }
 
-    /// <summary>Site category (official Nexus category name, cached in config). Falls back to the manifest category when not cached.</summary>
+    /// <summary>官网分类（Nexus 官方分类名，缓存于 config）。无缓存则回退 manifest 分类。</summary>
     private string? GetNexusCategory(ModEntry m)
     {
-        // cached official category name
+        // 已缓存的官方分类名
         if (Cfg.Current.ModCategories.TryGetValue(m.Folder, out var name)) return name;
         var norm = m.Folder.Split('/'); norm[0] = norm[0].TrimStart('.');
         var key = string.Join('/', norm);
         if (key != m.Folder && Cfg.Current.ModCategories.TryGetValue(key, out name)) return name;
-        // has a category_id but no cached name table -> wait for EnsureCategoriesAsync to fetch it
+        // 有 category_id 但没缓存名称表 → 等 EnsureCategoriesAsync 拉取
         var st = GetState(m.Folder);
         if (st.CategoryId is int cid && Cfg.Current.NexusCategories.TryGetValue(cid, out name))
             return name;
-        // fallback: coarse manifest category
+        // 兜底：manifest 粗分类
         return string.IsNullOrEmpty(m.Category) ? null : m.Category;
     }
 
-    /// <summary>If the category table is empty and an API key exists, fetch and cache the official category table once.</summary>
+    /// <summary>分类表为空且有 API Key → 拉一次官方分类表并缓存。</summary>
     private async Task EnsureCategoriesAsync()
     {
         if (Cfg.Current.NexusCategories.Count > 0 || string.IsNullOrWhiteSpace(_apiKey)) return;
@@ -837,7 +902,7 @@
                 Cfg.Save(Cfg.Current);
             }
         }
-        catch (Exception ex) { AppLog.Warn("Mods", "Failed to fetch category table: " + ex.Message); }
+        catch (Exception ex) { AppLog.Warn("Mods", "分类表拉取失败: " + ex.Message); }
     }
 
     private string SortLabel => _sortMode switch
@@ -847,7 +912,7 @@
         _           => "Alphabetical",
     };
 
-    /// <summary>v0.71.6: clicking the overlay outside the sort dropdown closes it.</summary>
+    /// <summary>v0.71.6：点排序下拉外部遮罩收回。</summary>
     private async Task CloseSort()
     {
         if (!_sortOpen) return;
@@ -857,7 +922,14 @@
 
     private async Task ToggleSort()
     {
+        if (_deletingProfile is not null) return;   // v1.08：删除确认期间禁开
         _sortOpen = !_sortOpen;
+        // v1.08：两个下拉互斥 —— 开排序就关存档
+        if (_sortOpen && _profileOpen)
+        {
+            _profileOpen = false;
+            try { await JS.InvokeVoidAsync("junigridJs.profileDropdown", ".jg-profile-dd", false); } catch { }
+        }
         try { await JS.InvokeVoidAsync("junigridJs.dropdownToggle", ".jg-sort-dd", _sortOpen); } catch { }
     }
 
@@ -880,7 +952,7 @@
     private async Task ClearSearchAndClose()
     {
         SearchText = "";
-        // v0.33.0: force collapse regardless of _searchOpen (avoids UI/state desync leaving it "stuck open")
+        // v0.33.0：无论 _searchOpen 状态如何都强制收起（避免 UI/state 不同步造成"关不上"）
         _searchOpen = false;
         try { await JS.InvokeVoidAsync("junigridJs.searchToggle", ".jg-search-x", false); } catch { }
     }
@@ -901,7 +973,7 @@
 
     private IEnumerable<ModEntry> _filteredCache = Array.Empty<ModEntry>();
 
-    /// <summary>The mod list after filtering and search are applied.</summary>
+    /// <summary>应用过滤 + 搜索后的 mod 列表。</summary>
     private IReadOnlyList<ModEntry> FilteredMods
     {
         get
@@ -918,7 +990,7 @@
             if (!string.IsNullOrWhiteSpace(SearchText))
             {
                 var s = SearchText.Trim();
-                // Purely numeric input is treated as a fuzzy Nexus ID (NexusModId) match — e.g. 4964794 or just 9647 both locate the mod.
+                // 输入是纯数字时，当成 N 网尾号（NexusModId）模糊匹配，例如 4964794 或只输 9647 都能定位到。
                 bool numeric = int.TryParse(s, out _);
                 q = q.Where(m =>
                     m.Name.Contains(s, StringComparison.OrdinalIgnoreCase)
@@ -940,27 +1012,37 @@
         _ => 0,
     };
 
-    private void SetFilter(string key) { _filter = key; }
+    private bool _skipListAnimOnce;
+
+    // v1.08：检查失败（超时等）的 mod 数量 —— 驱动筛选栏提示与"可更新"红点
+    private int FailedCheckCount => _states.Values.Count(s => s.Status == "failed");
+
+    private void SetFilter(string key)
+    {
+        _filter = key;
+        // v1.08：切换过滤 = 换一批行。标记本帧跳过入场动画、改为直接清掉旧行内联
+        // 样式（opacity/transform），避免整表重新播 0.2s 动画造成的"不流畅/闪动"。
+        _skipListAnimOnce = true;
+    }
 
     private void ClearSearch() { SearchText = ""; }
 
-    // v0.36.0: AnimatedList scroll effect for the mod list (scale/opacity on entering viewport + top/bottom fade)
+    // v0.36.0：mod 列表 AnimatedList 滚动效果（进入视口 scale/opacity + 顶底渐变）
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // v0.71.1: restore the scroll position when returning from the detail page — setScrollWhenReady polls
-        // until the container is tall enough, then sets it
-        // v0.72.0: carry the "was at bottom" flag from when we left; the restore logic no longer guesses via y>limit
+        // v0.71.1：从详情页返回时恢复滚动位置 —— setScrollWhenReady 轮询等容器高度足够再设
+        // v0.72.0：带上离开时的「是否在底部」标记，恢复器不再用 y>limit 猜底部
         var dedicatedRan = false;
         if (!_initialLoading && _restoreScroll >= 0)
         {
-            dedicatedRan = true;   // v1.06.8: this run used the dedicated snapshot restore; the firstRender fallback must yield
+            dedicatedRan = true;   // v1.06.8：本次走的是专用快照恢复，firstRender 兜底必须让位
             _entryRestoreRan = true;
             var y = _restoreScroll;
             var atBottom = _restoreAtBottom;
             _restoreScroll = -1;
             _restoreAtBottom = false;
             _scrollRestoreClassPending = false;
-            AppLog.Warn("Mods", $"[diag] scroll restore started y={y} atBottom={atBottom}");
+            AppLog.Warn("Mods", $"[诊断] 恢复滚动启动 y={y} atBottom={atBottom}");
             try
             {
                 var reporter = DotNetObjectReference.Create(new ScrollRestoreReporter());
@@ -968,33 +1050,46 @@
             }
             catch (Exception ex)
             {
-                AppLog.Error("Mods", "[diag] scroll restore call failed: " + ex.Message);
+                AppLog.Error("Mods", "[诊断] 恢复滚动调用失败: " + ex.Message);
                 try { await JS.InvokeVoidAsync("junigridJs.cancelScrollRestore", ".jg-main"); } catch { }
             }
         }
         else if (!_initialLoading && _scrollRestoreClassPending)
         {
-            // v0.72.4: returned to the list with the "restore pending" flag but no snapshot to restore
-            // (e.g. clicking top navigation from the detail page) -> remove the hiding flag so the list shows normally
+            // v0.72.4：带着「待恢复」标记回到列表但没有可恢复快照
+            // （如从详情页直接点了顶部导航再回来）→ 摘掉隐藏标记，行列表正常显示
             _scrollRestoreClassPending = false;
             _entryRestoreRan = true;
             try { await JS.InvokeVoidAsync("junigridJs.cancelScrollRestore", ".jg-main"); } catch { }
         }
-        try { await JS.InvokeVoidAsync("junigridJs.animatedListInit", ".jg-main", ".jg-modrows"); } catch { }
+        if (_skipListAnimOnce)
+        {
+            // v1.08：过滤切换 —— 清掉旧行的动画内联样式直接显示，不重播入场动画
+            _skipListAnimOnce = false;
+            _listStructureDirty = false;
+            try { await JS.InvokeVoidAsync("junigridJs.animatedListReset", ".jg-modrows"); } catch { }
+        }
+        else if (firstRender || _listStructureDirty)
+        {
+            // v1.08：入场动画只在列表结构变化时初始化 —— 此前每次渲染都对全部行
+            // 做强制布局（getBoundingClientRect × N），检查更新每完成一个 mod 触发
+            // 一次渲染，63 行 × 每秒数次 = 进页面卡顿的主因之一。
+            _listStructureDirty = false;
+            try { await JS.InvokeVoidAsync("junigridJs.animatedListInit", ".jg-main", ".jg-modrows"); } catch { }
+        }
         if (firstRender)
         {
-            // v0.45.0: remember the /mods scroll position — when entering the detail page and returning,
-            // restore the previous scroll height instead of jumping back to the top
+            // v0.45.0：记忆 /mods 滚动位置 —— 进详情页再返回时恢复到原来滚动的高度，
+            // 而不是回到页面顶部
             try { await JS.InvokeVoidAsync("junigridJs.scrollSpy", ".jg-main", "modslist", false); } catch { }
         }
 
-        // vNext: entering the page always restores the position from when we left — no longer limited to popstate.
-        // Returning from another page via a nav icon (forward navigation) restores too: scrollSpy keeps writing the
-        // "position when leaving" to the modslist key, and we simply read it here. On cold start sessionStorage is
-        // empty (y≈0) so nothing restores; a manual refresh does not rebuild the component and skips this.
-        // The dedicated snapshot (detail-page return) takes priority.
-        // vNext: only run after the list is actually shown (_initialLoading=false) — during the skeleton phase the
-        // "restore pending" flag would hide the skeleton itself too (same .jg-modrows-skeleton class).
+        // vNext：进入页面统一恢复离开时的位置 —— 不再只限 popstate 返回。
+        // 从其它页点导航图标回来（前进导航）同样恢复：scrollSpy 一直在往 modslist 键
+        // 写「离开时的位置」，这里直接读它落位。冷启动 sessionStorage 为空（y≈0）
+        // 自然不恢复；手动刷新不重建组件不走这里。专用快照（详情页返回）优先级更高。
+        // vNext：等列表真实显示（_initialLoading=false）后才跑 —— 骨架屏期标记
+        // 「待恢复」会把骨架本身也藏掉（.jg-modrows-skeleton 同名 class）。
         if (!_initialLoading && !_entryRestoreRan)
         {
             _entryRestoreRan = true;
@@ -1005,10 +1100,9 @@
                     var y = await JS.InvokeAsync<double>("junigridJs.readScrollKey", "modslist");
                     if (y > 1)
                     {
-                        AppLog.Warn("Mods", $"[diag] generic entry restore y={y}");
-                        // first attach the "restore pending" hiding flag (.jg-main persists across navigation);
-                        // setScrollWhenReady removes it in the same frame after landing, avoiding a one-frame
-                        // flash of the list at the top
+                        AppLog.Warn("Mods", $"[诊断] 进入恢复（通用） y={y}");
+                        // 先挂「待恢复」隐藏标记（.jg-main 跨导航持久），落位后由
+                        // setScrollWhenReady 同帧揭开，避免「列表先在顶部闪一帧」
                         await JS.InvokeVoidAsync("junigridJs.markScrollRestorePending", ".jg-main");
                         var reporter = DotNetObjectReference.Create(new ScrollRestoreReporter());
                         await JS.InvokeVoidAsync("junigridJs.setScrollWhenReady", ".jg-main", y, false, reporter);
@@ -1016,22 +1110,24 @@
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Error("Mods", "[diag] generic entry restore failed: " + ex.Message);
+                    AppLog.Error("Mods", "[诊断] 通用进入恢复失败: " + ex.Message);
                     try { await JS.InvokeVoidAsync("junigridJs.cancelScrollRestore", ".jg-main"); } catch { }
                 }
             }
         }
     }
 
-    /// <summary>vNext: gate so the generic entry restore runs only once (skipped during the skeleton phase; runs on the first render after the list is shown).</summary>
+    /// <summary>vNext：通用进入恢复只跑一次的闸门（骨架屏期不跑，列表显示后的第一次渲染跑）。</summary>
     private bool _entryRestoreRan;
+    // v1.08：列表结构脏标记 —— Rescan 换血后才需要重新绑定入场动画观察器
+    private bool _listStructureDirty = true;
 
     private void ToggleGroup(string key)
     {
         if (!_collapsed.Add(key)) _collapsed.Remove(key);
     }
 
-    /// <summary>Missing dependencies (declared in Dependencies but not present in the installed UniqueID set).</summary>
+    /// <summary>缺失的依赖（声明在 Dependencies 里、但不在已装 UniqueID 集合中的项）。</summary>
     private List<string> MissingDeps(ModEntry m)
     {
         if (m.Dependencies == null || m.Dependencies.Count == 0) return new List<string>();
@@ -1042,15 +1138,15 @@
             .ToList();
     }
 
-    /// <summary>Whether an update is available: the state has a remote version recorded and it is newer than the current one (same logic as the row).</summary>
+    /// <summary>是否「有可用更新」：状态里记录了远端版本、且比当前版本新（复用行内逻辑）。</summary>
     private bool IsUpdatable(ModEntry m)
     {
-        if (m.Disabled) return false;
+        // v1.08：禁用的 mod 同样计入"可更新"（只查不装；启用后即可更新）
         var st = GetState(m.Folder);
         return st.RemoteVersion is not null && IsNewer(st.RemoteVersion, m.Version);
     }
 
-    /// <summary>Group by outermost folder (mods sitting directly in the Mods root belong to the "" group).</summary>
+    /// <summary>按最外层文件夹分组（根目录直接受让的 mod 为 "" 组）。</summary>
     private IReadOnlyList<ModGroup> Groups
     {
         get
@@ -1059,7 +1155,7 @@
             var installed = InstalledUids;
             foreach (var g in FilteredMods.GroupBy(GroupKeyOf))
             {
-                // v0.32.0: sort within each group by the selected mode
+                // v0.32.0：组内按所选模式排序
                 var items = _sortMode switch
                 {
                     "time-desc" => g.OrderBy(x => x.LastWrite).ToList(),
@@ -1079,7 +1175,7 @@
                         .ToList()
                 });
             }
-            // v0.32.0: group order also follows the sort mode (the root "" group always comes first)
+            // v0.32.0：组间顺序也跟随排序模式（根组 "" 永远在最前）
             return _sortMode switch
             {
                 "time-desc" => list.OrderBy(x => x.Key == "" ? 0 : 1)
@@ -1095,7 +1191,7 @@
 
     private static string GroupKeyOf(ModEntry m)
     {
-        // Folder looks like "SVE/[CP] xx" or "xx": take the first segment as the group key.
+        // Folder 形如 "SVE/[CP] xx" 或 "xx"：取第一个段作为分组。
         var idx = m.Folder.IndexOf('/');
         return idx > 0 ? m.Folder[..idx] : "";
     }
@@ -1106,7 +1202,7 @@
         public List<ModEntry> Items = new();
         public HashSet<string> Installed = new();
 
-        /// <summary>Union of all missing dependencies in this group (not in the installed set), deduplicated.</summary>
+        /// <summary>该分组内所有缺失依赖（不在已装集合中）的并集，去重。</summary>
         public List<string> Missing { get; set; } = new();
     }
 
@@ -1126,8 +1222,8 @@
         public string Status = "idle";   // idle/checking/latest/available/updating/updated/premium/failed
         public string? RemoteVersion;
         public string? Message;
-        public string? PictureUrl;       // Nexus cover (picked up along the way during update checks)
-        public int? CategoryId;          // v0.46.0: site category ID (picked up by GetModAsync)
+        public string? PictureUrl;       // N 网封面（检查更新时顺手拿到的）
+        public int? CategoryId;          // v0.46.0：官网分类 ID（GetModAsync 顺手拿到）
     }
 
     private string SmapiDisplay =>
@@ -1143,8 +1239,8 @@
         foreach (var m in _mods)
         {
             if (!_remoteVersionCache.TryGetValue(m.Folder, out var entry)) continue;
-            // v1.06.7: align the restore window with the check TTL (60 minutes) — the old 30-minute value
-            // left a 30-60 minute dead zone where the restore failed but a re-check was skipped by the TTL
+            // v1.06.7：恢复窗口与检查 TTL（60 分钟）对齐 —— 旧值 30 分钟会在
+            // 30~60 分钟区间「恢复不了、重查又被 TTL 跳过」两头落空
             if (DateTime.UtcNow - entry.At > UpdateCheckTtl) continue;
             _states[m.Folder] = new ModUpdateState
             {
@@ -1154,17 +1250,15 @@
         }
     }
 
-    // v0.44.0: update-check result cache (folder -> UTC time of last successful check);
-    // re-running "check for updates" within 60 minutes skips already-checked mods, so even hundreds of mods
-    // only issue requests for new/expired entries
+    // v0.44.0：更新检查结果缓存（folder -> 上次检查成功的 UTC 时间），
+    // 60 分钟内重复点"检查更新"时跳过已查过的 mod，几百个 mod 也只发新/过期请求
     private static readonly Dictionary<string, DateTime> _lastCheckedUtc = new();
     private static readonly TimeSpan UpdateCheckTtl = TimeSpan.FromMinutes(60);
 
-    // vNext: fingerprint cache lifetime — if updatedAt is unchanged the entry is theoretically valid forever,
-    // but a 7-day cap is kept as a safeguard against the edge case "file list changed but updatedAt did not"
-    // (e.g. the author deleted the latest file) lingering indefinitely
+    // vNext：指纹缓存有效期 —— updatedAt 没变理论上就永远有效，这里仍设 7 天兜底，
+    // 防止「文件列表变了但 updatedAt 没动」的极端情况（如作者删掉最新文件）长期滞留
     private static readonly TimeSpan FingerprintMaxAge = TimeSpan.FromDays(7);
-    /// <summary>vNext: the fingerprint cache (Cfg.ModUpdateFingerprints) was written this round and needs to be saved.</summary>
+    /// <summary>vNext：指纹缓存（Cfg.ModUpdateFingerprints）本轮有写入，需要落盘。</summary>
     private bool _fpDirty;
 
     private static void RememberRemoteVersion(string folder, string? version)
@@ -1174,16 +1268,20 @@
     }
 
 
+    private void OnCoverCached()
+    {
+        if (!_disposed) _ = InvokeAsync(StateHasChanged);
+    }
+
     private string? GetCover(ModEntry m)
     {
         var st = GetState(m.Folder);
-        if (st.PictureUrl is not null) return st.PictureUrl;
-        if (Cfg.Current.ModCovers.TryGetValue(m.Folder, out var url)) return url;
-        // v0.43.0: after disabling, the folder becomes ".X/..." while the cover cache still holds the
-        // enabled-time "X/..." key; fall back to the normalized key (top-level "." prefix stripped) so
-        // covers show in both the disabled and enabled states
+        if (st.PictureUrl is not null) return Covers.Get(st.PictureUrl);
+        if (Cfg.Current.ModCovers.TryGetValue(m.Folder, out var url)) return Covers.Get(url);
+        // v0.43.0：禁用后 folder 变为 ".X/..."，封面缓存仍停留在启用时的 "X/..." key，
+        // 用规范化 key（去掉顶层 . 前缀）兜底，禁用/启用两种状态都能看到封面
         var norm = NormCoverKey(m.Folder);
-        return norm != m.Folder && Cfg.Current.ModCovers.TryGetValue(norm, out var url2) ? url2 : null;
+        return norm != m.Folder && Cfg.Current.ModCovers.TryGetValue(norm, out var url2) ? Covers.Get(url2) : null;
     }
 
     private static string NormCoverKey(string folder)
@@ -1193,18 +1291,22 @@
         return string.Join('/', parts);
     }
 
-    // vNext: cross-page static snapshot — keep the scan results when leaving /mods; when returning from
-    // another page, show the list instantly from the snapshot (zero disk IO, zero wait), then rescan the disk
-    // in the background to refresh. Survives component disposal.
+    // vNext：跨页静态快照 —— 离开 /mods 时把扫描结果留住；从其它页回来先用快照
+    // 秒显列表（零磁盘 IO、零等待），后台再重扫磁盘刷新。组件销毁后仍存活。
     private static IReadOnlyList<ModEntry>? _svMods;
-    // vNext: cross-page cache for the SMAPI version/icon probe results (the icon is exe-extracted + base64; redoing it on every page entry would be wasteful)
+    // vNext：SMAPI 版本/图标探测结果跨页缓存（图标是 exe 抽取 + base64，每次进页都做太浪费）
     private static string? _svSmapiPath;
     private static string? _svSmapiVersionCache;
     private static string? _svSmapiIconCache;
 
     protected override void OnInitialized()
     {
+        Covers.Changed += OnCoverCached;   // v1.08：图片后台缓存完成后刷新
         _apiKey = Cfg.Current.NexusApiKey;
+        // v1.08：从任务中心恢复 SMAPI 任务状态 —— 页面离开再回来组件会重建，
+        // _smapiUpdating 归零会导致按钮重新可点、重复创建下载任务。
+        _smapiUpdating = Center.Items.Any(t =>
+            t.Status == "running" && t.Title.StartsWith("SMAPI", StringComparison.OrdinalIgnoreCase));
         var gp = Cfg.Current.GamePath;
         if (_svSmapiPath == gp && _svSmapiVersionCache is not null)
         {
@@ -1220,12 +1322,12 @@
             _svSmapiIconCache = _smapiIcon;
         }
         Installer.OnChanged += OnInstallerChanged;
-        // v1.06.7: clicking the Mod Management "current page" icon in the top bar -> rescan + re-check updates
+        // v1.06.7：顶栏点「当前页」Mod 管理图标 → 重新扫描 + 重新检查更新
         PageRefresh.OnRefresh += OnPageRefresh;
     }
 
-    /// <summary>Top-bar refresh signal (only fires while already on this page).
-    /// Rescans and forces a full update re-check (ignoring the 60-minute TTL).</summary>
+    /// <summary>顶栏刷新信号（只有已停留在本页时才会触发）。
+    /// 重新扫描 + 强制全量重查更新（无视 60 分钟 TTL）。</summary>
     private void OnPageRefresh(string key)
     {
         if (key != "mods" || _disposed) return;
@@ -1238,25 +1340,31 @@
             Rescan(scanned);
             _initialLoading = false;
             await CheckUpdates(force: true);
+            // v1.08：刷新同时重新探测 SMAPI（安装/升级后 exe 已变，静态缓存是旧版本）
+            // 并强制重查远端新版 —— 此前刷新永远拿 5 分钟缓存，看不到刚装好的新状态。
+            _smapiVersion = Game.ProbeSmapiVersion(Cfg.Current.GamePath);
+            _smapiIcon = Game.GetSmapiIconDataUri(Cfg.Current.GamePath);
+            _smapiUpdate = await Updater.CheckSmapiAsync(_smapiVersion, force: true);
             StateHasChanged();
-            // vNext: manual refresh = start from the top — scroll to the top and write 0 into the scroll store,
-            // otherwise leaving without scrolling after the refresh would restore the stale pre-refresh position next time
+            // vNext：手动刷新 = 从头看起 —— 归顶并把 0 写进滚动存档，
+            // 否则刷新后不滚动就离开，下次回来会恢复到刷新前的旧位置
             try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
             try { await JS.InvokeVoidAsync("junigridJs.saveScrollKey", "modslist", 0, false); } catch { }
         });
     }
 
-    // v0.72.8: dispose the FileSystemWatcher — the old version only unbound Installer and never destroyed the watcher.
-    // Every leave/return of /mods stacked another watcher; N round trips = N watchers all listening to Mods/,
-    // and a 63-item batch rename triggered 63×N Rescan callbacks → frozen UI (the root cause of "freezes only after visiting the detail page").
+    // v0.72.8：释放 FileSystemWatcher —— 旧版只解绑 Installer，watcher 从不销毁。
+    // 每次离开 /mods 再回来就叠一个新 watcher，N 次往返 = N 个 watcher 同时监听 Mods/，
+    // 批量改名 63 次触发 63×N 个 Rescan 回调 → UI 卡死（"进详情再回来才卡"的根因）。
     private bool _disposed;
 
     public void Dispose()
     {
         _disposed = true;
+        Covers.Changed -= OnCoverCached;
         Installer.OnChanged -= OnInstallerChanged;
         PageRefresh.OnRefresh -= OnPageRefresh;
-        // vNext: keep the scan snapshot — show the list instantly from it when returning from another page, rescan the disk in the background
+        // vNext：留下扫描快照 —— 从其它页回来时先用它秒显列表，后台再重扫磁盘
         _svMods = _mods;
         if (_modsWatcher is not null)
         {
@@ -1274,13 +1382,16 @@
         });
 
     private FileSystemWatcher? _modsWatcher;
-    private int _pendingRescan;   // v0.72.8: watcher event-coalescing gate
+    private int _pendingRescan;   // v0.72.8：watcher 事件合并闸门
 
     protected override async Task OnInitializedAsync()
     {
-        // vNext: two entry paths — (1) cross-page snapshot exists (returned from another page): show the list
-        // instantly from the snapshot, push the disk rescan to the background, and swap in results seamlessly;
-        // (2) cold start without a snapshot: shimmer skeleton + background thread scan.
+        // v1.08：进页立刻后台预取全部已知名封面（本地缓存命中则零请求），
+        // 用户还在看列表时图片已就绪 —— 首次加载体感的关键抢跑。
+        Covers.Prewarm(Cfg.Current.ModCovers.Values);
+
+        // vNext：进页两条路 —— ①有跨页快照（从其它页回来）：直接用快照秒显列表，
+        // 磁盘重扫丢到后台，扫完无感替换；②冷启动无快照：shimmer 骨架 + 后台线程扫描。
         if (_svMods is { Count: > 0 } snap)
         {
             _mods = snap;
@@ -1300,18 +1411,18 @@
         }
         else
         {
-            // v0.59.0: show the shimmer skeleton on first paint, then switch to the real list once Rescan finishes
+            // v0.59.0：首屏先亮 shimmer 骨架，Rescan 完再切成真实列表
             _initialLoading = true;
             StateHasChanged();
-            await Task.Yield();  // let the skeleton render one frame first
-            // vNext: move the disk scan off the UI thread — parsing manifests for hundreds of mods no longer blocks rendering
+            await Task.Yield();  // 让骨架先渲染一帧
+            // vNext：磁盘扫描移出 UI 线程 —— 几百个 mod 的 manifest 解析不再卡住渲染
             var scanned = await Task.Run(() => ModSvc.Scan(Cfg.Current.GamePath));
             if (_disposed) return;
             Rescan(scanned);
             _initialLoading = false;
         }
-        // v1.06.7: remote version markers must be restored after Rescan — once _mods is ready, backfill the
-        // "⇑ updatable" state by folder (the snapshot path must run this too: a new instance's _states is empty).
+        // v1.06.7：必须在 Rescan 之后恢复远端版本标记 —— _mods 就绪后按 folder 回填
+        // 「⇑ 可更新」状态（快照路径同样要跑：新实例的 _states 是空的）。
         ApplyKnownRemoteVersions();
         StateHasChanged();
         if (ActiveProfileName != "Default"
@@ -1319,19 +1430,19 @@
         {
             _ = InvokeAsync(async () =>
             {
-                // delay one frame so the first paint completes before applying the profile
+                // 延迟一帧让首屏渲染完，再应用存档
                 await Task.Delay(300);
                 await ApplyProfile(ActiveProfileName);
             });
         }
 
-        // The SMAPI check and the mod update detection are independent; run both concurrently. Don't let the
-        // SMAPI network request block the whole page — mod rows start checking remote versions as soon as they appear.
+        // SMAPI 检查和 mod 更新检测互不依赖，一起跑；不要让 SMAPI 网络请求
+        // 卡住整页，mod 行一进入页面就开始检查远端版本。
         var smapiTask = Updater.CheckSmapiAsync(_smapiVersion);
-        // v0.68.3: on entering the Mods page, behavior is decided entirely by the Settings page's "auto-install updates" toggle (EnableAutoInstall); no more prompt.
+        // v0.68.3：进入 Mod 页时完全由「设置」页「自动安装更新」开关（EnableAutoInstall）判定，不再弹窗询问。
         _ = InvokeAsync(async () => { await AutoUpdateOnEnterAsync(); await InvokeAsync(StateHasChanged); });
 
-        // Q4: watch the Mods folder so mods the user drops in manually appear immediately
+        // Q4: 监听 Mods 文件夹变化，用户直接扔进去的 mod 也能立刻出现
         try
         {
             var modsDir = System.IO.Path.Combine(Cfg.Current.GamePath, "Mods");
@@ -1342,8 +1453,8 @@
                     IncludeSubdirectories = false,
                     NotifyFilter = NotifyFilters.DirectoryName | NotifyFilters.FileName | NotifyFilters.LastWrite
                 };
-                // v0.72.8: disposed guard + event coalescing — queued callbacks no longer fire after disposal;
-                // multiple file events in a short window coalesce into one RescanAndRestate (_pendingRescan debounce).
+                // v0.72.8：disposed 守卫 + 事件合并 —— 组件销毁后已排队的回调不再回灌；
+                // 短时间内多个文件事件合并为一次 RescanAndRestate（_pendingRescan 防抖）。
                 FileSystemEventHandler onChange = (_, _) =>
                 {
                     if (_disposed) return;
@@ -1352,7 +1463,7 @@
                     {
                         try
                         {
-                            await Task.Delay(120);   // coalescing window: consecutive events within 120ms trigger only one rescan
+                            await Task.Delay(120);   // 合并窗口：120ms 内的连续事件只触发一次
                             if (_disposed) return;
                             RescanAndRestate();
                         }
@@ -1379,7 +1490,7 @@
                 _modsWatcher.EnableRaisingEvents = true;
             }
         }
-        catch { /* if the watcher cannot be created, so be it — the user can refresh manually */ }
+        catch { /* watcher 建不起来就算了，用户可点手动刷新 */ }
 
         _smapiUpdate = await smapiTask;
         if (_smapiUpdate is not null) StateHasChanged();
@@ -1391,22 +1502,22 @@
         StateHasChanged();
     }
 
-    /// <summary>vNext: preScanned lets the caller scan the disk on a background thread first, then apply the
-    /// results back on the UI thread (the scan itself never touches UI state; selected-set cleanup happens on
-    /// the UI thread to avoid racing with rendering).</summary>
+    /// <summary>vNext：preScanned 允许调用方先在后台线程扫盘、再回到 UI 线程套用结果
+    /// （扫描本身不碰 UI 状态，选中集合清理在 UI 线程做，避免与渲染并发）。</summary>
     private void Rescan(IReadOnlyList<ModEntry>? preScanned = null)
     {
+
+        _listStructureDirty = true;   // v1.08：列表换血，入场动画观察器需重绑
         _mods = preScanned ?? ModSvc.Scan(Cfg.Current.GamePath);
-        // drop selections that are no longer in the list
+        // 清掉已经不在列表里的选中项
         _selected.RemoveWhere(f => !_mods.Any(m => m.Folder == f));
-        // v0.72.7: Rescan only scans — it no longer secretly starts BackfillCoversAsync.
-        // The old version stacked a network backfill task on every Rescan (triggered by init/batch/watcher
-        // callbacks alike), which was the core amplifier of "random freezes". Cover backfill now starts
-        // on demand via an explicit entry point (with a concurrency gate).
+        // v0.72.7：Rescan 只负责扫描 —— 不再偷偷启动 BackfillCoversAsync。
+        // 旧版每次 Rescan 都叠加一个网络回填任务（初始化/批量/watcher 回调任意触发），
+        // 是"偶发卡死"的核心放大器。封面回填改由显式入口按需启动（带并发闸门）。
     }
 
     // ------------------------------------------------------------------
-    // Row interaction: left-click multi-select / hover buttons
+    // 行交互：左键多选 / hover 按钮
     // ------------------------------------------------------------------
     private void ToggleSelect(string folder)
     {
@@ -1420,14 +1531,14 @@
         _pendingBatchDelete = false;
     }
 
-    // v0.41.0: select all of the current filtered results (only visible rows, to avoid selecting filtered-out mods)
+    // v0.41.0：全选当前过滤结果（只选看得见的，避免误选被过滤掉的）
     private void SelectAll()
     {
         foreach (var m in FilteredMods) _selected.Add(m.Folder);
         _pendingBatchDelete = false;
     }
 
-    // ── delete confirmation dialog: cancel / confirm (single goes through Uninstall, batch through BatchDelete) ──
+    // ── 删除确认弹窗：取消 / 确定（单个走 Uninstall，批量走 BatchDelete）──
     private void CancelDeleteMods()
     {
         _pendingDeleteMod = null;
@@ -1438,40 +1549,41 @@
     {
         var mod = _pendingDeleteMod;
         var batch = _pendingBatchDelete;
+        var toTrash = _deleteToTrash;
         _pendingDeleteMod = null;
         _pendingBatchDelete = false;
-        if (mod is not null) Uninstall(mod);
-        else if (batch) BatchDelete();
+        if (mod is not null) Uninstall(mod, toTrash);
+        else if (batch) BatchDelete(toTrash);
     }
 
-    /// <summary>v0.71.0: remember the list scroll position before navigating to the detail page (static field; survives component disposal).</summary>
+    /// <summary>v0.71.0：跳详情前记住列表滚动位置（静态字段，组件销毁后仍存活）。</summary>
     private static double _restoreScroll = -1;
-    /// <summary>v0.72.0: whether we were at the bottom when leaving — the sole basis for target=limit on restore,
-    /// replacing the old setScrollWhenReady guess of "y > limit means at bottom".</summary>
+    /// <summary>v0.72.0：离开时是否已在底部 —— 恢复时 target=limit 的唯一依据，
+    /// 取代旧版 setScrollWhenReady 里 "y > limit 就当到底" 的猜测。</summary>
     private static bool _restoreAtBottom;
-    /// <summary>v0.72.4: whether the "restore pending" hiding flag (jg-restore-pending) is still on .jg-main.
-    /// Used as a fallback to remove the flag when returning to the list without a snapshot, so the list is never hidden forever.</summary>
+    /// <summary>v0.72.4：.jg-main 上是否还挂着「待恢复」隐藏标记（jg-restore-pending）。
+    /// 回到列表却没有快照可恢复时，用它兜底摘标记，防止行列表被永久隐藏。</summary>
     private static bool _scrollRestoreClassPending;
 
-    /// <summary>v0.72.0: JS scroll snapshot (y + at-bottom flag).</summary>
+    /// <summary>v0.72.0：JS 滚动快照（y + 是否到底）。</summary>
     private sealed record ScrollSnapshot(
         [property: System.Text.Json.Serialization.JsonPropertyName("y")] double Y,
         [property: System.Text.Json.Serialization.JsonPropertyName("atBottom")] bool AtBottom);
 
-    /// <summary>v0.72.2: scroll restore result report (diagnostics; fires once when setScrollWhenReady finishes).</summary>
+    /// <summary>v0.72.2：滚动恢复结果回报（诊断用，setScrollWhenReady 结束时回一次）。</summary>
     private sealed class ScrollRestoreReporter
     {
         [JSInvokable]
         public void Report(double target, double finalTop, int tries, string reason) =>
-            AppLog.Warn("Mods", $"[diag] scroll restore finished reason={reason} target={target} final scrollTop={finalTop} rounds={tries}");
+            AppLog.Warn("Mods", $"[诊断] 滚动恢复结束 reason={reason} target={target} 最终scrollTop={finalTop} 轮数={tries}");
     }
 
     private async Task OpenDetail(ModEntry m)
     {
         if (m.NexusModId is not null)
         {
-            // v0.72.2: diagnostic logging — the scroll pipeline used to be fully silent, leaving failures untraceable.
-            // jsVer probes whether the loaded interop.js is new or old (exposes WebView2 serving a cached old JS).
+            // v0.72.2：诊断日志 —— 滚动链路此前全程静默，失败无迹可查。
+            // jsVer 探测加载的 interop.js 是新是旧（WebView2 缓存旧 JS 时这里会现形）。
             try
             {
                 var jsVer = await JS.InvokeAsync<string>("eval",
@@ -1479,29 +1591,29 @@
                 var snap = await JS.InvokeAsync<ScrollSnapshot>("junigridJs.getScrollState", ".jg-main");
                 _restoreScroll = snap.Y;
                 _restoreAtBottom = snap.AtBottom;
-                AppLog.Warn("Mods", $"[diag] OpenDetail snapshot js={jsVer} y={snap.Y} atBottom={snap.AtBottom}");
-                // v0.72.4: tag .jg-main with the "restore pending" flag — the list stays hidden after returning
-                // until the position lands, so the browser never paints the "list at the top" frame (flash root cause)
+                AppLog.Warn("Mods", $"[诊断] OpenDetail 快照 js={jsVer} y={snap.Y} atBottom={snap.AtBottom}");
+                // v0.72.4：给 .jg-main 打「待恢复」标记 —— 返回后行列表在落位前保持隐藏，
+                // 浏览器画不出「列表在顶部」的那一帧（闪屏根因）
                 await JS.InvokeVoidAsync("junigridJs.markScrollRestorePending", ".jg-main");
                 _scrollRestoreClassPending = true;
-                // v0.71.2: dual-write to sessionStorage (same key as scrollSpy) — static fields are timing-unstable
-                // under Blazor Server route caching, so sessionStorage is the durable fallback; setScrollWhenReady
-                // can read either on return.
+                // v0.71.2：双写 sessionStorage（scrollSpy 同 key）——静态字段在 Blazor 服务端路由缓存下时序不稳，
+                // sessionStorage 是持久兜底；返回时 setScrollWhenReady 读哪个都行。
                 await JS.InvokeVoidAsync("junigridJs.saveScrollKey", "modslist", _restoreScroll, _restoreAtBottom);
             }
             catch (Exception ex)
             {
-                AppLog.Error("Mods", "[diag] OpenDetail snapshot failed: " + ex.Message);
+                AppLog.Error("Mods", "[诊断] OpenDetail 快照失败: " + ex.Message);
             }
             Nav.NavigateTo($"mod/{m.NexusModId}" + (string.IsNullOrEmpty(m.UniqueID) ? "" : "/" + Uri.EscapeDataString(m.UniqueID)));
         }
     }
 
     // ------------------------------------------------------------------
-    // Rename/alias dialog
+    // 备注/重命名弹窗
     // ------------------------------------------------------------------
     private void OpenRemark(ModEntry m)
     {
+        CloseDropdownsForDialog();
         _remarkFolder = m.Folder;
         _remarkOriginal = m.Name;
         Cfg.Current.ModRemarks.TryGetValue(m.Folder, out var cur);
@@ -1530,7 +1642,7 @@
         else if (e.Key == "Escape") CancelRemark();
     }
 
-    /// <summary>The mod name shown in the list: if an alias exists, "alias (original name)"; otherwise the original name/translation.</summary>
+    /// <summary>列表显示的 mod 名：有备注则显示成 “备注(原名)”，否则走原名/翻译。</summary>
     private string RemarkName(ModEntry m)
     {
         var name = m.Name;
@@ -1542,9 +1654,9 @@
 
     private void OpenUpdatePage(ModEntry m)
     {
-        // v0.68.2: Nexus source first — mods with a Nexus ID (including dual-source mods like SDV-Glow)
-        // always send free users to the Nexus files page for manual download; Premium members install in-app
-        // (via the Nexus direct link). Only "GitHub-only" mods (no Nexus source) update in-app via GitHub.
+        // v0.68.2：N 网源优先 —— 有 Nexus ID 的 mod（含 SDV-辉光这类双源 mod）
+        // 免费用户一律跳 N 网文件页手动下载；会员系统内直装（走 N 网直链）。
+        // 只有「纯 GitHub 源」（无 N 网源）的 mod 才走系统内 GitHub 更新。
         var isPremium = Cfg.Current.NexusIsPremium;
         if ((isPremium && m.NexusModId is not null)
             || (m.NexusModId is null && m.GitHubRepo is not null))
@@ -1560,10 +1672,10 @@
                 }
                 else if (st.Status == "premium" && m.NexusModId is not null)
                 {
-                    // account is actually not Premium (403) -> fall back to opening the site for manual download
+                    // 账号实际非会员（403）→ 回退打开官网手动下载
                     UpdateService.OpenUrl(
                         $"https://www.nexusmods.com/stardewvalley/mods/{m.NexusModId}?tab=files");
-                    ShowNotice("err", "The current Nexus account is not Premium; opened the site download page instead");
+                    ShowNotice("err", "Current Nexus account is not Premium — opened the download page for you");
                 }
                 else if (st.Status == "failed")
                 {
@@ -1571,11 +1683,10 @@
                 }
                 else if (st.Status == "available")
                 {
-                    // v0.68.1: a new version was detected but in-app download is not possible (e.g. the GitHub
-                    // release has no zip asset) -> fall back to opening the download page (GitHub releases / Nexus
-                    // files tab) instead of "clicking does nothing"
+                    // v0.68.1：检测到有新版但系统内下载不可行（如 GitHub release 没挂 zip 附件）
+                    // → 回退打开对应下载页（GitHub releases / Nexus 文件页），不再「点了没反应」
                     OpenUpdateDownloadPage(m);
-                    ShowNotice("ok", $"Opened the download page for {m.Name}; please download {st.RemoteVersion} manually");
+                    ShowNotice("ok", $"Opened the download page for {m.Name} — please download {st.RemoteVersion} manually");
                 }
                 StateHasChanged();
             });
@@ -1587,7 +1698,7 @@
     }
 
     // ------------------------------------------------------------------
-    // v1.07.0: header folder icon — opens the Mods root directory directly
+    // v1.07.0：头部 Folder 图标 —— 直接打开 Mods 根目录
     private void OpenModsRootFolder()
     {
         try
@@ -1596,7 +1707,7 @@
             if (Directory.Exists(dir))
                 System.Diagnostics.Process.Start("explorer.exe", $"\"{dir}\"");
             else
-                _ = JS.InvokeVoidAsync("junigridJs.toast", "Please select a valid game directory", "err");
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Please pick a valid game folder", "err");
         }
         catch { }
     }
@@ -1614,7 +1725,7 @@
     }
 
     // ------------------------------------------------------------------
-    // Single enable / disable / delete
+    // 单个 启用 / 禁用 / 删除
     // ------------------------------------------------------------------
     private void SetDisabled(ModEntry m, bool disabled)
     {
@@ -1622,42 +1733,42 @@
         if (err is not null) ShowNotice("err", err);
         else
         {
-            // v0.46.0: dependency linkage (modeled after Stardrop) —
-            // disable: also disable enabled mods that depend on it; enable: also enable its disabled dependencies
+            // v0.46.0：依赖联动（仿 Stardrop）——
+            // 禁用：把依赖它的已启用 mod 也禁用；启用：把它依赖的已禁用 mod 也启用
             var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (disabled) DisableDependents(m.UniqueID, visited, x => SetDisabledDirect(x, true));
             else EnableDependencies(m, visited, x => SetDisabledDirect(x, false));
             ShowNotice("ok", $"{(disabled ? "Disabled" : "Enabled")} {m.Name}");
-            // v0.42.0: after renaming .X <-> X, migrate the update state + cover cache to the new name,
-            // otherwise GetCover misses the cache under the new folder name and falls back to the letter placeholder
+            // v0.42.0：重命名 .X <-> X 后把 update state + 封面缓存迁移到新名字，
+            // 否则 GetCover 按新 folder 名查不到缓存会落回首字母占位块
             MigrateFolderCaches(m.Folder, disabled);
         }
         Rescan();
-        // v0.49.0: write the current profile back immediately after a state change
+        // v0.49.0：状态变化后立即写回当前存档
         PersistCurrentToActive();
         Cfg.Save(Cfg.Current);
     }
 
-    private void Uninstall(ModEntry m)
+    private void Uninstall(ModEntry m, bool toTrash)
     {
-        var err = ModSvc.Uninstall(Cfg.Current.GamePath, m.Folder);
+        var err = ModSvc.Uninstall(Cfg.Current.GamePath, m.Folder, toTrash);
         if (err is not null) ShowNotice("err", err);
-        else ShowNotice("ok", $"Deleted {m.Name}");
+        else ShowNotice("ok", toTrash ? $"Moved to recycle bin: {m.Name}" : $"Deleted {m.Name}");
         Rescan();
     }
 
     // ------------------------------------------------------------------
-    // Batch operations
+    // 批量处理
     // ------------------------------------------------------------------
-    /// <summary>Low-level enable/disable without dependency linkage (used by the linkage recursion to avoid infinite loops).</summary>
+    /// <summary>不做依赖联动的底层启禁（联动递归用，避免无限循环）。</summary>
     private void SetDisabledDirect(ModEntry m, bool disabled)
     {
         var err = ModSvc.SetDisabled(Cfg.Current.GamePath, m.Folder, disabled);
-        if (err is not null) { AppLog.Warn("Mods", $"Linked {(disabled ? "disable" : "enable")} {m.Folder} failed: {err}"); return; }
+        if (err is not null) { AppLog.Warn("Mods", $"联动{(disabled ? "禁用" : "启用")} {m.Folder} 失败：{err}"); return; }
         MigrateFolderCaches(m.Folder, disabled);
     }
 
-    /// <summary>After disable/enable, migrate the update state + cover/category caches to the new folder name (.X ↔ X).</summary>
+    /// <summary>禁用/启用后把 update state + 封面/分类缓存迁移到新 folder 名（.X ↔ X）。</summary>
     private void MigrateFolderCaches(string folder, bool disabled)
     {
         var newFolder = disabled
@@ -1678,9 +1789,9 @@
 
     private async Task BatchSetDisabled(bool disabled)
     {
-        // v0.72.7: batch enable/disable moved to a background thread (same pattern as ApplyProfile) — the old
-        // version ran N Directory.Move calls synchronously on the UI thread, and 63 mods froze the window.
-        // Watcher OFF/ON is wrapped in try/finally so a mid-way exception never leaves file watching disabled.
+        // v0.72.7：批量启禁移入后台线程（与 ApplyProfile 同模式）——旧版在 UI 线程
+        // 同步跑 N 次 Directory.Move，63 个 mod 直接卡死窗口。watcher OFF/ON 加
+        // try/finally，中途异常不会永久关掉文件监听。
         var topLevels = _selected
             .Select(f => f.Split('/')[0])
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1708,47 +1819,49 @@
 
         ShowNotice(failed == 0 ? "ok" : "err",
             failed == 0
-                ? $"{(disabled ? "Disabled" : "Enabled")} {selCount} mods"
-                : $"{failed} operations failed");
+                ? $"{(disabled ? "Disabled" : "Enabled")} {selCount} mod(s)"
+                : $"{failed} operation(s) failed");
         ClearSelection();
 
-        // v0.72.9: after a batch rename, migrate cover/category caches uniformly — v0.72.7 omitted
-        // MigrateFolderCaches from the batch path, so _states/ModCovers/ModCategories keys stayed on the old
-        // folder name and GetCover/GetNexusCategory missed → covers vanished and categories fell back to "code mod".
+        // v0.72.9：批量改名后统一迁移封面/分类缓存 —— v0.72.7 把 MigrateFolderCaches
+        // 从批量路径里漏掉了，导致改名后 _states/ModCovers/ModCategories 的 key 还是
+        // 旧 folder 名，GetCover/GetNexusCategory 查不到 → 封面消失、分类落回"代码 Mod"。
         foreach (var top in topLevels)
             MigrateFolderCaches(top, disabled);
 
         Rescan();
-        // v0.72.9: explicitly trigger one cover backfill (concurrency-gated, never stacks) — folders changed
-        // after the batch rename, so covers under the new keys must be re-fetched.
+        // v0.72.9：显式触发一次封面回填（带并发闸门，不会叠加）——批量改名后 folder 变了，
+        // 需要重新拉取新 key 下的封面。
         if (!string.IsNullOrWhiteSpace(_apiKey)) _ = BackfillCoversAsync();
 
         PersistCurrentToActive();
         Cfg.Save(Cfg.Current);
     }
 
-    private void BatchDelete()
+    private void BatchDelete(bool toTrash)
     {
         _pendingBatchDelete = false;
         var count = _selected.Count;
         var failed = 0;
         foreach (var folder in _selected.ToList())
-            if (ModSvc.Uninstall(Cfg.Current.GamePath, folder) is not null)
+            if (ModSvc.Uninstall(Cfg.Current.GamePath, folder, toTrash) is not null)
                 failed++;
 
         ShowNotice(failed == 0 ? "ok" : "err",
-            failed == 0 ? $"Deleted {count} mods" : $"{failed} failed to delete");
+            failed == 0
+                ? toTrash ? $"Moved {count} mod(s) to recycle bin" : $"Deleted {count} mod(s)"
+                : $"{failed} delete(s) failed");
         ClearSelection();
         Rescan();
     }
 
     private async Task BatchUpdate()
     {
-        // v0.68.0: batch update — routed strictly by "verified Premium":
-        //  free users -> the browser opens the Nexus files page for each selected mod (one tab each);
-        //            v0.68.2: anything with a Nexus source goes to Nexus (dual-source mods included);
-        //            only GitHub-only mods (no Nexus source) update in-app for free;
-        //  Premium   -> everything auto-updates in-app one by one (Nexus first), no web pages opened.
+        // v0.68.0：批量更新 —— 严格按「验证过的 Premium」分流：
+        //  免费用户 → 系统浏览器依次打开每个所选 mod 的 N 网文件页（有几个跳几个），
+        //            v0.68.2：有 N 网源的一律跳 N 网（双源 mod 也能跳转了）；
+        //            只有纯 GitHub 源（无 N 网源）的才系统内免费直更；
+        //  会员     → 全部在系统内依次自动更新（N 网优先），不跳任何网页。
         var selectedMods = _mods.Where(m => _selected.Contains(m.Folder)).ToList();
         if (selectedMods.Count == 0)
         {
@@ -1767,18 +1880,18 @@
             {
                 UpdateService.OpenUrl(
                     $"https://www.nexusmods.com/stardewvalley/mods/{m.NexusModId}?tab=files");
-                await Task.Delay(200);   // open one at a time so the browser does not merge/block the tabs
+                await Task.Delay(200);   // 逐个弹出，避免多标签被浏览器合并/拦截
             }
             if (webTargets.Count > 0)
-                ShowNotice("ok", $"Opened download pages for {webTargets.Count} mods (free accounts must download manually in the browser)");
+                ShowNotice("ok", $"Opened download pages for {webTargets.Count} mod(s) (free accounts download manually on the web)");
             if (webTargets.Count == 0 && ghTargets.Count == 0)
             {
-                ShowNotice("err", "None of the selected mods has a Nexus ID or GitHub source, so they cannot be updated (mostly local/other-source mods)");
+                ShowNotice("err", "None of the selected mods have a Nexus ID / GitHub source to update (usually local or third-party mods)");
                 return;
             }
             if (ghTargets.Count > 0)
             {
-                ShowNotice("ok", $"Updating {ghTargets.Count} GitHub-source mods in-app…");
+                ShowNotice("ok", $"Updating {ghTargets.Count} GitHub-source mod(s) in-app…");
                 await RunUpdatePipeline(ghTargets);
             }
             return;
@@ -1789,14 +1902,14 @@
             .ToList();
         if (targets.Count == 0)
         {
-            ShowNotice("err", "None of the selected mods can be auto-updated (missing Nexus/GitHub update markers, or disabled).");
+            ShowNotice("err", "Nothing to auto-update among the selected mods (missing Nexus/GitHub marker or disabled).");
             return;
         }
-        ShowNotice("ok", $"Updating {targets.Count} mods in-app one by one… (runs in the background; you will be notified when done)");
+        ShowNotice("ok", $"Updating {targets.Count} mod(s) in-app… (runs in the background, you will be notified)");
         if (!string.IsNullOrEmpty(_apiKey))
             _ = BackfillCoversAsync();
         await RunUpdatePipeline(targets);
-        // v0.68.1: GitHub-source releases without a zip that cannot be installed in-app -> open their download page
+        // v0.68.1：GitHub 源 release 没挂 zip、系统内装不了的，补开其下载页
         foreach (var m in targets)
         {
             if (GetState(m.Folder).Status == "available" && m.GitHubRepo is not null)
@@ -1804,18 +1917,16 @@
         }
     }
 
-    /// <summary>v0.41.0: back-fill Nexus covers for every mod missing one (disabled mods included).
-    /// v0.72.7: per-instance concurrency gate — at most one backfill task runs at a time.
-    /// vNext: switched from serial one-by-one fetching to 6-way concurrency (sharing the update-check
-    /// concurrency budget) — with dozens of missing covers the old serial version waited through dozens of
-    /// network round trips, with covers "popping in" one by one.</summary>
+    /// <summary>v0.41.0：给所有缺封面的 mod（含被禁用的）补拉 Nexus 封面。
+    /// v0.72.7：单实例并发闸门 —— 同一时间最多一个回填任务在跑。
+    /// vNext：串行逐个拉改为并发 6 路（与更新检测共用并发预算）——几十个缺封面
+    /// 时旧版要串行等几十个网络往返，封面慢速「逐个冒出来」。</summary>
     private int _backfillRunning;
 
     private async Task BackfillCoversAsync()
     {
-        // The old wrapper BackfillCoversCoreAsync recursively called itself in its try block (not the real
-        // implementation), so the moment the gate opened it dead-looped and blew the stack — deleted outright;
-        // the gate now lives at the top of this method
+        // 旧包装方法 BackfillCoversCoreAsync 里 try 块递归调自己（而非真实现），
+        // 闸门一开就死循环爆栈 —— 直接删掉，闸门挪进本方法开头
         if (Interlocked.Exchange(ref _backfillRunning, 1) == 1) return;
         try
         {
@@ -1826,7 +1937,7 @@
                             && !Cfg.Current.ModCovers.ContainsKey(NormCoverKey(m.Folder)))
                 .ToList();
             if (need.Count == 0) return;
-            var semaphore = new SemaphoreSlim(12);   // v1.06.8: doubled cover-backfill concurrency
+            var semaphore = new SemaphoreSlim(12);   // v1.06.8：封面补拉并发翻倍
             await Task.WhenAll(need.Select(async m =>
             {
                 await semaphore.WaitAsync();
@@ -1839,7 +1950,7 @@
                         Cfg.Current.ModCovers[m.Folder] = info.PictureUrl;
                         _coversDirty = true;
                     }
-                    // v0.46.0: cache the site category along the way (category_id -> name via the NexusCategories table)
+                    // v0.46.0：顺手缓存官网分类（category_id → 名称经 NexusCategories 表）
                     if (info?.CategoryId is int cid)
                     {
                         GetState(m.Folder).CategoryId = cid;
@@ -1847,7 +1958,7 @@
                             Cfg.Current.ModCategories[m.Folder] = cname;
                     }
                 }
-                catch (Exception ex) { AppLog.Warn("Mods", "Cover backfill failed (" + m.Folder + "): " + ex.Message); }
+                catch (Exception ex) { AppLog.Warn("Mods", "封面回填失败(" + m.Folder + "): " + ex.Message); }
                 finally { semaphore.Release(); }
             }));
             if (_coversDirty)
@@ -1861,24 +1972,24 @@
     }
 
     // ------------------------------------------------------------------
-    // Update checks + auto-update
+    // 更新检查 + 自动更新
     // ------------------------------------------------------------------
 
     private async Task AutoUpdateOnEnterAsync()
     {
-        // v0.68.3: auto-update policy on entering the Mods page — decided entirely by the Settings page's
-        // "auto-install updates" toggle (EnableAutoInstall, Premium only); no more prompt.
-        //  (1) toggle off / free account -> CheckOnlyOne just marks ⇧, never installs
-        //  (2) toggle on (Premium)        -> after checking, RunUpdatePipeline installs every updatable mod in-app
+        // v0.68.3：进入 Mod 页的自动更新策略 —— 完全由「设置」页的
+        // 「自动安装更新」开关（EnableAutoInstall，仅 Premium 可开）决定，不再弹窗询问。
+        //  ① 开关关 / 免费账号 → 只做 CheckOnlyOne 检测标记 ⇧，绝不装
+        //  ② 开关开（Premium） → 检查完对所有可更新项直接跑 RunUpdatePipeline 系统内装
         await CheckUpdates();
 
         if (!Cfg.Current.NexusIsPremium || !Cfg.Current.EnableAutoInstall) return;
 
         var targets = _mods.Where(IsUpdatable).ToList();
         if (targets.Count == 0) return;
-        ShowNotice("ok", $"Auto-updating {targets.Count} mods…");
+        ShowNotice("ok", $"Auto-updating {targets.Count} mod(s)…");
         await RunUpdatePipeline(targets);
-        // GitHub-source releases without a zip asset: open their download pages
+        // GitHub 源 release 没挂 zip 附件的，补开其下载页
         foreach (var m in targets)
         {
             if (GetState(m.Folder).Status == "available" && m.GitHubRepo is not null)
@@ -1888,60 +1999,153 @@
 
     private async Task CheckUpdates(bool force = false)
     {
+        // v1.08：禁用的 mod 也检查更新 —— 用户禁用 ≠ 不想更新，只查不装，无副作用
         var targets = _mods
-            .Where(m => (m.NexusModId is not null || m.GitHubRepo is not null) && !m.Disabled)
-            // v0.44.0: skip mods checked within 60 minutes (no request issued right now); their remote version
-            // state stays displayed
-            // v1.06.7: force=true (top-bar current-page icon refresh) ignores the TTL and re-checks everything —
-            // otherwise after installing an older mod version, a refresh within the hour would skip it and
-            // "no update found"
+            .Where(m => m.NexusModId is not null || m.GitHubRepo is not null)
+            // v0.44.0：60 分钟内已查过的跳过（瞬时不发请求），远程版本状态仍保留显示
+            // v1.06.7：force=true（顶栏点当前页图标刷新）无视 TTL 强制全量重查 ——
+            // 否则装了旧版 mod 后刷新，mod 在 1 小时内被查过就直接跳过，「检查不到更新」
             .Where(m => force || !_lastCheckedUtc.TryGetValue(m.Folder, out var t)
                         || DateTime.UtcNow - t > UpdateCheckTtl)
             .ToList();
 
-        // v0.46.0: fetch the official category table on the first update check (requires a key)
+        // v0.46.0：首次检查更新时顺手拉官方分类表（有 key 才拉得动）
         if (!string.IsNullOrEmpty(_apiKey)) _ = EnsureCategoriesAsync();
 
-        // works without a Nexus key too — GitHub-source mods need no key at all
+        // 没配 Nexus key 也能跑 —— GitHub 源的 mod 不需要任何 key
         if (string.IsNullOrEmpty(_apiKey))
             targets = targets.Where(m => m.GitHubRepo is not null).ToList();
 
-        // vNext: nothing to check (all hit the TTL / no key and no GitHub sources) -> return silently
-        // instead of flashing the "checking for updates…" state every time you switch back to the page
+        // vNext：没有要查的（全部命中 TTL / 没配 key 且无 GitHub 源）→ 静默返回，
+        // 不再亮「正在检查更新…」状态（切页回来时每次都空闪一下）
         if (targets.Count == 0) return;
 
-        // vNext: the list is already visible; the checking state only shows as small header text, no full-page skeleton swap
+        // vNext：列表已可见，检查状态只显示在标题小字里，不再整页换骨架屏
         _checkingUpdates = true;
         _checkingTick = Environment.TickCount64;
         StateHasChanged();
 
-        // v0.41.0: cover backfill — disabled mods are excluded from update checks, but their covers are still
-        // fetched once via Nexus detail to avoid "disable = lose cover". Only the lightweight GetModAsync runs;
-        // it caches the PictureUrl and triggers no update logic.
-        // vNext: moved to AFTER the check pipeline — the fingerprint fast path already brings most covers back
-        // (zero requests in the vast majority of cases); the remainder (failed batches / GitHub sources / disabled
-        // rows) fall back to this, no longer competing with version checks for connections and rate-limit windows.
-        // v0.68.0: checking uses the "detect-only" pipeline (CheckOnlyOne never downloads or installs);
-        // installation only happens via RunUpdatePipeline after user confirmation.
+        // v0.41.0：封面补拉 —— 禁用 mod 不参与更新检查，但封面照常用 Nexus detail 拉一次，
+        // 避免"禁用即丢封面"。只做最轻量的 GetModAsync，拿到 PictureUrl 存缓存，不触发任何更新逻辑。
+        // vNext：挪到检查流水线【之后】—— 指纹快道已顺手把封面带回来（绝大多数零请求），
+        // 剩下的（批次失败/GitHub 源/禁用行）再由这里兜底，不再与版本检查抢连接和限流窗口。
+        // v0.68.0：检查走「只检测」流水线（CheckOnlyOne 不下载不安装），
+        // 安装只能由用户确认后走 RunUpdatePipeline。
         await RunCheckPipeline(targets);
         if (!string.IsNullOrEmpty(_apiKey))
             _ = BackfillCoversAsync();
     }
 
-    /// <summary>v0.68.0: parallel pipeline that only detects versions — never downloads or installs.
-    /// vNext: runs the "fingerprint batch fast path" first — one key-free GraphQL batch call (50 mods/batch)
-    /// fetches updatedAt for all Nexus mods and compares it verbatim against persisted fingerprints: mods whose
-    /// fingerprints match reuse the latest MAIN file version found by the last precise check (the file list has
-    /// not changed, so the result cannot be stale) and the whole batch returns instantly with zero requests.
-    /// Only the few mods with changed/missing fingerprints or missing batch results fall through to per-mod
-    /// files.json precise checks, whose results (plus new fingerprints) are written back to the cache.
-    /// A regular page entry (after app restart / past the 60-minute TTL) collapses from N requests to ~N/50,
-    /// and the shimmer skeleton drops from tens of seconds to about 1 second. If the whole batch fails, everything
-    /// falls back to precise checks (same behavior as before; slow is preferred over wrong).</summary>
+    /// <summary>v0.68.0：只检测版本、绝不下载安装的并行流水线。
+    /// vNext：先跑「指纹批量快道」—— 一次免 key 的 GraphQL 批量（50 个/批）拿全部 Nexus mod
+    /// 的 updatedAt，与持久化指纹逐字比对：一致的 mod 直接复用上次精查到的最新 MAIN 文件
+    /// 版本（文件列表没变，结果不会过期），整批零请求秒回；只有指纹变化/缓存缺失/批次
+    /// 没返回的少数 mod 才落到逐个 files.json 精查，精查结果连同新指纹回写缓存。
+    /// 常规进页（重启应用后 / 超 60 分钟 TTL）从 N 个请求塌缩到 ~N/50 个，微光骨架
+    /// 从几十秒降到约 1 秒。批次整体失败时全部走精查（与旧版行为一致，宁可慢不可错）。</summary>
+    // ------------------------------------------------------------------
+    // v1.08：国内快道 —— smapi.io 官方 web API 批量预查
+    // 一次 POST 查全部 mod（Cloudflare 国内直连约 1 秒，不挂 VPN 也不超时）。
+    // folder → 最新版本号；null = 快道没查到该 mod（继续走 Nexus 精查）。
+    // 整体请求失败时整个字段为 null，行为退回原来的 Nexus/GitHub 流程。
+    // ------------------------------------------------------------------
+    private Dictionary<string, string?>? _smapiPrecheck;
+
+    // v1.08：预查结果会话级缓存 uid → (最新版, 时间)。10 分钟内重复刷新直接命中，
+    // 连 smapi.io 那一个请求都省掉。null 版本（快道确认已最新）同样缓存。
+    private static readonly Dictionary<string, (string? Ver, DateTime At)> SmapiPrecheckCache = new();
+    private static readonly TimeSpan SmapiPrecheckTtl = TimeSpan.FromMinutes(10);
+
+    private static readonly HttpClient SmapiWebHttp = CreateSmapiWebHttp();
+    private static HttpClient CreateSmapiWebHttp()
+    {
+        var h = new HttpClient();
+        h.DefaultRequestHeaders.UserAgent.ParseAdd("JuniGrid-Launcher");
+        h.Timeout = TimeSpan.FromSeconds(15);
+        return h;
+    }
+
+    private async Task SmapiBatchPrecheck(List<ModEntry> targets)
+    {
+        _smapiPrecheck = null;
+        if (targets.Count == 0) return;
+
+        var keyOf = (ModEntry m) => string.IsNullOrEmpty(m.UniqueID) ? $"FAKE.Nexus.{m.NexusModId ?? 0}" : m.UniqueID;
+
+        // v1.08：先吃会话缓存 —— 全部命中就零请求完成预查
+        var needFetch = new List<ModEntry>();
+        foreach (var m in targets)
+        {
+            if (SmapiPrecheckCache.TryGetValue(keyOf(m), out var hit)
+                && DateTime.UtcNow - hit.At < SmapiPrecheckTtl)
+                continue;
+            needFetch.Add(m);
+        }
+        if (needFetch.Count == 0)
+        {
+            _smapiPrecheck = targets.ToDictionary(
+                m => m.Folder,
+                m => SmapiPrecheckCache.TryGetValue(keyOf(m), out var h) ? h.Ver : null);
+            return;
+        }
+
+        // 同 UniqueID/ID 装了多份（本体+旧副本）时同 id 只发一次，结果共享回填
+        var payload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            mods = needFetch.Select(m => new
+            {
+                id = keyOf(m),
+                updateKeys =
+                    (m.NexusModId is int nid ? new[] { $"nexus:{nid}" } : Array.Empty<string>())
+                    .Concat(m.GitHubRepo is string gh ? new[] { $"github:{gh}" } : Array.Empty<string>()),
+                installedVersion = m.Version,
+            }),
+        });
+
+        try
+        {
+            using var resp = await SmapiWebHttp.PostAsync(
+                "https://smapi.io/api/v4.0.0/mods",
+                new StringContent(payload, System.Text.Encoding.UTF8, "application/json"));
+            if (!resp.IsSuccessStatusCode) return;
+            using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+
+            var versionById = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                var id = item.TryGetProperty("id", out var i) ? i.GetString() : null;
+                var ver = item.TryGetProperty("suggestedUpdate", out var su)
+                    && su.ValueKind == System.Text.Json.JsonValueKind.Object
+                    && su.TryGetProperty("version", out var v) ? v.GetString() : null;
+                if (!string.IsNullOrEmpty(id)) versionById[id] = ver;
+            }
+
+            foreach (var m in targets)
+            {
+                var k = keyOf(m);
+                if (versionById.TryGetValue(k, out var v))
+                    SmapiPrecheckCache[k] = (v ?? "", DateTime.UtcNow);
+            }
+            _smapiPrecheck = targets.ToDictionary(
+                m => m.Folder,
+                m => SmapiPrecheckCache.TryGetValue(keyOf(m), out var h) ? h.Ver : null);
+            // 值语义：非空字符串 = 快道给出的最新版本；空字符串 = 快道确认已是最新；
+            // null = 快道没覆盖（无 UpdateKey / 不在索引）→ 精查兜底。
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("Mods", "[国内快道] smapi.io 预查失败（退回 Nexus/GitHub）: " + ex.Message);
+        }
+    }
+
     private async Task RunCheckPipeline(List<ModEntry> targets)
     {
+        // v1.08：smapi.io 快道与 Nexus 指纹批查并行跑（原先串行，白等一个网络往返）；
+        // 预查结果在精查阶段开始前才真正需要。
+        var smapiTask = SmapiBatchPrecheck(targets);
+
         var precise = targets;
-        Dictionary<int, string>? fpUpdatedAt = null;   // modId -> batch fingerprint updatedAt (written back to cache after a precise check succeeds)
+        Dictionary<int, string>? fpUpdatedAt = null;   // modId → 批量指纹的 updatedAt（精查成功后回写缓存用）
         if (!string.IsNullOrEmpty(_apiKey))
         {
             var nexusIds = targets.Where(m => m.NexusModId is not null).Select(m => m.NexusModId!.Value).ToList();
@@ -1957,7 +2161,7 @@
                         if (m.NexusModId is int id && fps.TryGetValue(id, out var fp))
                         {
                             _lastCheckedUtc[m.Folder] = DateTime.UtcNow;
-                            // grab covers along the way: the batch comes with pictureUrl for free, eliminating most cover-backfill requests
+                            // 顺手补封面：批次免费带 pictureUrl，绝大多数封面回填请求就此消失
                             if (!string.IsNullOrEmpty(fp.PictureUrl)
                                 && string.IsNullOrEmpty(GetState(m.Folder).PictureUrl)
                                 && !Cfg.Current.ModCovers.ContainsKey(m.Folder)
@@ -1971,7 +2175,7 @@
                                 && !string.IsNullOrWhiteSpace(cached.LatestFileVersion)
                                 && DateTime.UtcNow - cached.CheckedAtUtc < FingerprintMaxAge)
                             {
-                                // fingerprint match -> remote file list unchanged -> reuse the file version from the last precise check
+                                // 指纹一致 → 远端文件列表没变 → 上次精查的文件版本直接复用
                                 RememberRemoteVersion(m.Folder, cached.LatestFileVersion);
                                 _states[m.Folder] = new ModUpdateState
                                 {
@@ -1981,18 +2185,20 @@
                                 continue;
                             }
                         }
-                        rest.Add(m);   // fingerprint missing/changed / no cache / GitHub source -> precise check one by one
+                        rest.Add(m);   // 指纹缺失/有变化/无缓存/GitHub 源 → 逐个精查
                     }
                     precise = rest;
-                    StateHasChanged();   // paint fast-path results first; precise-check states let the ⇧ markers appear gradually
+                    StateHasChanged();   // 快道结果先上屏，精查的状态让 ⇧ 慢慢冒出来
                 }
             }
         }
 
+        await smapiTask;   // v1.08：精查前等快道结果（此时通常已并行完成）
+
         if (precise.Count > 0)
         {
-            var semaphore = new SemaphoreSlim(32);   // v1.06.8: detect-only (no downloads), so push concurrency to 32
-            // vNext: precise-check requests for the same modId are shared across the whole pipeline (a mod installed twice issues only one request)
+            var semaphore = new SemaphoreSlim(32);   // v1.06.8：只检测不下载，并发拉满 32 路
+            // vNext：同 modId 的精查请求全流水线共享一次（一个 mod 装了两份只发一个请求）
             var byId = new System.Collections.Concurrent.ConcurrentDictionary<int, Task<NexusFileInfo?>>();
             await Task.WhenAll(precise.Select(async m =>
             {
@@ -2004,7 +2210,7 @@
 
         if (_fpDirty)
         {
-            // prune fingerprints of uninstalled mods so the cache does not grow without bound
+            // 顺手清掉已卸载 mod 的残留指纹，缓存不无限膨胀
             var liveIds = _mods.Where(m => m.NexusModId is not null).Select(m => m.NexusModId!.Value).ToHashSet();
             foreach (var staleId in Cfg.Current.ModUpdateFingerprints.Keys.Where(id => !liveIds.Contains(id)).ToList())
                 Cfg.Current.ModUpdateFingerprints.Remove(staleId);
@@ -2015,34 +2221,57 @@
             _coversDirty = false;
             _fpDirty = false;
         }
-        // vNext: the list stays visible during checks (no more skeleton swap); the artificial 0.6s minimum delay was removed
+        // vNext：检查期间列表已可见（不再换骨架屏），人为保底 0.6s 延迟已删
         _checkingUpdates = false;
         StateHasChanged();
     }
 
     /// <summary>
-    /// v0.68.0: "detect-only" for a single mod — fetches the remote version + cover + category;
-    /// if an update exists it only sets the ⇧ marker and never starts a download or install.
-    /// (Split out of UpdateOne: separating check from install is the prerequisite for "ask before updating")
+    /// v0.68.0：单个 mod 的「只检测」—— 拉远端版本号 + 封面 + 分类，
+    /// 有可更新版本只打 ⇧ 标记，绝不发起下载安装。
+    /// （从 UpdateOne 拆出：检查与安装分离是「询问后再更新」的前提）
     /// </summary>
     private async Task CheckOnlyOne(ModEntry m,
         System.Collections.Concurrent.ConcurrentDictionary<int, Task<NexusFileInfo?>>? sharedFetch = null,
-        IReadOnlyDictionary<int, string>? fpUpdatedAt = null)
+        IReadOnlyDictionary<int, string>? fpUpdatedAt = null,
+        bool isRetry = false)
     {
         var prevRemote = _states.TryGetValue(m.Folder, out var prev) ? prev.RemoteVersion : null;
         var st = _states[m.Folder] = new ModUpdateState { Status = "checking", RemoteVersion = prevRemote };
         _lastCheckedUtc[m.Folder] = DateTime.UtcNow;
         try
         {
-            // v0.68.2: check the Nexus source first; only fall back to GitHub when there is no Nexus source or the fetch fails
-            // v0.72.0: detection source unified with the install source — the version of the latest MAIN file in
-            // files.json is authoritative (the same source as UpdateOne / one-click install's GetLatestMainFileAsync).
-            // The old logic read the top-level version of mods/{id}.json (author-maintained, often lagging the main
-            // file), which caused the contradiction "1.3.0 local judged up to date, yet clicking update installs 1.3.1".
+            // v1.08：smapi.io 批量快道命中 → 零请求直接采用结果。
+            //   非空 = 快道给出的最新版本；空字符串 = 快道确认已是最新；
+            //   null = 快道没覆盖该 mod（无 UpdateKey/不在索引），继续原流程精查。
+            if (_smapiPrecheck is not null && _smapiPrecheck.TryGetValue(m.Folder, out var preVer))
+            {
+                if (preVer is not null)
+                {
+                    if (preVer.Length > 0)
+                    {
+                        st.RemoteVersion = preVer;
+                        RememberRemoteVersion(m.Folder, preVer);
+                        st.Status = IsNewer(preVer, m.Version) ? "available" : "latest";
+                    }
+                    else
+                    {
+                        st.Status = "latest";
+                    }
+                    StateHasChanged();
+                    return;
+                }
+            }
+
+            // v0.68.2：N 网源优先检测，无 N 网源或拉取失败才查 GitHub
+            // v0.72.0：检测源与安装源统一 —— 以 files.json 最新 MAIN 文件的版本为准
+            // （与 UpdateOne/一键直装 GetLatestMainFileAsync 同一权威源）。旧逻辑取
+            // mods/{id}.json 顶层 version（作者手填，常滞后于主文件），才会出现
+            // 「本地 1.3.0 判无更新、点更新却装出 1.3.1」的自相矛盾。
             if (m.NexusModId is not null && !string.IsNullOrEmpty(_apiKey))
             {
-                // vNext: precise-check results are shared within the pipeline for the same modId — a mod installed
-                // twice (current + stale copy) issues a single files.json request and both rows share the result
+                // vNext：同 modId 的精查结果在流水线内共享 —— 一个 mod 装了两份（本体+旧副本）
+                // 只发一次 files.json 请求，两行共用结果
                 NexusFileInfo? file;
                 if (sharedFetch is not null)
                     file = await sharedFetch.GetOrAdd(m.NexusModId!.Value,
@@ -2052,8 +2281,8 @@
                 var remoteVer = string.IsNullOrWhiteSpace(file?.Version) ? null : file!.Version;
                 if (remoteVer is null)
                 {
-                    // fallback when the main file has no version: use the mod's top-level version (also grabbing
-                    // the cover; routine cover gaps are BackfillCoversAsync's job, so no extra requests here)
+                    // 主文件没写版本号的兜底：退回 mod 顶层 version（顺带补封面；
+                    // 常规缺封面由 BackfillCoversAsync 单独负责，这里不多花请求）
                     var info = await Nexus.GetModAsync(_apiKey, m.NexusModId!.Value);
                     if (!string.IsNullOrEmpty(info?.Version))
                     {
@@ -2071,9 +2300,8 @@
                     st.RemoteVersion = remoteVer;
                     RememberRemoteVersion(m.Folder, remoteVer);
                     st.Status = IsNewer(remoteVer, m.Version) ? "available" : "latest";
-                    // vNext: on precise-check success, persist the result together with this round's batch updatedAt
-                    // fingerprint; next entry with an unchanged fingerprint reuses this version directly (the data
-                    // source behind the fast path's zero-request hits)
+                    // vNext：精查成功 → 连同本轮批量的 updatedAt 指纹一起写入持久化缓存，
+                    // 下次进页指纹没变就直接复用这个版本号（快道零请求命中的数据源）
                     if (fpUpdatedAt is not null && fpUpdatedAt.TryGetValue(m.NexusModId!.Value, out var ua))
                     {
                         Cfg.Current.ModUpdateFingerprints[m.NexusModId!.Value] = new ModUpdateFingerprintEntry
@@ -2089,7 +2317,7 @@
                 }
             }
 
-            // GitHub fallback: mods with no Nexus source (or whose Nexus query failed)
+            // GitHub 兜底：无 N 网源（或 N 网查询失败）的 mod
             if (m.GitHubRepo is not null)
             {
                 var gh = await Updater.CheckModGitHubAsync(m.GitHubRepo);
@@ -2109,16 +2337,38 @@
         }
         catch (Exception ex)
         {
-            st.Status = "failed"; st.Message = ex.Message;
+            // v1.08：超时/网络抖动自动重试一次；仍失败才标红并给中文友好提示
+            if (!isRetry && IsTransientNetworkError(ex))
+            {
+                await Task.Delay(800);
+                await CheckOnlyOne(m, sharedFetch, fpUpdatedAt, isRetry: true);
+                return;
+            }
+            st.Status = "failed"; st.Message = FriendlyUpdateError(ex);
         }
         StateHasChanged();
     }
+
+    /// <summary>请求超时/网络失败 → 中文友好提示；其余异常保留原始信息方便排查。</summary>
+    private static string FriendlyUpdateError(Exception ex)
+    {
+        if (ex is TaskCanceledException or OperationCanceledException
+            || ex.Message?.Contains("HttpClient.Timeout", StringComparison.Ordinal) == true)
+            return "检查更新超时（Nexus 连接不稳），已自动重试仍失败，请稍后重试";
+        if (ex is HttpRequestException)
+            return "网络连接失败，请检查网络后重试";
+        return ex.Message ?? "未知错误";
+    }
+
+    private static bool IsTransientNetworkError(Exception ex)
+        => ex is TaskCanceledException or OperationCanceledException or HttpRequestException
+           || ex.Message?.Contains("HttpClient.Timeout", StringComparison.Ordinal) == true;
 
     private async Task RunUpdatePipeline(List<ModEntry> targets)
     {
         StateHasChanged();
 
-        // v0.60.0: run version detection in parallel (concurrency speedup) so one slow/timing-out source cannot drag the whole page's update states.
+        // v0.60.0：版本检测并行跑（并发 8 路加速），避免某个源慢/超时拖住整页的更新状态。
         var semaphore = new SemaphoreSlim(16);
         await Task.WhenAll(targets.Select(async m =>
         {
@@ -2129,7 +2379,7 @@
 
         if (_coversDirty)
         {
-            Cfg.Save(Cfg.Current);   // persist the covers picked up along the way
+            Cfg.Save(Cfg.Current);   // 把顺手拿到的封面缓存落盘
             _coversDirty = false;
         }
 
@@ -2140,43 +2390,42 @@
         var failed = states.Count(s => s.Status == "failed");
         var premiumBlocked = states.Count(s => s.Status == "premium");
         if (updated > 0) Rescan();
-        // v0.68.0: merge into a single completion summary (the old two toasts kept displacing each other),
-        // and give clear feedback when premium-blocked (a free account that slipped into the pipeline) — no more "nothing happens"
+        // v0.68.0：合并为一条完成汇总（原来两条 toast 互相顶掉），
+        // 且 premium 被拦（免费账号误进流水线）也要给明确反馈，不再「没反应」
         var manualGh = states.Count(s => s.Status == "available");
         if (updated > 0 || failed > 0 || premiumBlocked > 0 || manualGh > 0)
             ShowNotice(failed == 0 && premiumBlocked == 0 ? "ok" : "err",
-                $"Auto-updated {updated} mods ✔"
-                + (failed > 0 ? $", {failed} failed (see each row's message)" : "")
-                + (premiumBlocked > 0 ? $", {premiumBlocked} require Premium (use the row update button to download manually on the site)" : "")
-                + (manualGh > 0 ? $", {manualGh} releases have no install package — download page opened / use the row ⇧ to update manually" : ""));
+                $"已自动更新 {updated} 个 Mod ✔"
+                + (failed > 0 ? $", {failed} failed (see the row hints)" : "")
+                + (premiumBlocked > 0 ? $", {premiumBlocked} need Premium (use the row update button to download on the web)" : "")
+                + (manualGh > 0 ? $", {manualGh} have no attachment on the release page — download page opened / use the row ⇧ to update manually" : ""));
 
-        // vNext: the artificial 0.6s "loading feel" delay was removed — updating states render in-row in real time
+        // vNext：人为保底 0.6s「加载观感」延迟已删 —— 更新中状态都在行内实时呈现
 
         StateHasChanged();
     }
 
-    private async Task UpdateOne(ModEntry m)
+    private async Task UpdateOne(ModEntry m, bool isRetry = false)
     {
-        // v0.61.0: keep the old RemoteVersion when creating a new state, so the updatable list is not wiped and rebuilt mid-check (flicker)
+        // v0.61.0：新建 state 时保留旧 RemoteVersion，避免可更新列表在检查瞬间被清空再重建（图三闪烁）
         var prevRemote = _states.TryGetValue(m.Folder, out var prev) ? prev.RemoteVersion : null;
         var st = _states[m.Folder] = new ModUpdateState { Status = "checking", RemoteVersion = prevRemote };
         _lastCheckedUtc[m.Folder] = DateTime.UtcNow;
         StateHasChanged();
         try
         {
-            // ── (1) Nexus source first (v0.68.2): mods with a Nexus source always detect and download via Nexus,
-            //    so dual-source mods like SDV-Glow are no longer snatched by the GitHub source
-            //    (free users' batch updates can also open Nexus pages) ──
+            // ── ① Nexus 源优先（v0.68.2）：有 N 网源的 mod 一律先走 N 网检测与下载，
+            //    SDV-辉光这类双源 mod 不再被 GitHub 源「截胡」（免费用户批量更新也能跳 N 网）──
             if (m.NexusModId is not null && !string.IsNullOrEmpty(_apiKey))
             {
-                // v0.72.0: resolve the "latest MAIN file" first; detection and installation share this one authoritative source.
-                // The old logic detected via the mods/{id}.json top-level version but only consulted the files.json main
-                // file at install time, so mismatched versions produced "no update detected, yet updating installs a higher version".
+                // v0.72.0：先解析「最新 MAIN 文件」，检测与安装共用这一个权威源。
+                // 旧逻辑检测用 mods/{id}.json 顶层 version、安装才查 files.json 主文件，
+                // 两处版本号对不上时出现「说没更新、一点更新却装出更高版」。
                 var file = await Nexus.GetLatestMainFileAsync(_apiKey, m.NexusModId!.Value);
                 var remoteVer = string.IsNullOrWhiteSpace(file?.Version) ? null : file!.Version;
                 if (remoteVer is null)
                 {
-                    // fallback when the main file has no version: use the mod's top-level version (grabbing the cover too)
+                    // 主文件没写版本号的兜底：退回 mod 顶层 version（顺带补封面）
                     var info = await Nexus.GetModAsync(_apiKey, m.NexusModId!.Value);
                     if (!string.IsNullOrEmpty(info?.Version))
                     {
@@ -2197,27 +2446,27 @@
 
                     if (IsNewer(remoteVer, m.Version))
                     {
-                        // ── new version found -> auto-download & install via the Nexus direct link, no site redirect ──
+                        // ── 发现新版本 → N 网直链自动下载安装，不跳网站 ──
                         if (file is null)
                         {
-                            // judged updatable but no downloadable file -> mark as available for the in-row ⇧ manual path instead of hard-failing
+                            // 判定可更新却拿不到可下载文件 → 标记可更新走行内 ⇧ 手动通道，不再硬报失败
                             st.Status = "available"; st.Message = null;
                             StateHasChanged(); return;
                         }
                         st.Status = "updating";
-                        st.Message = $"New version {remoteVer} found (Nexus source), auto-updating…";
+                        st.Message = $"发现新版本 {remoteVer}（Nexus 源），正在自动更新…";
                         StateHasChanged();
 
                         var dl = await Nexus.GetDownloadUrlAsync(_apiKey, m.NexusModId!.Value, file.FileId);
                         if (dl.NeedsPremium)
                         {
                             st.Status = "premium";
-                            st.Message = null;   // minimal: only the purple ⇧ new tag next to the version; no extra yellow text
+                            st.Message = null;   // 极简：只在版本号后加紫色 ⇧ new 标签，不再显示黄色说明
                             StateHasChanged(); return;
                         }
                         if (dl.Url is null)
                         {
-                            st.Status = "failed"; st.Message = "Failed to get download URL: " + dl.Error;
+                            st.Status = "failed"; st.Message = "获取下载地址失败：" + dl.Error;
                             StateHasChanged(); return;
                         }
 
@@ -2226,29 +2475,29 @@
                         Directory.CreateDirectory(Path.GetDirectoryName(zip)!);
                         await DownloadWithTask(
                             dl.Url, zip,
-                            $"Update mod \"{m.Name}\"",
-                            $"Downloading {m.Name}…",
+                            $"更新 Mod「{m.Name}」",
+                            $"正在下载 {m.Name}…",
                             (msg, pct, spd) => { st.Message = msg; StateHasChanged(); });
 
                         var err = ModSvc.InstallUpdate(Cfg.Current.GamePath, m.Folder, zip, out var newVer);
                         if (err is null)
                         {
                             st.Status = "updated";
-                            st.Message = null;   // v0.60.0: no green message row after a successful update
-                            // v0.69.0: record the download date (used by the detail page's "last downloaded")
+                            st.Message = null;   // v0.60.0：更新完成不再显示绿色消息行
+                            // v0.69.0：记录下载日期（详情页「最后下载」用）
                             Cfg.Current.ModLastDownload[m.NexusModId!.Value.ToString()] = DateTime.Now.ToString("yyyy-MM-dd");
                             Cfg.Current.ModFileLastDownload[file.FileId.ToString()] = DateTime.Now.ToString("yyyy-MM-dd");
                             Cfg.Save(Cfg.Current);
                         }
                         else
                         {
-                            st.Status = "failed"; st.Message = "Install failed: " + err;
+                            st.Status = "failed"; st.Message = "安装失败：" + err;
                         }
                         StateHasChanged();
                         return;
                     }
 
-                    // already latest on Nexus: dual-source mods keep checking GitHub as a fallback; Nexus-only mods conclude here
+                    // N 网已最新：双源 mod 继续查 GitHub 兜底；纯 N 网 mod 直接定稿
                     if (m.GitHubRepo is null)
                     {
                         st.Status = "latest"; st.Message = null;
@@ -2257,7 +2506,7 @@
                 }
             }
 
-            // ── (2) GitHub fallback: GitHub-only mods (no Nexus source), or dual-source mods whose Nexus query failed ──
+            // ── ② GitHub 兜底：纯 GitHub 源（无 N 网源）、或 N 网查询失败的双源 mod ──
             if (m.GitHubRepo is not null)
             {
                 var gh = await Updater.CheckModGitHubAsync(m.GitHubRepo);
@@ -2268,7 +2517,7 @@
                     if (IsNewer(gh.Tag, m.Version) && gh.ZipUrl is not null)
                     {
                         st.Status = "updating";
-                        st.Message = $"New version {gh.Tag} found (GitHub source), auto-updating…";
+                        st.Message = $"发现新版本 {gh.Tag}（GitHub 源），正在自动更新…";
                         StateHasChanged();
 
                         var ghZip = Path.Combine(StoragePaths.DownloadsDir,
@@ -2276,11 +2525,11 @@
                         Directory.CreateDirectory(Path.GetDirectoryName(ghZip)!);
                         await DownloadWithTask(
                             gh.ZipUrl, ghZip,
-                            $"Update mod \"{m.Name}\"",
-                            $"Downloading {m.Name} (GitHub source)…",
+                            $"更新 Mod「{m.Name}」",
+                            $"正在下载 {m.Name}（GitHub 源）…",
                             (msg, pct, spd) => { st.Message = msg; StateHasChanged(); });
 
-                        // expectedUniqueId safety lock: prevents installing into the wrong mod when several share a repo
+                        // expectedUniqueId 安全锁：多 Mod 共用仓库时防止装错
                         var ghErr = ModSvc.InstallUpdate(Cfg.Current.GamePath, m.Folder, ghZip,
                             out var ghNewVer,
                             expectedUniqueId: string.IsNullOrEmpty(m.UniqueID) ? null : m.UniqueID);
@@ -2292,7 +2541,7 @@
                         else
                         {
                             st.Status = "failed";
-                            st.Message = "GitHub update failed: " + ghErr;
+                            st.Message = "GitHub 更新失败：" + ghErr;
                         }
                         StateHasChanged();
                         return;
@@ -2307,7 +2556,7 @@
                 }
             }
 
-            // no update from either source / both queries failed -> keep the existing remote marker or conclude "latest"
+            // 两源都无更新 / 都查询失败 → 保持原有远端标记或定为最新
             if (st.Status is "checking")
             {
                 st.Status = st.RemoteVersion is not null && IsNewer(st.RemoteVersion, m.Version)
@@ -2317,14 +2566,21 @@
         }
         catch (Exception ex)
         {
-            st.Status = "failed"; st.Message = ex.Message;
+            // v1.08：超时/网络抖动自动重试一次；仍失败才标红并给中文友好提示
+            if (!isRetry && IsTransientNetworkError(ex))
+            {
+                await Task.Delay(800);
+                await UpdateOne(m, isRetry: true);
+                return;
+            }
+            st.Status = "failed"; st.Message = FriendlyUpdateError(ex);
         }
         StateHasChanged();
     }
 
     /// <summary>
-    /// Mod downloads also go through the task center (bottom-right task pill + /tasks page),
-    /// sharing the same download page as the SMAPI update. Reports percent/speed/current step while downloading.
+    /// Mod 下载也走任务中心（右下角任务胶囊 + /tasks 页），
+    /// 和 SMAPI 更新共用同一个下载页面。下载时上报百分比/速度/当前步骤。
     /// </summary>
     private async Task DownloadWithTask(
         string url, string zipPath, string taskTitle, string startMsg,
@@ -2341,8 +2597,32 @@
                     Center.Report(task, p.Message, p.Percent, p.SpeedMBps);
                     onTick?.Invoke(p.Message, p.Percent, p.SpeedMBps);
                 }));
+            // v1.08：GitHub 资源直连失败（国内 443 被拒）自动切换镜像前缀重试；
+            // Nexus CDN 是签名 URL，镜像无法代理，维持直连。
+            if (url.Contains("github.com/", StringComparison.OrdinalIgnoreCase)
+                && !url.StartsWith("https://api.github.com/", StringComparison.Ordinal))
+            {
+                Exception? last = null;
+                foreach (var candidate in UpdateService.GithubUrls(url))
+                {
+                    try
+                    {
+                        if (candidate != url)
+                        {
+                            try { System.IO.File.Delete(zipPath); } catch { }
+                            Center.Report(task, "GitHub 直连失败，切换镜像下载…", 0, 0);
+                        }
+                        await Nexus.DownloadFileAsync(candidate, zipPath, progress);
+                        Center.Finish(task, true, "下载完成");
+                        return;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { last = ex; }
+                }
+                throw last!;
+            }
+
             await Nexus.DownloadFileAsync(url, zipPath, progress);
-            Center.Finish(task, true, "Download complete");
+            Center.Finish(task, true, "下载完成");
         }
         catch (Exception ex)
         {
@@ -2352,19 +2632,23 @@
     }
 
     /// <summary>
-    /// One-click SMAPI auto-update: downloads the official installer in the background -> runs
-    /// SMAPI.Installer.exe unattended (--install --no-prompt --game-path).
-    /// No windows pop up and no browser opens; the state refreshes automatically when done.
+    /// SMAPI 一键自动更新：后台下载官方安装包 → 无人值守运行
+    /// SMAPI.Installer.exe（--install --no-prompt --game-path），
+    /// 全程不弹窗口、不跳浏览器，装完自动刷新状态。
     /// </summary>
-    /// <summary>v0.36.0: one-click download & install when SMAPI is missing — shares the same fully automatic
-    /// installer with UpdateSmapi (RunSmapiInstallerAsync just downloads the zip and deploys files silently);
-    /// no manual steps required from the user.</summary>
+    /// <summary>v0.36.0：未安装 SMAPI 时的一键下载安装 —— 与 UpdateSmapi 共用同一个
+    /// 全自动安装器（RunSmapiInstallerAsync 内部就是下载 zip + 静默部署文件），
+    /// 用户不需要任何手动操作。</summary>
     private async Task InstallSmapi()
     {
         if (_smapiUpdating) return;
+        // v1.08：任务中心级防重 —— 页面重建导致 _smapiUpdating 归零的间隙也拦得住
+        if (Center.Items.Any(t => t.Status == "running"
+                && t.Title.StartsWith("SMAPI", StringComparison.OrdinalIgnoreCase)))
+        { ShowNotice("err", "An SMAPI task is already running — please wait"); return; }
         if (_smapiUpdate is null || _smapiUpdate.LatestVersion is null || _smapiUpdate.InstallerZipUrl is null)
         {
-            ShowNotice("err", "SMAPI download URL not available yet; try again later (or check your network).");
+            ShowNotice("err", "SMAPI download URL not ready yet — try again later (or check your network).");
             return;
         }
 
@@ -2375,8 +2659,7 @@
         var progress = new Progress<UpdateService.InstallProgress>(p =>
             _ = InvokeAsync(() => Center.Report(task, p.Message, p.Percent, p.SpeedMBps)));
 
-        // jump to the tasks page to watch live progress
-        Nav.NavigateTo("/tasks");
+        // v1.08：不再自动跳转任务页 —— 右下角任务胶囊即可看进度，不打断当前页面
 
         try
         {
@@ -2385,10 +2668,10 @@
 
             if (err is null)
             {
-                Center.Finish(task, true, $"✅ SMAPI {_smapiUpdate.LatestVersion} installed");
+                Center.Finish(task, true, $"SMAPI {_smapiUpdate.LatestVersion} 安装完成");
                 _smapiVersion = Game.ProbeSmapiVersion(Cfg.Current.GamePath);
                 _smapiUpdate = await Updater.CheckSmapiAsync(_smapiVersion);
-                // rescan the mod list after installing (SMAPI's bundled ConsoleCommands/SaveBackup will appear in it)
+                // 安装完成后重新扫描 mod 列表（SMAPI 自带 ConsoleCommands/SaveBackup 会进列表）
                 _ = InvokeAsync(RescanAndRestate);
             }
             else
@@ -2410,6 +2693,9 @@
     private async Task UpdateSmapi()
     {
         if (_smapiUpdating) return;
+        if (Center.Items.Any(t => t.Status == "running"
+                && t.Title.StartsWith("SMAPI", StringComparison.OrdinalIgnoreCase)))
+        { ShowNotice("err", "An SMAPI task is already running — please wait"); return; }
         if (_smapiUpdate is null || _smapiUpdate.LatestVersion is null) return;
 
         _smapiUpdating = true;
@@ -2419,7 +2705,7 @@
         var progress = new Progress<UpdateService.InstallProgress>(p =>
             _ = InvokeAsync(() => Center.Report(task, p.Message, p.Percent, p.SpeedMBps)));
 
-        // jump to the tasks page immediately to watch progress (the bottom-right pill updates in sync)
+        // 立即跳到任务页看进度（右下角胶囊也会同步显示）
         Nav.NavigateTo("/tasks");
 
         try
@@ -2429,7 +2715,7 @@
 
             if (err is null)
             {
-                Center.Finish(task, true, $"✅ SMAPI updated to {_smapiUpdate.LatestVersion}");
+                Center.Finish(task, true, $"SMAPI 已更新到 {_smapiUpdate.LatestVersion}");   // v1.1.3：✅ 已删 —— 时间线末行自带实心绿勾
                 _smapiVersion = Game.ProbeSmapiVersion(Cfg.Current.GamePath);
                 _smapiUpdate = await Updater.CheckSmapiAsync(_smapiVersion);
             }
@@ -2449,7 +2735,7 @@
         }
     }
 
-    /// <summary>v0.68.1: open the mod's download page (GitHub releases first, then the Nexus files page).</summary>
+    /// <summary>v0.68.1：打开该 mod 的下载页（GitHub releases 优先，其次 Nexus 文件页）。</summary>
     private static void OpenUpdateDownloadPage(ModEntry m)
     {
         if (m.GitHubRepo is not null)
@@ -2460,23 +2746,22 @@
 
     private void ShowNotice(string kind, string text)
     {
-        // v0.43.1: success/delete -> black toast with white text; errors -> red toast with white text; everything is also logged
+        // v0.43.1：成功/删除 → 黑底白字 toast；报错 → 红底白字 toast；同时全部落日志
         if (kind == "err") AppLog.Error("Mods", text); else AppLog.Warn("Mods", text);
         _ = JS.InvokeVoidAsync("junigridJs.toast", text, kind == "err" ? "err" : "ok");
     }
 
     private static bool IsNewer(string remote, string local)
     {
-        // v0.71.8: numeric per-segment semantic version comparison. The old logic degraded to
-        // "string inequality = update available" whenever Version.TryParse failed — pre-release suffixes
-        // (0.2.8-beta), four-part versions (0.2.8.1), or space/hyphen differences could misjudge identical
-        // versions as updatable (the root cause of Event Lookup showing an update button while already current).
-        // Now the v/V prefix and -beta-style suffixes are stripped, segments are compared numerically,
-        // missing segments are padded with 0; full equality -> not an update.
+        // v0.71.8：语义化版本逐段数值比较。旧逻辑在 Version.TryParse 失败时退化成
+        // "字符串不等 = 有更新"——带预发布后缀（0.2.8-beta）、四段式（0.2.8.1）、
+        // 或空格/连字符差异都会让"同版本"被误判为可更新（Event Lookup 已是最新却
+        // 显示更新按钮就是这个根因）。现在剥离 v/V 前缀与 -beta 类后缀后逐段比数值，
+        // 段数不齐按 0 补齐；完全相等 → 不更新。
         static int[] Parts(string v)
         {
             var s = v.Trim().TrimStart('v', 'V');
-            var dash = s.IndexOfAny(new[] { '-', '+', ' ' });   // strip pre-release/build metadata
+            var dash = s.IndexOfAny(new[] { '-', '+', ' ' });   // 剥离预发布/构建元数据
             if (dash >= 0) s = s[..dash];
             var segs = s.Split('.', StringSplitOptions.RemoveEmptyEntries);
             var nums = new int[segs.Length];
@@ -2495,6 +2780,6 @@
             var l = i < lp.Length ? lp[i] : 0;
             if (r != l) return r > l;
         }
-        return false;   // numerically identical -> not an update
+        return false;   // 数值完全相等 → 不是更新
     }
 }

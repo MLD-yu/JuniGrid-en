@@ -1,7 +1,7 @@
 @namespace JuniGrid.Components
 @inject IJSRuntime JS
 
-@* v0.93.0: Blazor port of React Bits DepthText — 3D extruded text with pointer parallax + idle auto-orbit *@
+@* v0.93.0：React Bits DepthText 的 Blazor 移植 —— 3D 挤出文字，指针视差 + 空闲自动环绕 *@
 <span class="depth-text" @ref="_root"
       style="--dt-persp:@(Perspective)px;--dt-size:@FontSize;--dt-weight:@FontWeight;--dt-face:@FaceColor;--dt-shadow:@(Shadow ? $"0 14px 22px color-mix(in srgb,{DepthColor} 30%,transparent),0 2px 5px rgba(0,0,0,.22)" : "none")">
     <span class="depth-text__stage">

@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="Nexus Mods — Built-in Browser (click Mod Manager Download to install automatically)"
+        Title="Nexus Mods — 内置浏览器（点 Mod Manager Download 自动安装）"
         Width="1150" Height="760"
         MinWidth="700" MinHeight="480"
         WindowStartupLocation="CenterScreen"
@@ -21,12 +21,12 @@
                     <Button Content="▶" Width="30" Height="28" Margin="0,0,4,0" Click="Forward_Click"/>
                     <Button Content="⟳" Width="30" Height="28" Margin="0,0,8,0" Click="Reload_Click"/>
                 </StackPanel>
-                <Button Content="🌐 Open in external browser" DockPanel.Dock="Right"
+                <Button Content="🌐 外部浏览器打开" DockPanel.Dock="Right"
                         Height="28" VerticalAlignment="Center" Padding="8,0"
                         Click="OpenExternal_Click"/>
                 <TextBlock x:Name="txtUrl" VerticalAlignment="Center"
                            Foreground="#66000000" FontSize="12"
-                           TextTrimming="CharacterEllipsis" Text="Loading…"/>
+                           TextTrimming="CharacterEllipsis" Text="加载中…"/>
             </DockPanel>
         </Border>
 

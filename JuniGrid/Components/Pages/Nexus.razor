@@ -1,6 +1,7 @@
 @namespace JuniGrid.Components.Pages
 @page "/nexus"
 @implements IDisposable
+@inject CoverCacheService Covers
 @inject ConfigService Cfg
 @inject NexusService NexusApi
 @inject NexusSsoService Sso
@@ -12,24 +13,23 @@
 @inject PageRefreshService PageRefresh
 
 <div class="jg-page jg-nexus-scope">
-    @* ─── v1.06.2: Two-part header — left (logo + search island) flex:1 / right (login/avatar) flex:1.
-         Search island restored to its pre-v1.05.4 shape: magnifier button right after the logo; the input
-         expands to the right on click (GSAP back.out). No longer permanently expanded (class is no longer
-         fixed to open; expand/collapse is driven by searchIslandInit). ─── *@
+    @* ─── v1.06.2：页头两段式 —— 左（logo + 搜索岛）flex:1 / 右（登录/头像）flex:1。
+         搜索岛恢复 v1.05.4 之前的形态：放大镜按钮紧跟 logo，点击输入框向右展开（GSAP back.out）；
+         不再常驻展开（class 不再固定 open，展开/收起由 searchIslandInit 驱动）。─── *@
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:0;">
         <div style="display:flex;align-items:center;gap:10px;flex:1 1 0;min-width:0">
             <img class="jg-nexus-logo" src="assets/nexus-mods-logo.svg" alt="Nexus Mods"
                  style="flex-shrink:0;height:50px;width:auto;cursor:pointer;"
                  @onclick="OpenNexusHome" />
-            @* ─── Relatively-positioned wrapper for the search island + history panel.
-                 The history panel hangs off the wrapper so the island's overflow:hidden can't clip it. ─── *@
+            @* ─── 搜索岛 + 历史面板的外层相对定位容器。
+                 历史面板挂在容器层，不被 island 的 overflow:hidden 裁掉。─── *@
             <div class="jg-island-wrap">
                 <div class="jg-nexus-island" id="jgNexusIsland">
                     <button type="button" class="jg-island-btn" id="jgNexusIslandBtn" aria-label="Search">
                         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                     </button>
                     <div class="jg-island-field">
-                        <input class="jg-island-input" id="jgNexusIslandInput" placeholder="Search mod name / Nexus mod ID" autocomplete="off"
+                        <input class="jg-island-input" id="jgNexusIslandInput" placeholder="Search mod name / Nexus ID" autocomplete="off"
                                value="@_searchText" @oninput="OnIslandInput" @onkeydown="OnIslandKeyDown" />
                         @if (!string.IsNullOrEmpty(_searchText))
                         {
@@ -37,10 +37,9 @@
                         }
                     </div>
                 </div>
-                @* ─── v1.05.1: Search history (clear button at the far left of the "Search history" label;
-                     keeps the latest 10 entries at most). Visibility is fully driven by JS toggling the
-                     .history-open class — in practice the focus event triggered by JS focus() never reaches
-                     Blazor (@onfocus never fires, so the panel never appeared), so DOM events are no longer relied on. ─── *@
+                @* ─── v1.05.1：搜索历史（清空按钮在「搜索历史」字样最左边；最多保留最新 10 条）。
+                     显隐完全由 JS 的 .history-open class 驱动 —— 实测 JS focus() 触发的 focus 事件
+                     到不了 Blazor（@onfocus 永不触发，面板因此从不出现），不再依赖 DOM 事件。─── *@
                 @if (_searchHistory.Count > 0)
                 {
                     <div class="jg-search-history">
@@ -66,11 +65,11 @@
         <div style="display:flex;align-items:center;gap:10px;flex:1 1 0;justify-content:flex-end">
             @if (!string.IsNullOrEmpty(_key))
             {
-                @* ─── v0.70.1: Avatar only; hovering pops up a user card with GSAP easeReverse tooltip ─── *@
+                @* ─── v0.70.1：只显示头像，hover 弹出 GSAP easeReverse-tooltip 用户卡片 ─── *@
                 <div class="jg-user-tip" id="jgUserTip">
                     @if (!string.IsNullOrEmpty(_userAvatar))
                     {
-                        <img class="jg-user-tip-avatar" src="@_userAvatar" alt="avatar" />
+                        <img class="jg-user-tip-avatar" src="@Covers.GetFull(_userAvatar)" alt="avatar" />
                     }
                     else
                     {
@@ -87,10 +86,10 @@
                         @if (_userExtras is not null)
                         {
                             <div class="jg-user-tip-stats">
-                                @if (_userExtras.ModCount > 0) { <span>Released @_userExtras.ModCount mods</span> }
+                                @if (_userExtras.ModCount > 0) { <span>@_userExtras.ModCount mods published</span> }
                                 @if (_userExtras.UniqueModDownloads > 0) { <span>@FormatNum(_userExtras.UniqueModDownloads) downloads</span> }
                                 @if (_userExtras.EndorsementsGiven > 0) { <span>@_userExtras.EndorsementsGiven endorsements</span> }
-                                @if (!string.IsNullOrEmpty(_userExtras.Joined)) { <span>Joined @_userExtras.Joined[..Math.Min(10, _userExtras.Joined.Length)]</span> }
+                                @if (!string.IsNullOrEmpty(_userExtras.Joined)) { <span>@_userExtras.Joined[..Math.Min(10, _userExtras.Joined.Length)] joined</span> }
                             </div>
                             @if (!string.IsNullOrWhiteSpace(_userExtras.About))
                             {
@@ -108,13 +107,13 @@
             {
                 <button class="jg-login-btn" @onclick="OpenLoginDialog">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-                    Log in
+                    登录
                 </button>
             }
         </div>
     </div>
     @if (!string.IsNullOrEmpty(_ssoMsg)) { <div class="jg-note" style="margin-top:6px;">@_ssoMsg</div> }
-    @* ─── v0.74.0: Site-style home page (Trending + Mods sections) ─── *@
+    @* ─── v0.74.0：官网风首页（图3 Trending + 图4 Mods 板块）─── *@
     @if (_viewMode == "home")
     {
         <section class="jg-home-sec jg-home-sec-hero jg-hero-cream">
@@ -123,10 +122,10 @@
                 <span class="jg-home-sec-title" style="display:inline-flex;align-items:center;gap:6px"><svg width="18" height="18" viewBox="0 0 24 24" style="vertical-align:-3px"><defs><linearGradient id="jgFlameG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#bcd2ff"/></linearGradient></defs><path d="M12 14.5 21 9.2 12 4 3 9.2Z" fill="#f2994a"/><path d="M12 16.8 21 11.5 21 9.2 12 14.5 3 9.2 3 11.5Z" fill="#d17a26"/><path d="M12 0.8c1.7 2.2 3.6 3.6 3.6 5.9 0 2-1.6 3.4-3.6 3.4s-3.6-1.4-3.6-3.4c0-1.1.5-1.9 1.1-2.6.2.9.7 1.5 1.4 1.7-.5-1.8 0-3.7 1.1-5Z" fill="url(#jgFlameG)"/></svg><DepthText Text="Trending Mods" FontSize="15px" /></span>
                 <button type="button" class="jg-viewall" @onclick='@(() => EnterBrowse("trending"))'>View all@((MarkupString)ViewAllArrow)</button>
             </div>
-            @* v0.75.0: Check login state first — show guidance text when logged out; while logged in, keep Shimmer until data arrives *@
+            @* v0.75.0：先看登录态 —— 未登录显示引导文案；已登录全程 Shimmer 直到数据到位 *@
             @if (string.IsNullOrEmpty(_key))
             {
-                <div style="font-size:12px;opacity:.6">Log in to view the official Nexus Trending list.</div>
+                <div style="font-size:12px;opacity:.6">Log in to see the official Nexus trending list.</div>
             }
             else if (_homeLoading && _trendingHome.Count == 0)
             {
@@ -143,7 +142,7 @@
                         <div class="jg-trend-big" @onclick="() => OpenDetail(mod.Id)">
                             @if (!string.IsNullOrEmpty(mod.PictureUrl ?? mod.ThumbnailUrl))
                             {
-                                <img class="jg-trend-big-cover" src="@(mod.PictureUrl ?? mod.ThumbnailUrl)" loading="lazy" alt="" />
+                                <img class="jg-trend-big-cover" src="@Covers.GetFull(mod.PictureUrl ?? mod.ThumbnailUrl)" loading="lazy" alt="" />
                             }
                             <div class="jg-trend-big-info">
                                 <div class="jg-trend-big-name">@mod.Name</div>
@@ -164,7 +163,7 @@
                             <div class="jg-trend-sm" @onclick="() => OpenDetail(mod.Id)">
                                 @if (!string.IsNullOrEmpty(mod.ThumbnailUrl ?? mod.PictureUrl))
                                 {
-                                    <img class="jg-trend-sm-cover" src="@(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
+                                    <img class="jg-trend-sm-cover" src="@Covers.GetFull(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
                                 }
                                 else
                                 {
@@ -199,7 +198,7 @@
             </div>
             @if (string.IsNullOrEmpty(_key))
             {
-                <div style="font-size:12px;opacity:.6;margin-top:8px">Log in to view the official Nexus mod lists.</div>
+                <div style="font-size:12px;opacity:.6;margin-top:8px">Log in to see the official Nexus mod list.</div>
             }
             else if (_homeLoading && _homeMods.Count == 0)
             {
@@ -225,7 +224,7 @@
                             <div class="jg-modcard2-cover-wrap">
                                 @if (!string.IsNullOrEmpty(mod.ThumbnailUrl) || !string.IsNullOrEmpty(mod.PictureUrl))
                                 {
-                                    <img class="jg-modcard2-cover" src="@(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
+                                    <img class="jg-modcard2-cover" src="@Covers.GetFull(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
                                 }
                                 else
                                 {
@@ -237,7 +236,7 @@
                                 }
                             </div>
                             <div class="jg-modcard2-body">
-                                @* ─── v1.04.0: Site-style compact layout — cover / title / category chip / two-line summary ─── *@
+                                @* ─── v1.04.0：官网紧凑排列 —— 封面/标题/分类chip/两行简介 ─── *@
                                 <div class="jg-modcard2-title">@mod.Name</div>
                                 @if (!string.IsNullOrEmpty(mod.Category))
                                 {
@@ -251,7 +250,7 @@
                         </div>
                     }
                 </div>
-                @* ─── v1.04.0: The Mods section's bottom "View all" became a pill button (arrow after the text, follows text color) ─── *@
+                @* ─── v1.04.0：Mods 板块底部「查看全部」改成胶囊按钮（箭头在后、随字色）─── *@
                 <div style="display:flex;justify-content:center;margin-top:14px;">
                     <button type="button" class="jg-viewall-cap" @onclick="() => EnterBrowse(_homeTab)">View all@((MarkupString)ViewAllArrow)</button>
                 </div>
@@ -259,7 +258,7 @@
         </section>
     }
 
-    @* ─── v1.02.0: Search page (standalone view, no longer reuses the "view all" page; an ID match shows an "Exact match" card) ─── *@
+    @* ─── v1.02.0：搜索页（独立视图，不再复用查看全部页；尾号命中显示「精确匹配」卡）─── *@
     else if (_viewMode == "search")
     {
         <section class="jg-home-sec">
@@ -279,7 +278,7 @@
                 <div class="jg-search-exact" @onclick="() => OpenDetail(_exactMod.Id)">
                     @if (!string.IsNullOrEmpty(exPic))
                     {
-                        <img class="jg-search-exact-cover" src="@exPic" alt="" />
+                        <img class="jg-search-exact-cover" src="@Covers.GetFull(exPic)" alt="" />
                     }
                     else
                     {
@@ -287,7 +286,7 @@
                     }
                     <div class="jg-search-exact-body">
                         <div class="jg-search-exact-name">@(!string.IsNullOrEmpty(exName) ? exName : $"Mod with ID #{_exactMod.Id}")</div>
-                        <div class="jg-search-exact-sub">ID #@_exactMod.Id · Exact match@(string.IsNullOrEmpty(exVer) ? "" : $" · v{exVer}")</div>
+                        <div class="jg-search-exact-sub">ID #@_exactMod.Id · exact match@(string.IsNullOrEmpty(exVer) ? "" : $" · v{exVer}")</div>
                     </div>
                     <span class="jg-search-exact-go">View →</span>
                 </div>
@@ -310,7 +309,7 @@
                             <div class="jg-modcard2-cover-wrap">
                                 @if (!string.IsNullOrEmpty(mod.ThumbnailUrl) || !string.IsNullOrEmpty(mod.PictureUrl))
                                 {
-                                    <img class="jg-modcard2-cover" src="@(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
+                                    <img class="jg-modcard2-cover" src="@Covers.GetFull(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
                                 }
                                 else
                                 {
@@ -322,7 +321,7 @@
                                 }
                             </div>
                             <div class="jg-modcard2-body">
-                                @* ─── v1.04.0: Site-style compact layout — cover / title / category chip / two-line summary ─── *@
+                                @* ─── v1.04.0：官网紧凑排列 —— 封面/标题/分类chip/两行简介 ─── *@
                                 <div class="jg-modcard2-title">@mod.Name</div>
                                 @if (!string.IsNullOrEmpty(mod.Category))
                                 {
@@ -339,7 +338,7 @@
                 <div class="jg-pager">
                     <div class="jg-pager-side">
                         <span class="jg-pager-info">
-                            Page @_page@(TotalPages is int tp ? $" / {tp}" : "")@(TotalPages is not null && NexusApi.LastBrowseTotalCount is int tc ? $" · {tc:N0} total" : "")
+                            第 @_page@(TotalPages is int tp ? $" / {tp}" : "") 页@(TotalPages is not null && NexusApi.LastBrowseTotalCount is int tc ? $" · 共 {tc:N0} 个" : "")
                         </span>
                     </div>
                     <div class="jg-pager-side">
@@ -364,20 +363,20 @@
             }
             else if (string.IsNullOrWhiteSpace(_searchTitle))
             {
-                <div class="jg-note" style="margin-top:10px">Type a mod name or Nexus mod ID in the search box above to start searching.</div>
+                <div class="jg-note" style="margin-top:10px">Type a mod name or Nexus ID in the search box above to start.</div>
             }
             else if (_exactMod is null)
             {
-                <div class="jg-note" style="margin-top:10px">No mods found for "@_searchTitle" — try another keyword or a Nexus mod ID.</div>
+                <div class="jg-note" style="margin-top:10px">Nothing found for "@_searchTitle" — try another keyword or a Nexus ID.</div>
             }
             else
             {
-                <div class="jg-note" style="margin-top:10px">No results by name, but one mod matched the ID exactly above.</div>
+                <div class="jg-note" style="margin-top:10px">No results by name, but one mod was matched by ID above.</div>
             }
         </section>
     }
 
-    @* ─── v0.74.0: Browse page ("view all") — top bar with back + filters + full list + pagination ─── *@
+    @* ─── v0.74.0：浏览页（查看全部）—— 顶栏返回 + 筛选 + 完整列表 + 分页 ─── *@
     else if (_viewMode == "browse")
     {
         <section class="jg-home-sec">
@@ -388,10 +387,7 @@
                     </button>
                 </div>
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                    @* ─── v1.04.0: Filters (formerly the New/Updated/Downloads/Popular/Surprise button bar), time range, and
-                       sort direction — three GSAP easeReverse dropdowns (springy expand + arrow rotation + staggered menu items
-                       + accelerated reverse exit) ─── *@
-                    <div class="jg-sort-dd @(_kindOpen ? "open" : "")" id="jgKindDd">
+                    <div class="jg-sort-dd @(_kindOpen ? "open" : "")" id="jgKindDd" data-dd="browse">
                         <button type="button" class="jg-sort-trigger" disabled="@_browseLoading" @onclick="ToggleKindDd">
                             @((MarkupString)TabIcon(_browseKind))@KindLabel
                             <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -399,9 +395,6 @@
                             </svg>
                         </button>
                         <div class="jg-sort-menu">
-                            @* v1.07.0: Visual inner layer — the springy animation only applies to this layer; the outer box stays
-                               at its final rectangle (hit area equals the final position from the first frame of opening,
-                               so clicks no longer pass through to mod cards below during the animation) *@
                             <div class="jg-sort-menu-in">
                                 @foreach (var tab in _browseTabs)
                                 {
@@ -413,7 +406,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="jg-sort-dd jg-dd-right @(_timeOpen ? "open" : "")" id="jgTimeDd">
+                    <div class="jg-sort-dd jg-dd-right @(_timeOpen ? "open" : "")" id="jgTimeDd" data-dd="browse">
                         <button type="button" class="jg-sort-trigger" disabled="@_browseLoading" @onclick="ToggleTimeDd">
                             @TimeLabel
                             <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -421,9 +414,7 @@
                             </svg>
                         </button>
                         <div class="jg-sort-menu">
-                            @* v1.07.0: Visual inner layer (same as above) — outer box keeps its final rectangle; hit area doesn't scale with the animation *@
                             <div class="jg-sort-menu-in">
-                                @* v1.04.0: The "Custom" time range and related code have been removed *@
                                 @foreach (var o in _timeOptions)
                                 {
                                     <button type="button" class="jg-sort-item @(_timeRange == o.Key ? "active" : "")"
@@ -432,15 +423,14 @@
                             </div>
                         </div>
                     </div>
-                    <div class="jg-sort-dd jg-dd-right @(_dirOpen ? "open" : "")" id="jgDirDd">
+                    <div class="jg-sort-dd jg-dd-right @(_dirOpen ? "open" : "")" id="jgDirDd" data-dd="browse">
                         <button type="button" class="jg-sort-trigger" disabled="@_browseLoading" @onclick="ToggleDirDd">
-                            @(_direction == "DESC" ? "Descending" : "Ascending")
+                            @(_direction == "DESC" ? "Asc" : "Desc")
                             <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
                                 <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                             </svg>
                         </button>
                         <div class="jg-sort-menu">
-                            @* v1.07.0: Visual inner layer (same as above) — outer box keeps its final rectangle; hit area doesn't scale with the animation *@
                             <div class="jg-sort-menu-in">
                                 <button type="button" class="jg-sort-item @(_direction == "DESC" ? "active" : "")"
                                         @onclick='() => SetDirection("DESC")'>Descending (most → least)</button>
@@ -451,15 +441,13 @@
                     </div>
                 </div>
             </div>
-            @* v1.07.0: The overlay stays in the DOM permanently — previously the @if render lagged one beat behind the JS
-               menu (Blazor re-render is queued after interop), so during the "menu open but overlay not yet shown" window
-               clicks could pass through to mod cards below (most visible while the open animation plays).
-               The open/close class is flipped in the same frame as the menu by the dropdownToggle JS; this binding only
-               re-aligns state as a fallback on re-render. *@
-            <div class="jg-dd-overlay @((_kindOpen || _timeOpen || _dirOpen) ? "open" : "")" @onclick="CloseAllDd"></div>
+            @* v1.07.0：遮罩常驻 DOM —— 原先 @if 渲染比 JS 开菜单慢一拍（Blazor 重渲染排在 interop 之后），
+               「菜单已弹出、遮罩还没铺上」的窗口期鼠标会穿透到下方 mod 卡（打开动画期间最明显）。
+               开合 class 由 dropdownToggle JS 与菜单同帧同步翻转，这里仅在重渲染时兜底对齐状态。 *@
+            <div class="jg-dd-overlay @((_kindOpen || _timeOpen || _dirOpen) ? "open" : "")" data-dd="browse" @onclick="CloseAllDd"></div>
             @if (string.IsNullOrEmpty(_key))
             {
-                <div style="font-size:12px;opacity:.6;margin-top:8px">Log in to view official Nexus lists.</div>
+                <div style="font-size:12px;opacity:.6;margin-top:8px">Log in to see the official Nexus list.</div>
             }
             else if (_browseLoading)
             {
@@ -478,7 +466,7 @@
             }
             else if (_browse.Count == 0)
             {
-                <div style="font-size:12px;opacity:.6;margin-top:8px">No data yet (try different filters or retry later).</div>
+                <div style="font-size:12px;opacity:.6;margin-top:8px">No data right now (change the filters or try again later).</div>
             }
             else
             {
@@ -489,7 +477,7 @@
                             <div class="jg-modcard2-cover-wrap">
                                 @if (!string.IsNullOrEmpty(mod.ThumbnailUrl) || !string.IsNullOrEmpty(mod.PictureUrl))
                                 {
-                                    <img class="jg-modcard2-cover" src="@(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
+                                    <img class="jg-modcard2-cover" src="@Covers.GetFull(mod.ThumbnailUrl ?? mod.PictureUrl)" loading="lazy" alt="" />
                                 }
                                 else
                                 {
@@ -501,7 +489,7 @@
                                 }
                             </div>
                             <div class="jg-modcard2-body">
-                                @* ─── v1.04.0: Site-style compact layout — cover / title / category chip / two-line summary ─── *@
+                                @* ─── v1.04.0：官网紧凑排列 —— 封面/标题/分类chip/两行简介 ─── *@
                                 <div class="jg-modcard2-title">@mod.Name</div>
                                 @if (!string.IsNullOrEmpty(mod.Category))
                                 {
@@ -515,20 +503,20 @@
                         </div>
                     }
                 </div>
-                @* ─── v0.90.0: Paginator (mirrors the site: page numbers + jump + refresh; v1.04.0 removed per-page size selection, fixed at 40) ─── *@
+                @* ─── v0.90.0：分页器（对照官网：页码 + 跳页 + 换一批；v1.04.0 移除每页条数选择，固定 40）─── *@
                 @if (!_browseLoading && _browse.Count > 0)
                 {
                     <div class="jg-pager">
                         @if (_browseKind == "surprise")
                         {
-                            @* Surprise "shuffle" = change the server-side random seed and re-query (mirrors the site's random sort) *@
-                            <button class="jg-pager-btn" @onclick="ReshuffleSurpriseAsync">🎲 Shuffle</button>
+                            @* Surprise 换一批 = 换服务端 random 种子后重查（对照官网 random 排序） *@
+                            <button class="jg-pager-btn" @onclick="ReshuffleSurpriseAsync">🎲 Surprise me</button>
                         }
                         else
                         {
                             <div class="jg-pager-side">
                                 <span class="jg-pager-info">
-                                    Page @_page@(TotalPages is int tp ? $" / {tp}" : "")@(TotalPages is not null && NexusApi.LastBrowseTotalCount is int tc ? $" · {tc:N0} total" : "")
+                                    第 @_page@(TotalPages is int tp ? $" / {tp}" : "") 页@(TotalPages is not null && NexusApi.LastBrowseTotalCount is int tc ? $" · 共 {tc:N0} 个" : "")
                                 </span>
                             </div>
                             <div class="jg-pager-side">
@@ -558,7 +546,7 @@
 
 </div>
 
-@* ── v0.39.0: Login dialog (method choice → API key entry → authorization wait → Pixel Reveal success card) ── *@
+@* ── v0.39.0：登录对话框（方式选择 → API Key 填写 → 授权等待 → Pixel Reveal 成功卡片）── *@
 @if (_loginStep != LoginStep.Closed)
 {
     <div class="jg-login-overlay" @onclick="CloseLoginDialog">
@@ -574,20 +562,20 @@
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9.5-9.5"/><path d="m15.5 7.5 3 3"/><path d="m18.5 4.5 2 2"/></svg>
                         </span>
                         <span class="jg-login-option-text">
-                            <span class="jg-login-option-name">Log in with API Key</span>
-                            <span class="jg-login-option-desc">Paste your personal API key to sign in instantly</span>
+                            <span class="jg-login-option-name">API key login</span>
+                            <span class="jg-login-option-desc">Paste your personal API key to log in instantly</span>
                         </span>
                     </button>
-                    @* v1.08.4: The SSO app name "junigrid" is not yet on Nexus's official whitelist, so the
-                       authorization page reports "invalid application ID" — this entry stays disabled until official approval *@
+                    @* v1.08.4：SSO 应用名 "junigrid" 尚未在 Nexus 官方白名单，
+                       授权页会报「应用程序ID无效」—— 官方审批通过前禁用该入口 *@
                     <button class="jg-login-option jg-login-option-disabled" disabled
-                            title="Pending official approval: Nexus site authorization opens once the app name is approved. Please use API Key login for now.">
+                            title="Pending official approval - use the API key login for now">
                         <span class="jg-login-option-icon">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                         </span>
                         <span class="jg-login-option-text">
-                            <span class="jg-login-option-name">Website authorization login</span>
-                            <span class="jg-login-option-desc">Pending official approval — coming soon</span>
+                            <span class="jg-login-option-name">Website OAuth login</span>
+                            <span class="jg-login-option-desc">Awaiting official approval — coming soon</span>
                         </span>
                     </button>
                 </div>
@@ -595,9 +583,9 @@
             }
             else if (_loginStep == LoginStep.ApiKey)
             {
-                <div class="jg-login-title">Enter your API Key</div>
-                <div class="jg-login-sub">The API Key is stored only on this machine and is used to access official Nexus Mods data</div>
-                <input class="jg-login-input" placeholder="Paste your Nexus API Key"
+                <div class="jg-login-title">Enter your API key</div>
+                <div class="jg-login-sub">The API key is stored locally only and is used to access Nexus Mods data</div>
+                <input class="jg-login-input" placeholder="Paste your Nexus API key"
                        @bind="_apiKeyInput" @bind:event="oninput" disabled="@_apiKeyBusy" />
                 @if (!string.IsNullOrEmpty(_apiKeyError))
                 {
@@ -605,7 +593,7 @@
                 }
                 <div class="jg-login-actions">
                     <button class="jg-login-get" @onclick="OpenApiKeyPage" disabled="@_apiKeyBusy">
-                        Get API Key
+                        Get API key
                     </button>
                     <button class="jg-login-confirm @(_apiKeyBusy ? "busy" : "")"
                             disabled="@(_apiKeyBusy || string.IsNullOrWhiteSpace(_apiKeyInput))"
@@ -616,7 +604,7 @@
                         }
                         else
                         {
-                            <text>Confirm</text>
+                            <text>OK</text>
                         }
                     </button>
                 </div>
@@ -625,21 +613,21 @@
             else if (_loginStep == LoginStep.SsoWaiting)
             {
                 <div class="jg-login-title">Waiting for authorization</div>
-                <div class="jg-login-sub">The Nexus authorization page has opened — click Authorise in your browser to finish</div>
+                <div class="jg-login-sub">The Nexus authorization page is open - click Authorise in your browser to continue</div>
                 <div class="jg-login-waiting">
                     <span class="jg-login-spinner large"></span>
                     <span>Waiting for browser authorization…</span>
                 </div>
-                <button class="jg-login-cancel" @onclick="CancelSsoFlow">Cancel authorization</button>
+                <button class="jg-login-cancel" @onclick="CancelSsoFlow">Cancel</button>
             }
             else if (_loginStep == LoginStep.Success)
             {
-                @* Pixel Reveal: a canvas pixel sweep reveals the content; avatar/nickname/welcome message are hidden under the pixel curtain *@
+                @* Pixel Reveal：Canvas 像素扫过揭示，头像/昵称/欢迎语藏在像素幕布下 *@
                 <canvas id="jg-pixel-reveal" class="jg-pixel-reveal"></canvas>
                 <div class="jg-login-success-inner">
                     @if (!string.IsNullOrEmpty(_userAvatar))
                     {
-                        <img class="jg-login-avatar" src="@_userAvatar" alt="avatar" />
+                        <img class="jg-login-avatar" src="@Covers.GetFull(_userAvatar)" alt="avatar" />
                     }
                     else
                     {
@@ -655,18 +643,18 @@
     </div>
 }
 
-@* Success toast: centered black bar at the top of the screen *@
+@* 成功 toast：屏幕上方居中黑色浮条 *@
 @if (_loginToast)
 {
     <div class="jg-login-toast">✓ Logged in</div>
 }
 
 @code {
-    // v0.59.0: First-paint shimmer
+    // v0.59.0：首屏 shimmer
 
     private string? _ssoMsg;
 
-    // ---- v0.39.0: Login dialog state machine ----
+    // ---- v0.39.0：登录对话框状态机 ----
     private enum LoginStep { Closed, Choose, ApiKey, SsoWaiting, Success }
     private LoginStep _loginStep = LoginStep.Closed;
     private string _apiKeyInput = "";
@@ -683,7 +671,7 @@
 
     private void CloseLoginDialog()
     {
-        // Clicking the overlay while waiting for authorization is the same as canceling
+        // 授权等待中点遮罩等同取消
         if (_loginStep == LoginStep.SsoWaiting) { CancelSsoFlow(); return; }
         _loginStep = LoginStep.Closed;
     }
@@ -700,7 +688,7 @@
         catch { }
     }
 
-    // API Key login: validate → save → success card
+    // API key login：validate 校验 → 保存 → 成功卡片
     private async Task ConfirmApiKey()
     {
         if (_apiKeyBusy) return;
@@ -713,15 +701,14 @@
             var user = await NexusApi.ValidateAsync(key);
             if (user is null)
             {
-                _apiKeyError = "Invalid API Key — please check and try again";
+                _apiKeyError = "Invalid API key - please check and try again";
                 return;
             }
             _key = key;
             _userName = user.Name ?? "";
             _isPremium = user.IsPremium;
-            // vNext: Persist user info right at login — saving only the key would make the Settings page
-            // flash "Not logged in" first (the name only appears after the Settings page's background
-            // validate self-heal, about 1s later)
+            // vNext：登录当场把用户信息落盘 —— 只存 key 的话，设置页会先闪「未登录」
+            // （名字要等设置页后台 validate 自愈才补上，正好 1s 左右）
             {
                 var c0 = Cfg.Current;
                 c0.NexusApiKey = _key;
@@ -733,9 +720,8 @@
             }
             _userName = user.Name ?? "";
             _isPremium = user.IsPremium;
-            // v1.08.3: The success card shows the initial-letter fallback first, then fetches the avatar in the
-            // background, converts it to a data URI and caches it — the pixel reveal animation runs 2.6s, enough
-            // time for the image to be in place; next visit to the page reads the cache and shows instantly
+            // v1.08.3：成功卡先走首字母兜底，后台拉头像转 data URI 并落缓存 ——
+            // 像素揭示动画有 2.6s，足够图片就位后换上；下次进页直接读缓存秒显
             _userAvatar = "";
             _ = Task.Run(async () =>
             {
@@ -764,7 +750,7 @@
         }
     }
 
-    // Site authorization: enter waiting state → SSO → success card
+    // 官网授权：进入等待态 → SSO → 成功卡片
     private async Task StartSsoFlow()
     {
         _loginStep = LoginStep.SsoWaiting;
@@ -782,9 +768,9 @@
             }
             else if (_ssoCts?.IsCancellationRequested != true)
             {
-                // Non-cancellation failure: return to the method choice with a message
+                // 非取消的失败：退回方式选择并提示
                 _loginStep = LoginStep.Choose;
-                _ssoMsg = "SSO not completed: " + (Sso.LastError ?? "Timed out (5 minutes)");
+                _ssoMsg = "SSO not completed: " + (Sso.LastError ?? "timed out (5 min)");
             }
         }
         finally
@@ -801,7 +787,7 @@
         _loginStep = LoginStep.Choose;
     }
 
-    // Success card: switch to the Success step → play Pixel Reveal → toast
+    // 成功卡片：切到 Success 步 → 播 Pixel Reveal → toast
     private async Task ShowLoginSuccess()
     {
         _loginStep = LoginStep.Success;
@@ -816,9 +802,8 @@
             _loginToast = false;
             await InvokeAsync(StateHasChanged);
         });
-        // After login succeeds, refresh the current view's data (v0.97.1: previously only browse lists were
-        // refreshed — in home mode neither the Trending nor the Mods section had anything loading its data,
-        // so it always showed "failed to load")
+        // 登录成功后刷新当前视图数据（v0.97.1：原来只刷浏览榜单 —— 首页模式下
+        // Trending/Mods 两板块的数据源根本没人加载，永远显示"拉取失败"）
         if (!string.IsNullOrEmpty(_key))
         {
             if (_viewMode == "browse")
@@ -827,7 +812,7 @@
                 _ = LoadHomeAsync();
         }
     }
-    private CancellationTokenSource? _ssoCts;   // Cancellation token while waiting for authorization; used by the "cancel authorization" button to interrupt LoginAsync
+    private CancellationTokenSource? _ssoCts;   // 授权等待期的取消令牌，供“取消授权”钮中断 LoginAsync
 
     private string _key = "";
     private string _userName = "";
@@ -836,48 +821,47 @@
     private string? _profileUrl;
     private int _memberId;
     private NexusUserExtras? _userExtras;
-    private static string FormatNum(long n) => n >= 10000 ? (n / 1000.0).ToString("0.#") + "K" : n >= 1000 ? (n / 1000.0).ToString("0.0") + "K" : n.ToString();
+    private static string FormatNum(long n) => n >= 10000 ? (n / 10000.0).ToString("0.0") + "0K" : n >= 1000 ? (n / 1000.0).ToString("0.0") + "K" : n.ToString();
 
     private string _browseKind = "new";
     private string _searchText = "";
-    /// <summary>v1.05.0: The committed (Enter-pressed) search term — the search page title/hint uses it;
-    /// the in-progress _searchText no longer changes the page in real time (the root cause of the
-    /// "searching on every keystroke" look).</summary>
+    /// <summary>v1.05.0：已提交（回车）的搜索词 —— 搜索页标题/提示用它，
+    /// 输入过程中的 _searchText 不再实时改变页面（看起来像"边输边搜"的根因）。</summary>
     private string _searchTitle = "";
-    private NexusModInfo? _exactMod;                 // v1.02.0: ID exact-match card (shown at the top of the search page)
-    private static NexusModInfo? _svExact;           // v1.02.0: Search page snapshot (restored when returning from the detail page)
+    private NexusModInfo? _exactMod;                 // v1.02.0：尾号精确匹配卡（搜索页顶部展示）
+    private static NexusModInfo? _svExact;           // v1.02.0：搜索页快照（详情返回时恢复）
     private bool _browseLoading;
-    // ─── v0.90.0: Pagination state (lazy loading removed) ───
+    // ─── v0.90.0：分页状态（懒加载已移除）───
     private int _page = 1;
     private int _pageSize = 40;
     private string _jumpText = "";
 
-    // ─── v0.93.0: Static snapshot of browse state — restores view/page/tab/time range when returning from a mod detail page ───
+    // ─── v0.93.0：浏览状态静态快照 —— 跳 mod 详情页后返回时恢复视图/页码/tab/时间段 ───
     private static string? _svMode; private static string? _svKind;
     private static int _svPage = 1;
     private static string? _svRange; private static string? _svSearch;
-    private static List<NexusModListEntry>? _svBrowse;   // v1.03.0: List data snapshot — restored directly on return, no server request
+    private static List<NexusModListEntry>? _svBrowse;   // v1.03.0：列表数据快照 —— 返回时直接恢复，不再请求服务器
+    private static int _svFilterVer;   // v1.1.3：快照对应的成人过滤条件版本（NexusService.AdultFilterVersion）
     private static List<NexusModListEntry>? _svTrending;
     private static List<NexusModListEntry>? _svHomeMods;
     private static string? _svHomeTab;
     private List<NexusModListEntry> _browse = new();
-    // v0.76.0: Cross-page dedup — under server-side truncation/random sort, offset boundaries can produce
-    // duplicates; infinite scroll must never append duplicate cards
+    // v0.76.0：跨页去重 —— 服务端截断/随机排序下 offset 边界可能重复，无限滚动绝不追加重复卡
 
     private static string FormatCompact(long n) => n >= 1_000_000 ? (n / 1_000_000.0).ToString("0.#") + "M"
         : n >= 1000 ? (n / 1000.0).ToString("0.#") + "K" : n.ToString();
-    /// <summary>v0.73.0: File size formatting (mirrors the site's stats line, e.g. 65.0KB / 190.0KB).</summary>
+    /// <summary>v0.73.0：文件大小格式化（对照官网统计行 65.0KB / 190.0KB）。</summary>
     private static string FormatBytes(long b) => b >= 1_048_576 ? (b / 1_048_576.0).ToString("0.#") + " MB"
         : b >= 1024 ? (b / 1024.0).ToString("0.#") + " KB" : b + " B";
-    /// <summary>v1.04.0: "View all" suffix arrow (user-supplied arrow-right icon path, fill=currentColor follows text color, transparent background).</summary>
+    /// <summary>v1.04.0：「查看全部」后缀箭头（用户提供的 arrow-right 图标路径，fill=currentColor 随字色、透明背景）。</summary>
     private static readonly string ViewAllArrow = "<svg width=\"11\" height=\"11\" viewBox=\"0 0 1024 1024\" fill=\"currentColor\" aria-hidden=\"true\" style=\"margin-left:4px;vertical-align:-1px\"><path d=\"M629.963157 511.976464 282.01449 848.324932c-20.50808 19.85828-20.50808 51.997258 0 71.792093 20.507056 19.826558 53.778834 19.826558 74.28589 0l385.061936-372.252189c20.47738-19.825534 20.47738-51.981908 0-71.745021L356.30038 103.882975c-10.285251-9.91379-23.728424-14.869662-37.173644-14.869662-13.446243 0-26.889417 4.956895-37.112246 14.901385-20.50808 19.826558-20.50808 51.919487 0 71.746044L629.963157 511.976464\"/></svg>";
 
     private readonly Dictionary<int, string?> _browseStates = new();
     private readonly HashSet<int> _installing = new();
     private HashSet<int> _installedIds = new();
 
-    // v0.73.0: Mirrors the site's Mods section's 5 tabs
-    // v1.04.0: Trending → Downloads (sorted by download count; user-supplied download icon, fill=currentColor follows text color)
+    // v0.73.0：对照官网 Mods 区 5 个 tab
+    // v1.04.0：Trending → Downloads（按下载数排序；图标为用户提供的下载图标，fill=currentColor 随字色）
     private readonly (string Key, string Label)[] _browseTabs =
     {
         ("new",       "New"),
@@ -887,7 +871,7 @@
         ("surprise",  "Surprise"),
     };
 
-    /// <summary>v1.01.0: Tab icons (stroke=currentColor follows text color; sun/star fills). Transparent background.</summary>
+    /// <summary>v1.01.0：Tab 图标（stroke=currentColor 随字体色；太阳/星星填充）。背景透明。</summary>
     private static string TabIcon(string key) => key switch
     {
         "new"      => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><circle cx=\"12\" cy=\"12\" r=\"4.5\"/><line x1=\"12\" y1=\"2\" x2=\"12\" y2=\"4.5\" fill=\"none\"/><line x1=\"12\" y1=\"19.5\" x2=\"12\" y2=\"22\" fill=\"none\"/><line x1=\"4.9\" y1=\"4.9\" x2=\"6.7\" y2=\"6.7\" fill=\"none\"/><line x1=\"17.3\" y1=\"17.3\" x2=\"19.1\" y2=\"19.1\" fill=\"none\"/><line x1=\"2\" y1=\"12\" x2=\"4.5\" y2=\"12\" fill=\"none\"/><line x1=\"19.5\" y1=\"12\" x2=\"22\" y2=\"12\" fill=\"none\"/><line x1=\"4.9\" y1=\"19.1\" x2=\"6.7\" y2=\"17.3\" fill=\"none\"/><line x1=\"17.3\" y1=\"6.7\" x2=\"19.1\" y2=\"4.9\" fill=\"none\"/></svg>",
@@ -895,30 +879,29 @@
         "downloads" => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 1024 1024\" fill=\"currentColor\" aria-hidden=\"true\" style=\"vertical-align:-2px;margin-right:4px\"><path d=\"M828.975746 894.125047 190.189132 894.125047c-70.550823 0-127.753639-57.18542-127.753639-127.752616L62.435493 606.674243c0-17.634636 14.308891-31.933293 31.93227-31.933293l63.889099 0c17.634636 0 31.93227 14.298658 31.93227 31.933293l0 95.821369c0 35.282574 28.596292 63.877843 63.87682 63.877843L765.098927 766.373455c35.281551 0 63.87682-28.595268 63.87682-63.877843l0-95.821369c0-17.634636 14.298658-31.933293 31.943526-31.933293l63.877843 0c17.634636 0 31.933293 14.298658 31.933293 31.933293l0 159.699212C956.729385 836.939627 899.538849 894.125047 828.975746 894.125047L828.975746 894.125047zM249.938957 267.509636c12.921287-12.919241 33.884738-12.919241 46.807049 0l148.97087 148.971893L445.716876 94.89323c0-17.634636 14.300704-31.94762 31.933293-31.94762l63.875796 0c17.637706 0 31.945573 14.312984 31.945573 31.94762l0 321.588299 148.97087-148.971893c12.921287-12.919241 33.875528-12.919241 46.796816 0l46.814212 46.818305c12.921287 12.922311 12.921287 33.874505 0 46.807049L552.261471 624.930025c-1.140986 1.137916-21.664416 13.68365-42.315758 13.69286-20.87647 0.010233-41.878806-12.541641-43.020816-13.69286L203.121676 361.13499c-12.922311-12.933567-12.922311-33.884738 0-46.807049L249.938957 267.509636 249.938957 267.509636z\"/></svg>",
         "popular"  => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><polygon points=\"12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2\"/></svg>",
         "surprise" => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><polygon points=\"12 8.5 13.4 11.6 16.8 12 13.4 12.4 12 15.5 10.6 12.4 7.2 12 10.6 11.6 12 8.5\"/><polygon points=\"19 2 19.9 4.6 22.5 5.5 19.9 6.4 19 9 18.1 6.4 15.5 5.5 18.1 4.6 19 2\"/><polygon points=\"5 15 5.7 16.8 7.5 17.5 5.7 18.2 5 20 4.3 18.2 2.5 17.5 4.3 16.8 5 15\"/></svg>",
-        // The home Trending section's "View all" can still enter the trending list (by endorsements);
-        // the dropdown trigger shows this as a fallback
+        // 首页 Trending 板块的「查看全部」仍可进 trending 榜（按推荐数），下拉触发器兜底显示
         "trending" => "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" style=\"vertical-align:-2px;margin-right:4px\"><polyline points=\"23 6 13.5 15.5 8.5 10.5 1 18\"/><polyline points=\"17 6 23 6 23 12\"/></svg>",
         _          => "",
     };
 
-    /// <summary>v0.73.0: Time range (mirrors the site's All time dropdown).
-    /// v1.04.0: The native select became a GSAP easeReverse custom dropdown; the "Custom" time range and related code have been removed.</summary>
+    /// <summary>v0.73.0：时间范围（对照官网 All time 下拉）。
+    /// v1.04.0：原生 select 改 GSAP easeReverse 自定义下拉；「自定义」时间区间及相关代码已删除。</summary>
     private string _timeRange = "all";
     private readonly (string Key, string Label)[] _timeOptions =
     {
         ("all",   "All time"),
-        ("day",   "Last 24 hours"),
+        ("day",   "24 hours"),
         ("week",  "Last 7 days"),
         ("2week", "Last 14 days"),
         ("month", "Last 28 days"),
-        ("year",  "Last 1 year"),
+        ("year",  "Last year"),
     };
     private string TimeLabel => _timeOptions.FirstOrDefault(o => o.Key == _timeRange).Label ?? "All time";
 
-    /// <summary>v1.05.1: Sort direction. DESC (most → least downloads) = default; ASC = ascending.</summary>
+    /// <summary>v1.05.1：排序方向。DESC（下载多→少）= 正序（默认）；ASC = 倒序。</summary>
     private string _direction = "DESC";
 
-    // ─── v1.04.0: Open/closed state of the three browse-page dropdowns (filter / time / direction) ───
+    // ─── v1.04.0：三个浏览页下拉框（筛选/时间/正序倒序）的开合状态 ───
     private bool _kindOpen;
     private bool _timeOpen;
     private bool _dirOpen;
@@ -967,8 +950,7 @@
         await ReloadBrowseAsync();
     }
 
-    /// <summary>v0.77.0: Auto-correct the time range when switching tabs — Surprise's local shuffle is
-    /// time-independent, so force it back to all.</summary>
+    /// <summary>v0.77.0：切 tab 时自动矫正时间范围 —— Surprise 本地洗牌与时间无关，强制回 all。</summary>
     private void NormalizeTimeRangeForKind()
     {
         if (_browseKind == "surprise") _timeRange = "all";
@@ -980,10 +962,10 @@
         try { await JS.InvokeVoidAsync("junigridJs.searchIslandInit", "jgNexusIsland", "jgNexusIslandBtn", "jgNexusIslandInput"); } catch { }
         try { await JS.InvokeVoidAsync("junigridJs.grainientInit", "#jgTrendGrain"); } catch { }
     }
-    // ─── v0.74.0: Site-style home mode (home = two sections / browse = full browse page) ───
+    // ─── v0.74.0：官网风首页模式（home=两板块 / browse=完整浏览页）───
     private string _viewMode = "home";
     private string _homeTab = "new";
-    // v0.75.0: First-paint defaults to loading with Shimmer; when logged out, init sets it false to show the login guidance right away
+    // v0.75.0：首屏默认 loading 配合 Shimmer；未登录时初始化阶段会置 false 直接显示登录引导
     private bool _homeLoading = true;
     private List<NexusModListEntry> _trendingHome = new();
     private List<NexusModListEntry> _homeMods = new();
@@ -995,17 +977,16 @@
         StateHasChanged();
         try
         {
-            // v0.96.0: Trending = released in the last 7 days, sorted by endorsements (mirrors ?sort=endorsements&timeRange=7).
-            // Take 10 so both large cards and all 4 small cards can be filled (occasional server truncation
-            // is compensated inside FetchChunkedAsync)
-            // v0.79.0: Home Trending + Mods fetched in parallel (Task.WhenAll); first paint roughly twice as fast
+            // v0.96.0：Trending = 近 7 天发布按推荐数（对照官网 ?sort=endorsements&timeRange=7），
+            // 取 10 条保证 2 大 + 4 小卡片都能填满（服务端偶发截断由 FetchChunkedAsync 内部补齐）
+            // v0.79.0：首页 Trending + Mods 两路并行拉取（Task.WhenAll），首屏快约一倍
             var tTask = NexusApi.BrowseModsAsync("trending", 0, 10, timeRange: "week");
-            // v0.88.0: Exactly 20 entries (FetchChunkedAsync loops to top up if truncated)
+            // v0.88.0：精确 20 条（FetchChunkedAsync 内部循环补齐，截断会续拉凑满）
             var mTask = NexusApi.BrowseModsAsync(_homeTab, 0, 20);
             await Task.WhenAll(tTask, mTask);
             var t = tTask.Result;
             if (t is not null) _trendingHome = t;
-            // v0.75.0: The home Mods section shows 20 mods
+            // v0.75.0：Mods 模块首页显示 20 个
             var m = mTask.Result;
             if (m is not null) _homeMods = m.Take(20).ToList();   // v0.84.0
         }
@@ -1021,37 +1002,37 @@
         StateHasChanged();
         try
         {
-            // v1.04.0: All home tab chips (New/Updated/Downloads/Popular/Surprise) default to all time
+            // v1.04.0：首页 tab 芯片（New/Updated/Downloads/Popular/Surprise）全部默认全部时段
             var m = await NexusApi.BrowseModsAsync(key, 0, 20, timeRange: "all");
             if (m is not null) _homeMods = m;
-            // v1.06.8: Switching tab = new content → scroll back to top
+            // v1.06.8：切 tab = 新内容 → 滚动归零
             try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
         }
         catch { }
         finally { _homeLoading = false; StateHasChanged(); }
     }
 
-    // View all: Trending browse page and Mods browse page
+    // 查看全部：图3 → 图5（Trending 浏览页）；图4 → 图6（Mods 浏览页）
     private async Task EnterBrowse(string kind)
     {
         _viewMode = "browse";
-        // v0.96.0: Mirror the site's default time range — Trending defaults to 7 days (?timeRange=7); other tabs use all time
+        // v0.96.0：对照官网默认时段 —— Trending 官网默认 7 天（?timeRange=7）；其他 tab 全部时间
         _timeRange = kind == "trending" ? "week" : "all";
-        // v1.06.8: View switch (URL unchanged, scroll container shared) → scroll back to top so the browse page starts at the top
+        // v1.06.8：视图切换（URL 不变，滚动容器共享）→ 滚动归零，浏览页从顶部开始
         try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
         await LoadBrowse(kind);
     }
 
-    /// <summary>v0.96.0: Surprise "shuffle" — change the server-side random seed and reload.</summary>
+    /// <summary>v0.96.0：Surprise「换一批」—— 换服务端 random 种子后重新加载。</summary>
     private async Task ReshuffleSurpriseAsync()
     {
         NexusApi.ReshuffleSurprise();
         await ReloadBrowseAsync();
     }
 
-    /// <summary>v0.75.0: Browse page top-bar title (Trending annotated with its real scope: last N days + by endorsements).
-    /// v0.98.1: While searching, the search term takes priority.
-    /// v1.04.0: Trending slot replaced by Downloads (sorted by download count).</summary>
+    /// <summary>v0.75.0：浏览页顶栏标题（Trending 标注真实口径：近 N 时间 + 推荐数）。
+    /// v0.98.1：搜索进行中时优先显示搜索词。
+    /// v1.04.0：Trending 榜位改为 Downloads（按下载数排序）。</summary>
     private string BrowseTitle => !string.IsNullOrWhiteSpace(_searchText)
         ? "🔍 Search: " + _searchText.Trim()
         : _browseKind switch
@@ -1059,35 +1040,34 @@
             "updated"  => "🔄 Recently updated",
             "trending" => _timeRange switch
             {
-                "day"    => "🔥 Trending · last 24 hours · by endorsements",
-                "week"   => "🔥 Trending · last 7 days · by endorsements",
-                "2week"  => "🔥 Trending · last 14 days · by endorsements",
-                "month"  => "🔥 Trending · last 28 days · by endorsements",
+                "day"    => "🔥 Hot in 24 hours · by endorsements",
+                "week"   => "🔥 Hot this week · by endorsements",
+                "2week"  => "🔥 Hot in 14 days · by endorsements",
+                "month"  => "🔥 Hot in 28 days · by endorsements",
                 "year"   => "🔥 Trending · by endorsements",
                 _        => "🔥 Popular · by endorsements",
             },
-            "downloads" => $"⬇ Most downloaded · by downloads{(_direction == "ASC" ? " (ascending)" : "")}",
+            "downloads" => $"⬇ Most downloaded{(_direction == "ASC" ? " (asc)" : "")}",
             "popular"  => "⭐ Most popular · by downloads",
-            "surprise" => "🎲 Random picks",
+            "surprise" => "🎲 Random pick",
             _          => "✨ Newest releases",
         };
 
-    /// <summary>v0.75.0: Return from the browse page to the site-style home page.</summary>
+    /// <summary>v0.75.0：从浏览页返回官网风首页。</summary>
     private void BackToHome()
     {
         _viewMode = "home";
         _searchText = "";
     }
 
-    // Search island input: only record the text, don't trigger a search — since v1.00.0, search runs on Enter
+    // 搜索岛输入：只记录文本、不触发搜索 —— v1.00.0 起按回车才搜索
     private void OnIslandInput(ChangeEventArgs e)
     {
         _searchText = (e.Value?.ToString() ?? "").Replace("*", "");
     }
 
-    // ─── v1.01.0: Search history (mirrors the site's Recent Searches)
-    // v1.05.1: Visibility now toggled via the JS .history-open class (Blazor @onfocus can't receive events
-    // triggered by JS focus())
+    // ─── v1.01.0：搜索历史（对照官网 Recent Searches）
+    // v1.05.1：显隐改由 JS toggle .history-open class（Blazor @onfocus 收不到 JS focus() 触发的事件）
     private List<string> _searchHistory = new();
 
     private void LoadSearchHistory()
@@ -1106,7 +1086,7 @@
         q = q.Trim();
         _searchHistory.RemoveAll(x => string.Equals(x, q, StringComparison.OrdinalIgnoreCase));
         _searchHistory.Insert(0, q);
-        // v1.04.0: Keep only the latest 10 entries
+        // v1.04.0：仅保留最新 10 条
         if (_searchHistory.Count > 10) _searchHistory = _searchHistory.Take(10).ToList();
         SaveSearchHistory();
     }
@@ -1129,22 +1109,21 @@
         SaveSearchHistory();
     }
 
-    // Enter triggers the search: pure digits → direct lookup by mod ID; otherwise → server-side search on the browse page
+    // 回车触发搜索：纯数字 → mod 尾号直查；否则 → 浏览页服务端搜索
     private async Task OnIslandKeyDown(KeyboardEventArgs e)
     {
         if (e.Key != "Enter") return;
         await RunSearchAsync();
     }
 
-    /// <summary>v1.02.0: Unified search — go to a dedicated search page; for pure digits, run a parallel
-    /// direct ID lookup whose result shows as an "Exact match" card instead of navigating straight to the
-    /// detail page (avoids a name/ID conflict when a mod's name happens to be numeric).</summary>
+    /// <summary>v1.02.0：统一搜索 —— 进独立搜索页；纯数字额外并行尾号直查，结果作为「精确匹配」卡显示，
+    /// 不再直接跳详情（避免 mod 名恰好是数字时与尾号冲突）。</summary>
     private async Task RunSearchAsync()
     {
         var q = _searchText.Trim();
         if (string.IsNullOrEmpty(q) || string.IsNullOrEmpty(_key)) return;
         PushSearchHistory(q);
-        _searchTitle = q;   // v1.05.0: The title/hint only updates after Enter commits the search
+        _searchTitle = q;   // v1.05.0：标题/提示只在回车提交后更新
         _viewMode = "search";
         _browseKind = "new";
         _page = 1;
@@ -1152,7 +1131,7 @@
         _exactMod = null;
         _browseLoading = true;
         StateHasChanged();
-        // Pure digits → parallel direct ID lookup (mods/{id}.json), shown alongside name search results
+        // 纯数字 → 并行尾号直查（mods/{id}.json），与名称搜索结果同时呈现
         var exactTask = q.All(char.IsDigit) ? NexusApi.GetModAsync(_key, int.Parse(q)) : null;
         try
         {
@@ -1165,7 +1144,7 @@
         StateHasChanged();
     }
 
-    /// <summary>v1.02.0: Return from the search page — go home and clear the search state.</summary>
+    /// <summary>v1.02.0：搜索页返回 —— 回首页并清掉搜索态。</summary>
     private void BackFromSearch()
     {
         _viewMode = "home";
@@ -1174,12 +1153,11 @@
         _exactMod = null;
     }
 
-    /// <summary>v1.02.0: Read a property as a string via reflection (NexusModInfo is a positional record whose
-    /// property names may change; reflection is the most robust).</summary>
+    /// <summary>v1.02.0：反射取属性字符串（NexusModInfo 为位置记录，属性名随定义可能变动，反射最稳）。</summary>
     private static string? PropStr(object o, string n) =>
         o.GetType().GetProperty(n)?.GetValue(o)?.ToString();
 
-    // Avatar bubble "Log out": clear the key/user info and return to the login guidance
+    // 头像气泡「退出登录」：清 key/用户信息并回登录引导
     private void LogoutNexus()
     {
         Clear();
@@ -1191,15 +1169,18 @@
         StateHasChanged();
     }
 
-    // Nexus website
+    // Nexus 官网
     private void OpenNexusHome() =>
         UpdateService.OpenUrl("https://www.nexusmods.com/stardewvalley");
 
-    // v0.85.0: Dispose consolidated into the full implementation below (JS cleanup + reference release); the old single-line version was removed to avoid a duplicate definition
+    // v0.85.0：Dispose 统一收敛到下方完整实现（JS 清理 + 引用释放），此处删除旧单行版本避免重复定义
 
-    // v1.06.7: Clicking the NEXUS MODS logo in the top bar ("current page") → re-fetch data for the current view
+    // v1.06.7：顶栏点「当前页」NEXUS MODS 图标 → 按当前视图重新拉取数据
+    private void OnCoverCached() => _ = InvokeAsync(StateHasChanged);
+
     protected override void OnInitialized()
     {
+        Covers.Changed += OnCoverCached;   // v1.08
         PageRefresh.OnRefresh += OnPageRefresh;
     }
 
@@ -1209,9 +1190,8 @@
         _ = InvokeAsync(async () =>
         {
             if (string.IsNullOrEmpty(_key)) return;
-            // vNext: Manual refresh = start over — scroll to the top and write 0 into the scroll archive
-            // (forward navigation restores position from the archive; without writing, it would restore the
-            // pre-refresh position)
+            // vNext：手动刷新 = 从头看起 —— 归顶并把 0 写进滚动存档（前进导航回来
+            // 会按存档恢复位置，不写的话会恢复到刷新前的旧位置）
             try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
             try { await JS.InvokeVoidAsync("junigridJs.saveCurrentUrlScroll", 0); } catch { }
             if (_viewMode == "search") await RunSearchAsync();
@@ -1224,30 +1204,32 @@
 
 protected override async Task OnInitializedAsync()
     {
-        // v0.75.0: No longer force-close the first-paint loading state after 400ms — keep the Shimmer skeleton up
-        // until user info + first-screen lists actually finish loading; when logged out, close immediately and show login guidance.
+        // v0.75.0：不再 400ms 强制关闭首屏加载态 —— 全程保持 Shimmer 微光骨架，
+        // 直到用户信息 + 首屏榜单真正加载完才撤下；未登录则立即关闭并显示登录引导。
         _key = Cfg.Current.NexusApiKey;
         if (string.IsNullOrEmpty(_key)) _homeLoading = false;
-        // Arrived via the Settings page "Log in" pill (/nexus?login=1): when logged out, open the login dialog directly
+        // 设置页「登录」胶囊跳转过来（/nexus?login=1）：未登录时直接弹出登录对话框
         if (string.IsNullOrEmpty(_key) && new Uri(Nav.Uri).Query.Contains("login=1"))
         {
             OpenLoginDialog();
             StateHasChanged();
         }
-        // v0.93.0: Returning from the detail page → restore the snapshot (empty snapshot on first visit → default home)
+        // v1.1.3：设置页改过成人过滤 → 快照还是旧过滤条件拉的数据，弃用快照走全量重拉
+        if (_svMode is not null && _svFilterVer != NexusService.AdultFilterVersion) _svMode = null;
+        // v0.93.0：从详情页返回 → 恢复快照（首次进入快照为空，走默认 home）
         if (_svMode is not null)
         {
             _viewMode = _svMode; _browseKind = _svKind ?? "new";
-            _page = _svPage < 1 ? 1 : _svPage; _pageSize = 40;   // v1.04.0: fixed at 40
+            _page = _svPage < 1 ? 1 : _svPage; _pageSize = 40;   // v1.04.0：固定 40 条
             _timeRange = _svRange ?? "all"; _searchText = _svSearch ?? ""; _searchTitle = _svSearch ?? "";
-            _exactMod = _svExact;   // v1.02.0: search page snapshot restored
+            _exactMod = _svExact;   // v1.02.0：搜索页快照恢复
             _browse = _svBrowse ?? new(); _trendingHome = _svTrending ?? new();
             _homeMods = _svHomeMods ?? new(); _homeTab = _svHomeTab ?? "new";
-            _homeLoading = false;   // v1.03.0: snapshot restored = data already in hand, show directly without loading
+            _homeLoading = false;   // v1.03.0：快照恢复 = 数据已在手，直接显示不再加载
         }
-        LoadSearchHistory();   // v1.01.0: load history into memory on page entry so it pops on focus
-        // vNext: Scan the "Installed" badge set on a background thread — parsing manifests for hundreds of
-        // mods no longer blocks first paint (the old version scanned synchronously before requesting lists); fill in badges when done
+        LoadSearchHistory();   // v1.01.0：一进页就把历史装进内存，聚焦即弹
+        // vNext：「已安装」徽标集合后台线程扫描 —— 几百个 mod 的 manifest 解析
+        // 不再占首屏（旧版同步扫完才发榜单请求，进页白等一段）；扫完回填徽标即可
         _ = InvokeAsync(async () =>
         {
             try
@@ -1255,29 +1237,29 @@ protected override async Task OnInitializedAsync()
                 var ids = await Task.Run(() => BuildInstalledIds());
                 if (!_nexusDisposed) { _installedIds = ids; await InvokeAsync(StateHasChanged); }
             }
-            catch { /* on scan failure, treat everything as not installed */ }
+            catch { /* 扫描失败则全部按未安装处理 */ }
         });
-        // vNext: Fetch user info (validate + avatar) in the background — the UI shows cached data instantly,
-        // and the login-validation network round trip no longer blocks the mod lists
+        // vNext：用户信息（validate + 头像）后台拉取 —— UI 先用缓存秒显，
+        // 不再让登录校验的网络往返挡在榜单前面
         _ = InvokeAsync(async () =>
         {
             try { await LoadNexusUserAsync(); if (!_nexusDisposed) StateHasChanged(); }
             catch { }
         });
-        // Auto-load the default list on page entry (no need to click a tab first)
+        // 一进页面就自动加载默认榜单（不必先点标签）
         if (!string.IsNullOrEmpty(_key))
         {
-            // v1.03.0: use snapshot data directly when present (no repeat request when returning); only re-fetch when the snapshot is missing (e.g. leftover mode after an app restart)
-            if (_viewMode == "search" && _browse.Count > 0) { /* search page snapshot restored, zero requests */ }
-            else if (_viewMode == "browse" && _browse.Count > 0) { /* browse page snapshot restored, zero requests */ }
-            else if (_viewMode == "home" && (_trendingHome.Count > 0 || _homeMods.Count > 0)) { /* home snapshot restored */ }
+            // v1.03.0：有快照数据就直接用（返回上一页不重复请求）；只有快照缺失（如重启应用后残留 mode）才重新拉
+            if (_viewMode == "search" && _browse.Count > 0) { /* 搜索页快照恢复，零请求 */ }
+            else if (_viewMode == "browse" && _browse.Count > 0) { /* 浏览页快照恢复，零请求 */ }
+            else if (_viewMode == "home" && (_trendingHome.Count > 0 || _homeMods.Count > 0)) { /* 首页快照恢复 */ }
             else if (_viewMode == "search") await RunSearchAsync();
             else if (_viewMode == "browse") await LoadCurrentPageAsync();
             else await LoadHomeAsync();
         }
-        // v0.75.0: only close the first-paint loading state after the home page fully loads
+        // v0.75.0：首页全部加载完才关闭首屏加载态
         StateHasChanged();
-        // v1.04.0: the category facets background fetch was removed along with the "category select" feature
+        // v1.04.0：分类 facets 后台拉取已随「标签选择」功能删除
     }
 
     private HashSet<int> BuildInstalledIds()
@@ -1291,15 +1273,15 @@ protected override async Task OnInitializedAsync()
             {
                 if (m.NexusModId is int id) ids.Add(id);
             }
-            // SMAPI lives in the game root, not the Mods folder, so the scan above misses it;
-            // when SMAPI is detected, add its Nexus mod ID so cards show the "Installed" badge
+            // SMAPI 装在游戏根目录、不在 Mods 文件夹里，上面的扫描扫不到；
+            // 只要探测到已装 SMAPI，就把它的 Nexus mod ID 加进来，卡片才会显示「已安装」
             if (Game.ProbeSmapiVersion(gamePath) is not null) ids.Add(SmapiNexusId);
         }
-        catch { /* on scan failure, treat everything as not installed */ }
+        catch { /* 扫描失败则全部按未安装处理 */ }
         return ids;
     }
 
-    /// <summary>SMAPI's mod ID on Nexus (nexusmods.com/stardewvalley/mods/2400).</summary>
+    /// <summary>SMAPI 在 Nexus 上的 mod ID（nexusmods.com/stardewvalley/mods/2400）。</summary>
     private const int SmapiNexusId = 2400;
 
     private string? GetBrowseState(int id) =>
@@ -1326,7 +1308,7 @@ protected override async Task OnInitializedAsync()
         cfg.NexusUserEmail = "";
         cfg.NexusProfileUrl = "";
         cfg.NexusIsPremium = false;
-        cfg.NexusAvatarDataUri = "";   // v1.08.3: clear the avatar cache too, so the previous account's avatar doesn't flash after switching accounts
+        cfg.NexusAvatarDataUri = "";   // v1.08.3：头像缓存一并清空，防止换账号登录后闪上一任头像
         Cfg.Save(cfg);
     }
 
@@ -1337,14 +1319,13 @@ protected override async Task OnInitializedAsync()
             _userName = ""; _userAvatar = ""; _isPremium = false; _profileUrl = null;
             return;
         }
-        // Render fast from cached data first
+        // 先用缓存数据快速渲染
         _userName = Cfg.Current.NexusUserName;
         _isPremium = Cfg.Current.NexusIsPremium;
         _profileUrl = Cfg.Current.NexusProfileUrl;
-        // v1.08.3: Avatar cache first — the old logic started _userAvatar empty on every visit and needed two
-        // network round trips (validate + image download) before showing the real picture, flashing the initial-letter
-        // fallback the whole time ("the Nexus page flashes Y on every visit"). The cache is written back at the end
-        // of this method / on Settings refresh, shared with the Settings page via nexusAvatarDataUri.
+        // v1.08.3：头像缓存先行 —— 旧逻辑每次进页 _userAvatar 从空开始，要等 validate+图片下载
+        // 两个网络往返才有真图，期间一直闪首字母兜底（「每次进 Nexus 页都闪 Y」的根因）。
+        // 缓存由本方法末尾 / 设置页刷新时写回，与设置页共用 nexusAvatarDataUri。
         var cachedAvatar = Cfg.Current.NexusAvatarDataUri;
         _userAvatar = cachedAvatar is not null && cachedAvatar.StartsWith("data:image/", StringComparison.Ordinal) ? cachedAvatar : "";
         try
@@ -1361,9 +1342,9 @@ protected override async Task OnInitializedAsync()
                     try
                     {
                         _userExtras = await NexusApi.GetUserExtrasAsync(u.MemberId);
-                        // v1.08.0: GraphQL user.avatar is the authoritative direct link (/missing placeholder already filtered) —
-                        // v1.08.3: distinguish two kinds of "empty" — only fall back to the initial letter when GraphQL
-                        // explicitly has no avatar; a mere download failure keeps the existing (cached/fetched) value
+                        // v1.08.0：GraphQL user.avatar 为权威直链（/missing 占位已过滤）——
+                        // v1.08.3：区分两种「空」—— GraphQL 明确没头像才回退首字母；
+                        // 只是下载失败则保留现有（缓存/试抓结果），不误清
                         if (_userExtras is not null)
                         {
                             if (string.IsNullOrWhiteSpace(_userExtras.Avatar))
@@ -1384,8 +1365,8 @@ protected override async Task OnInitializedAsync()
             cfg.NexusProfileUrl = u.ProfileUrl;
             cfg.NexusIsPremium = u.IsPremium;
             Cfg.Save(cfg);
-            // v1.08.0: validate already built the avatar direct link from user_id → try fetching it;
-            // v1.08.3: only update and write back when different from the cache — the next visit shows the cache instantly, no fallback flash
+            // v1.08.0：validate 已按 user_id 构造出头像直链 → 试抓；
+            // v1.08.3：与缓存不同才更新并写回 —— 下次进页直接秒显缓存，不再闪兜底
             if (!string.IsNullOrEmpty(u.Avatar))
             {
                 var av = await NexusApi.FetchAvatarAsync(u.Avatar);
@@ -1398,13 +1379,13 @@ protected override async Task OnInitializedAsync()
                 }
             }
         }
-        catch { /* fail silently; the UI uses the cache or the initial-letter fallback */ }
+        catch { /* 静默失败，UI 用缓存或回退首字母 */ }
     }
 
     private void OpenProfile()
     {
-        // v1.05.0: use the site's own /profile/{username} — the profile_url cached from validate
-        // once sent users to wrong pages like avatars.nexusmods.com/missing
+        // v1.05.0：改用官网同款 /profile/{用户名} —— validate 返回的 profile_url 缓存
+        // 曾把用户带到 avatars.nexusmods.com/missing 这类错误页面
         var name = string.IsNullOrWhiteSpace(_userName) ? Cfg.Current.NexusUserName : _userName;
         if (!string.IsNullOrWhiteSpace(name))
             UpdateService.OpenUrl("https://www.nexusmods.com/profile/" + Uri.EscapeDataString(name));
@@ -1415,23 +1396,23 @@ protected override async Task OnInitializedAsync()
     private void OpenApiKeysPage() =>
         UpdateService.OpenUrl("https://www.nexusmods.com/users/myaccount?tab=api");
 
-    // ---- v0.70.2: Infinite scroll + GraphQL pagination ----
+    // ---- v0.70.2：无限滚动 + GraphQL 分页 ----
     private async Task LoadBrowse(string kind)
     {
         _browseKind = kind;
-        NormalizeTimeRangeForKind();  // v0.77.0: force Surprise back to all
+        NormalizeTimeRangeForKind();  // v0.77.0：Surprise 强制回 all
         await ReloadBrowseAsync();
     }
 
-    /// <summary>v0.90.0: Filters changed → back to page 1 and reload.</summary>
+    /// <summary>v0.90.0：筛选条件变化 → 回第 1 页重新加载。</summary>
     private async Task ReloadBrowseAsync()
     {
         _page = 1;
         await LoadCurrentPageAsync();
     }
 
-    /// <summary>v0.90.0: Load the current page (paged data source, offset = (page-1) × page size).
-    /// v1.04.0: Passes the sort direction; category and custom time parameters were removed with the feature.</summary>
+    /// <summary>v0.90.0：加载当前页（分页数据源，offset = (页码-1) × 每页条数）。
+    /// v1.04.0：带上正序/倒序方向；分类与自定义时间参数已随功能移除。</summary>
     private async Task LoadCurrentPageAsync()
     {
         if (string.IsNullOrEmpty(_key)) return;
@@ -1447,13 +1428,13 @@ protected override async Task OnInitializedAsync()
         StateHasChanged();
     }
 
-    // ─── v0.90.0: Pagination ───
-    /// <summary>Total pages: since v0.96.0 moved time filtering server-side, every range has an exact totalCount, so the last page is always reachable.</summary>
+    // ─── v0.90.0：分页导航 ───
+    /// <summary>总页数：v0.96.0 时间过滤下移服务端后，所有时段都有精确 totalCount，尾页全程可用。</summary>
     private int? TotalPages => NexusApi.LastBrowseTotalCount is int tc && tc > 0
         ? (int)Math.Ceiling(tc / (double)_pageSize) : null;
     private bool _hasNextPage => TotalPages is int tp ? _page < tp : _browse.Count >= _pageSize;
 
-    /// <summary>Page number window: current ±2 plus first/last, ellipsis in between.</summary>
+    /// <summary>页码窗口：当前页 ±2 + 首尾，中间省略号。</summary>
     private List<(int Page, bool Dots)> PageNumbers
     {
         get
@@ -1481,7 +1462,7 @@ protected override async Task OnInitializedAsync()
         if (p == _page) return;
         _page = p;
         await LoadCurrentPageAsync();
-        try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }   // scroll back to top on page change
+        try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }   // 翻页回顶部
     }
     private Task PrevPage() => GoToPage(_page - 1);
     private Task NextPage() => GoToPage(_page + 1);
@@ -1490,16 +1471,16 @@ protected override async Task OnInitializedAsync()
         if (int.TryParse(_jumpText, out var p)) await GoToPage(p);
         _jumpText = "";
     }
-    // v1.04.0: per-page size selection removed — fixed at 40 (the _pageSize constant)
+    // v1.04.0：每页条数选择已删除 —— 固定 40 条（_pageSize 常量）
 
-    /// <summary>v1.05.0: Search box X — clears only the input, keeps the displayed results,
-    /// stays on the search page, and refocuses the input.</summary>
+    /// <summary>v1.05.0：搜索框叉号 —— 只清空输入框内容，不动已显示的搜索结果，
+    /// 不退出搜索页，并让输入框重新获得焦点。</summary>
     private async Task ClearSearch()
     {
         _searchText = "";
         if (_viewMode == "search")
         {
-            // keep the result list and exact-match card as-is — clearing the input ≠ clearing the results
+            // 结果列表与精确匹配卡原样保留 —— 清空输入 ≠ 清空结果
             StateHasChanged();
             try { await JS.InvokeVoidAsync("junigridJs.focusElement", "#jgNexusIslandInput"); } catch { }
         }
@@ -1509,29 +1490,31 @@ protected override async Task OnInitializedAsync()
         }
     }
 
-    // v0.90.0: lazy loading removed; Dispose only needs to clean up state
+    // v0.90.0：懒加载已移除，Dispose 只需清理搜索防抖
     public void Dispose()
     {
-        // v0.93.0: snapshot the current browse state before leaving (restored on return)
+        Covers.Changed -= OnCoverCached;
+        // v0.93.0：离开页面前快照当前浏览状态（返回时恢复）
         _nexusDisposed = true;
         PageRefresh.OnRefresh -= OnPageRefresh;
         _svMode = _viewMode; _svKind = _browseKind; _svPage = _page;
         _svRange = _timeRange; _svSearch = _searchText; _svExact = _exactMod;
         _svBrowse = _browse; _svTrending = _trendingHome; _svHomeMods = _homeMods; _svHomeTab = _homeTab;
+        _svFilterVer = NexusService.AdultFilterVersion;   // v1.1.3：记录快照是哪个过滤版本拉的
     }
 
-    // ---- Install a new mod: one-click direct install (silent, in the background); fall back to the embedded browser only on failure ----
+    // ---- 安装新 mod：一键直装（后台静默），失败才回落内置浏览器 ----
     private async Task InstallBrowse(NexusModListEntry mod)
     {
         if (string.IsNullOrEmpty(_key)) return;
         if (!Cfg.Current.EnableOneClickInstall)
         {
-            // One-click install toggle is off → open the embedded browser for a manual download
+            // 一键安装开关被关 → 直接打开内置浏览器手动下载
             OpenEmbedded(mod.Id);
             return;
         }
         _installing.Add(mod.Id);
-        _browseStates[mod.Id] = null;   // the in-progress state is shown by the button's "Installing…" label
+        _browseStates[mod.Id] = null;   // 下载中状态由按钮"正在安装…"呈现
         StateHasChanged();
         try
         {
@@ -1542,7 +1525,7 @@ protected override async Task OnInitializedAsync()
             }
             else if (err.Contains("premium", StringComparison.OrdinalIgnoreCase))
             {
-                // v0.44.0: no long hint text on the card (it deforms the layout); download progress is visible in the download list
+                // v0.44.0：不再在卡片上塞大段提示文字（会撑变形）；下载进度在下载列表可见
                 _browseStates[mod.Id] = null;
                 MainWindow.OpenNexusOverlay(
                     $"https://www.nexusmods.com/stardewvalley/mods/{mod.Id}?tab=files");

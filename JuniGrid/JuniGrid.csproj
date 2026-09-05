@@ -5,13 +5,13 @@
     <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>JuniGrid</RootNamespace>
     <AssemblyName>JuniGrid</AssemblyName>
     <ApplicationIcon>Assets\junigrid-logo.ico</ApplicationIcon>
+    <!-- 只保留中英文卫星资源：自包含发布里 40+ 语言的 WPF/FluentUI 资源 dll 占 8MB+，
+         中文应用用不到（cs/de/es/fr/... 每个语言一套 PresentationFramework.resources.dll） -->
+    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +25,7 @@
   <ItemGroup>
     <Resource Include="Assets\junigrid-logo.ico" />
     <Resource Include="Assets\junigrid-logo-256.png" />
+    <Resource Include="Assets\keyart.png" />
   </ItemGroup>
 
   <!--

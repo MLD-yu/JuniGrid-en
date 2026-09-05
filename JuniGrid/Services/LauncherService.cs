@@ -80,9 +80,9 @@ public sealed class LauncherService
         ++_logTailGen;
         var path = SmapiLogPath;
 
-        // Baseline: SMAPI rewrites the entire file on every launch, so the timestamped first line always changes.
-        // A changed first line / shorter file identifies a new session, in which case we read from the start.
-        // readFromStart: when attaching to an already-running game, read from the file head to backfill this session's history.
+        // 基线：SMAPI 每次启动都重写整个文件，首行带时间戳必然变化，
+        // 用「首行变了 / 文件变短」识别新会话，届时从头读。
+        // readFromStart：接续已运行的游戏时从文件头读，把本会话历史补进视图。
         long pos = 0;
         string? baseFirstLine = null;
         try
@@ -93,7 +93,7 @@ public sealed class LauncherService
                 pos = readFromStart ? 0 : new FileInfo(path).Length;
             }
         }
-        catch { /* baseline unreadable — just read from 0 */ }
+        catch { /* 基线读不到就从 0 开始读 */ }
 
         _ = Task.Run(async () =>
         {
@@ -109,7 +109,7 @@ public sealed class LauncherService
                         var first = FirstLineOf(path);
                         if (pos > fs.Length || (first is not null && first != baseFirstLine))
                         {
-                            pos = 0;                    // file was rewritten by a new session
+                            pos = 0;                    // 文件被新会话重写
                             baseFirstLine = first;
                         }
                         if (fs.Length > pos)
@@ -120,8 +120,8 @@ public sealed class LauncherService
                             while ((n = fs.Read(buf, 0, buf.Length)) > 0)
                                 ms.Write(buf, 0, n);
                             var bytes = ms.ToArray();
-                            // Consume only up to the last newline; leave a partial line for the next round.
-                            // \n never appears inside a UTF-8 multi-byte sequence, so searching bytes for a newline is safe.
+                            // 只消费到最后一个换行，半行留给下一轮；
+                            // \n 不会出现在 UTF-8 多字节序列中间，按字节找换行是安全的
                             var lastNl = -1;
                             for (var i = bytes.Length - 1; i >= 0; i--)
                                 if (bytes[i] == (byte)'\n') { lastNl = i; break; }
@@ -137,7 +137,7 @@ public sealed class LauncherService
                         }
                     }
                 }
-                catch { /* transient errors like the file being locked: retry next round */ }
+                catch { /* 文件被占用等瞬态错误：下一轮再试 */ }
                 try { await Task.Delay(250, token); }
                 catch (TaskCanceledException) { break; }
             }
@@ -151,12 +151,12 @@ public sealed class LauncherService
     }
 
     /// <summary>
-    /// The game is running but wasn't launched by this app (e.g. JuniGrid was restarted) → attach to the existing
-    /// SMAPI log file and backfill this session's content into the log view from the file head.
+    /// 游戏在运行但不是本程序启动的（例如 JuniGrid 被重启过）→ 接上现有
+    /// SMAPI 日志文件，从文件头把本会话内容补进日志视图。
     /// </summary>
     public void AttachIfGameRunning()
     {
-        if (_smapiProcess is { HasExited: false }) return;   // launched by us, already tracked
+        if (_smapiProcess is { HasExited: false }) return;   // 自己启动的，已在跟踪
         var running = Process.GetProcessesByName("StardewModdingAPI").Length > 0
                    || Process.GetProcessesByName("Stardew Valley").Length > 0;
         if (running) StartLogTail(readFromStart: true);
@@ -181,15 +181,15 @@ public sealed class LauncherService
         Process.GetProcessesByName("StardewModdingAPI").Length > 0 ||
         Process.GetProcessesByName("Stardew Valley").Length > 0;
 
-    /// <summary>Whether commands can be sent to the SMAPI console: the game must have been launched by this app and not exited
-    /// (an externally attached process has no stdin, so the input box is greyed out).</summary>
+    /// <summary>能否向 SMAPI 控制台发命令：游戏须由本程序启动且未退出
+    /// （接续的外部进程拿不到 stdin，输入框会置灰）。</summary>
     public bool CanSendCommand => _smapiProcess is { HasExited: false };
 
-    // Commands SMAPI recognizes directly: core commands + the Console Commands mod (TrainerMod) shipped with SMAPI.
-    // Input outside the whitelist is treated as a built-in game debug command (e.g. money 5000, warp …) and forwarded with an automatic debug prefix.
+    // SMAPI 能直接识别的命令：核心命令 + 随 SMAPI 安装的 Console Commands mod（TrainerMod）。
+    // 白名单外的输入视为游戏自带调试命令（如 money 5000、warp …），自动补 debug 前缀转发。
     private static readonly HashSet<string> SmapiKnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
-        // SMAPI core
+        // SMAPI 核心
         "help", "harmony_summary", "reload_i18n",
         // Console Commands mod
         "apply_save_fix", "debug", "hurry_all", "list_items", "log_context",
@@ -201,8 +201,8 @@ public sealed class LauncherService
         "world_setminelevel", "world_setseason", "world_settime", "world_setyear"
     };
 
-    /// <summary>Writes a command to the SMAPI console, equivalent to typing it in the SMAPI window and pressing Enter.
-    /// Non-built-in SMAPI commands automatically get a debug prefix (game debug commands must go through debug to take effect).</summary>
+    /// <summary>向 SMAPI 控制台写入一条命令，等价于在 SMAPI 窗口输入后回车。
+    /// 非 SMAPI 内置命令自动加 debug 前缀（游戏调试命令必须经 debug 转发才生效）。</summary>
     public bool SendCommand(string command)
     {
         var p = _smapiProcess;
@@ -225,12 +225,40 @@ public sealed class LauncherService
     }
 
     /// <summary>
-    /// Closes the game process, same as Steam closing a game itself — first request a graceful exit so the game saves,
-    /// then reap any process that still hasn't exited. Covers both SMAPI and official Steam launch modes.
+    /// 取消启动的清场看门狗：Steam 的拉起管线可能在「取消」之后才把游戏进程拉出来
+    /// （家庭共享校验、预载都要几秒），一次性 KillGame 会扑空 → 游戏照样跑起来。
+    /// 持续监视 windowMs 毫秒，期间凡是出现 SMAPI/游戏进程一律关闭；
+    /// 连续 2.5s 无进程、或 stopWhen() 返回 true（用户重新点了启动）则提前结束。
+    /// </summary>
+    public async Task KillGameWatchdogAsync(int windowMs = 20000, Func<bool>? stopWhen = null)
+    {
+        KillGame();
+        var deadline = Environment.TickCount64 + windowMs;
+        var lastActive = Environment.TickCount64;
+        while (Environment.TickCount64 < deadline)
+        {
+            if (stopWhen?.Invoke() == true) return;
+            var found = false;
+            foreach (var name in new[] { "Stardew Valley", "StardewModdingAPI" })
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    found = true;
+                    try { p.CloseMainWindow(); } catch (Exception __ex) { AppLog.Warn("LauncherService", __ex.Message); }
+                    try { p.Kill(true); } catch (Exception __ex) { AppLog.Warn("LauncherService", __ex.Message); }
+                }
+            if (found) lastActive = Environment.TickCount64;
+            else if (Environment.TickCount64 - lastActive > 2500) return;   // 连续 2.5s 无进程 → 清场完成
+            await Task.Delay(400);
+        }
+    }
+
+    /// <summary>
+    /// 关闭游戏进程：与 Steam 自己关游戏一致——先通知正常退出让游戏写盘，
+    /// 稍后再回收仍未退出的进程。覆盖 SMAPI 与 Steam 官方两种启动模式。
     /// </summary>
     public void KillGame()
     {
-        // Prefer a gentle close of the SMAPI child process we own
+        // 优先温和关闭所持有的 SMAPI 子进程
         if (_smapiProcess is { HasExited: false })
         {
             try { _smapiProcess.CloseMainWindow(); } catch (Exception __ex) { AppLog.Warn("LauncherService", __ex.Message); }
@@ -238,12 +266,12 @@ public sealed class LauncherService
             _smapiProcess = null;
         }
 
-        // Main game processes (StardewModdingAPI.exe / Stardew Valley.exe): request a save first
+        // 主游戏进程（StardewModdingAPI.exe / Stardew Valley.exe），先通知保存
         foreach (var name in new[] { "Stardew Valley", "StardewModdingAPI" })
             foreach (var p in Process.GetProcessesByName(name))
                 try { p.CloseMainWindow(); } catch (Exception __ex) { AppLog.Warn("LauncherService", __ex.Message); }
 
-        // Give the main UI process some time to write to disk, then force-reap whatever remains
+        // 给主界面进程一点写盘时间，再强制回收仍在的
         Task.Delay(300).ContinueWith(_ =>
         {
             foreach (var name in new[] { "Stardew Valley", "StardewModdingAPI" })
@@ -258,28 +286,31 @@ public sealed class LauncherService
     public PreFlightResult CheckSmapi(string gamePath)
     {
         if (string.IsNullOrWhiteSpace(gamePath))
-            return PreFlightResult.Fail("Game path is not set. Please choose one on the Settings page first.");
+            return PreFlightResult.Fail("No game folder set — pick one in Settings first.");
 
         if (!Directory.Exists(gamePath))
-            return PreFlightResult.Fail($"Game directory does not exist: {gamePath}");
+            return PreFlightResult.Fail($"Game folder does not exist: {gamePath}");
 
         var exe = Path.Combine(gamePath, "StardewModdingAPI.exe");
         if (!File.Exists(exe))
             return PreFlightResult.Fail(
-                $"SMAPI not found: {exe}\n\nDownload and install it from smapi.io, or switch to \"Official Steam\" launch mode on the home page.");
+                $"SMAPI not found: {exe}\n\nDownload it from smapi.io, or switch to the \"Steam (official)\" launch mode on the home page.");
 
         return PreFlightResult.Ok();
     }
 
     public PreFlightResult CheckSteam()
     {
-        var steamRunning = Process.GetProcessesByName("steam").Length > 0
-                        || Process.GetProcessesByName("steamwebhelper").Length > 0;
-        if (!steamRunning)
+        if (!IsSteamRunning)
             return PreFlightResult.Warn(
-                "The Steam client doesn't appear to be running; launching via the steam:// protocol (may be slightly slower).");
+                "Steam does not seem to be running — launching via the steam:// protocol (may be slower).");
         return PreFlightResult.Ok();
     }
+
+    /// <summary>Steam 客户端是否在运行（含 webhelper）。供启动等待期检测「Steam 被关闭」用。</summary>
+    public static bool IsSteamRunning =>
+        Process.GetProcessesByName("steam").Length > 0 ||
+        Process.GetProcessesByName("steamwebhelper").Length > 0;
 
     // ------------------------------------------------------------------
     // Launch
@@ -302,9 +333,9 @@ public sealed class LauncherService
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
-                    // SMAPI's LogManager sets Console.InputEncoding to UTF-16LE (fixed Windows behavior).
-                    // When stdin is redirected it decodes pipe bytes as UTF-16 — we must write UTF-16LE WITHOUT a BOM,
-                    // otherwise SMAPI reads nothing but garbage and console commands never work (same mechanism as the NUL chars on the output side).
+                    // SMAPI 在 LogManager 里把 Console.InputEncoding 设为 UTF-16LE（Windows 固定行为），
+                    // 重定向 stdin 时它按 UTF-16 解码管道字节 —— 这里必须用【无 BOM】的 UTF-16LE 写入，
+                    // 否则 SMAPI 读到的全是乱码，控制台命令永远无效（与输出侧 NUL 字符是同一机制）。
                     StandardInputEncoding = new UnicodeEncoding(bigEndian: false, byteOrderMark: false),
                     StandardOutputEncoding = Encoding.UTF8,
                     StandardErrorEncoding = Encoding.UTF8,
@@ -313,8 +344,8 @@ public sealed class LauncherService
                 EnableRaisingEvents = true
             };
 
-            // The log view's content source is SMAPI-latest.txt (each line carries its own level, which drives the colors);
-            // stdout lines are just "[SMAPI] message" without a level, but must still be drained continuously to keep the pipe from filling up and blocking the game.
+            // 日志视图的内容源是 SMAPI-latest.txt（每行自带级别，颜色分类靠它）；
+            // stdout 每行只有 "[SMAPI] 消息"不带级别，但仍要持续读走，防止管道写满阻塞游戏。
             _smapiProcess.OutputDataReceived += (_, _) => { };
             _smapiProcess.ErrorDataReceived += (_, e) =>
             {
@@ -324,7 +355,7 @@ public sealed class LauncherService
             {
                 OnGameExit();
                 RaiseLog($"[JuniGrid] Game process exited with code {_smapiProcess?.ExitCode}");
-                // Wait 3 seconds to finish reading the tail of the log before stopping
+                // 留 3 秒把退出前的尾部日志读完再停
                 var gen = _logTailGen;
                 _ = Task.Delay(3000).ContinueWith(_ =>
                 {
@@ -334,9 +365,9 @@ public sealed class LauncherService
 
             _smapiProcess.Start();
             _sessionStart = DateTime.Now;
-            // New session, new view: clear the previous session's log so old and new content don't mix
+            // 新会话开新视图：清掉上一局的日志，避免新旧内容混在一起
             ClearLog();
-            RaiseLog($"[JuniGrid] Started SMAPI process (PID {_smapiProcess.Id})");
+            RaiseLog($"[JuniGrid] SMAPI process started (PID {_smapiProcess.Id})");
             StartLogTail();
             _smapiProcess.BeginOutputReadLine();
             _smapiProcess.BeginErrorReadLine();
@@ -350,10 +381,10 @@ public sealed class LauncherService
     }
 
     /// <summary>
-    /// SMAPI's redirected output is written as UTF-16LE (each ASCII char followed by a 0x00 byte).
-    /// Decoding it as UTF-8 leaves NUL (\0) characters in the string — invisible, but in a monospace font with
-    /// pre-wrap each one takes a full character width, so the log looks like "a space between every letter".
-    /// SMAPI console output is pure ASCII, so stripping NUL/zero-width chars fully restores it.
+    /// SMAPI 的重定向输出按 UTF-16LE 写出（每个 ASCII 字符后跟一个 0x00 字节），
+    /// 我们按 UTF-8 解码后字符串里就夹了 NUL（\0）—— NUL 不可见，但在等宽字体 +
+    /// pre-wrap 下每个都占一个字宽，日志看起来就是「每个字母之间都隔了一个空格」。
+    /// SMAPI 控制台输出本身是纯 ASCII，剥掉 NUL/零宽字符即可完全还原。
     /// </summary>
     private static string CleanSmapiLine(string line)
     {
@@ -363,7 +394,7 @@ public sealed class LauncherService
 
     private async Task TrackSteamExitAsync()
     {
-        // Wait for the game process to start, then wait for it to exit
+        // 等游戏进程起来，再等它退出
         for (int i = 0; i < 60 && _sessionStart is not null; i++)
         {
             if (System.Diagnostics.Process.GetProcessesByName("Stardew Valley").Length > 0) break;
@@ -379,16 +410,16 @@ public sealed class LauncherService
 
     public LaunchResult LaunchSteam(string steamAppId)
     {
-        // Pre-check: no path at all → most likely the Steam account doesn't own the game or it isn't installed
+        // 前置：路径都没有 → 极大概率 Steam 账号未拥有此游戏或未安装
         if (string.IsNullOrWhiteSpace(_cfg.Current.GamePath) || !Directory.Exists(_cfg.Current.GamePath))
             return LaunchResult.Fail(
-                "Stardew Valley game directory not detected.\n\n" +
+                "No Stardew Valley game folder detected.\n\n" +
                 "Possible causes:\n" +
-                "  · The current Steam account doesn't own this game (purchase it on Steam first)\n" +
-                "  · The game isn't installed or the path is wrong → set the directory manually in Settings\n\n" +
-                "The launcher will try the steam:// protocol; if Steam says \"this account doesn't own the game\", that's the cause.");
+                "  - This Steam account does not own the game (buy it on Steam first)\n" +
+                "  - Game not installed or the path is wrong -> set the folder manually in Settings\n\n" +
+                "The launcher will try the steam:// protocol. If Steam says \"this account does not own the game\", that is the cause.");
 
-        // Steam mode also starts the play timer (in official Steam mode we can't see the child process exit, so we poll for Stardew Valley.exe)
+        // Steam 模式也开秒表（Steam 官方模式下我们看不到子进程退出，靠 Stardew Valley.exe 探测）
         _sessionStart = DateTime.Now;
         _ = TrackSteamExitAsync();
 

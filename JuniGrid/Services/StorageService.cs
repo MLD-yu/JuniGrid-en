@@ -2,24 +2,23 @@ using System.IO;
 
 namespace JuniGrid.Services;
 
-/// <summary>One category row on the Cache & Storage page: display path + usage + whether it can be cleaned/migrated.
-/// Tip is a plain-language explanation shown in the hovering "?" tooltip (for users unfamiliar with the terminology).</summary>
+/// <summary>缓存与存储页的一个分类行：显示路径 + 占用 + 可否清理/迁移。
+/// Tip 是悬浮「?」里的通俗解释（面向不了解 terminology 的用户）。</summary>
 public sealed record StorageCategory(
     string Id,
     string Name,
     string Note,
     string DisplayPath,
-    string[] SizeRoots,     // roots used for usage stats (mix of files and directories)
-    string[] CleanRoots,    // roots whose contents are deleted when cleaning
+    string[] SizeRoots,     // 统计占用的根（文件或目录混合）
+    string[] CleanRoots,    // 清理时删除内容的根
     bool Cleanable,
     bool Movable,
     string Tip = "");
 
 /// <summary>
-/// v0.2.1: cache & storage management — usage stats per cache category, single-item/one-click cleanup,
-/// and changing/migrating the unified cache directory.
-/// Stats are computed in the background (may take a few seconds) and reported to the UI via OnStats;
-/// cleanup runs through the task center (kind=cleanup), deleting file by file and skipping in-use files without aborting.
+/// v0.2.1：缓存与存储管理 —— 各类缓存占用统计、单项/一键清理、统一缓存目录更改与迁移。
+/// 统计在后台算（可能几秒），结果经 OnStats 通知 UI；清理走任务中心（kind=cleanup），
+/// 逐文件删除、被占用的跳过不中断。
 /// </summary>
 public sealed class StorageService
 {
@@ -32,42 +31,42 @@ public sealed class StorageService
         _center = center;
     }
 
-    /// <summary>Raised after a category's usage is computed/refreshed (may be a background thread; UI subscribers must dispatch themselves).</summary>
+    /// <summary>某项占用计算完成/刷新后触发（可能后台线程，UI 订阅方自行调度）。</summary>
     public event Action? OnStats;
 
     private readonly object _gate = new();
-    private readonly Dictionary<string, long> _sizes = new();     // id → bytes; missing = not computed yet
+    private readonly Dictionary<string, long> _sizes = new();     // id → 字节；缺失 = 未计算
     private readonly HashSet<string> _computing = new(StringComparer.Ordinal);
     private DateTime _lastRefreshUtc = DateTime.MinValue;
 
     public bool IsComputing(string id) { lock (_gate) return _computing.Contains(id); }
     public long GetSize(string id) { lock (_gate) return _sizes.TryGetValue(id, out var v) ? v : -1; }
 
-    /// <summary>Total known usage across cleanable categories (items not yet computed are excluded).</summary>
+    /// <summary>可清理各项的已知占用合计（未算出的项不计入）。</summary>
     public long TotalKnownBytes
     {
         get { lock (_gate) return _sizes.Where(kv => kv.Key != "data" && kv.Value > 0).Sum(kv => kv.Value); }
     }
 
-    /// <summary>Category list (built fresh each call: backup cleanup scope and the game trash bin depend on current config).</summary>
+    /// <summary>分类清单（每次现建：备份清理范围、游戏回收站都依赖当前配置）。</summary>
     public List<StorageCategory> GetCategories()
     {
         var list = new List<StorageCategory>();
 
-        list.Add(new("downloads", "Downloads & Install Temp", "Downloaded zips and extraction temp files",
+        list.Add(new("downloads", "下载与安装临时", "下载 zip 与解压临时文件",
             StoragePaths.DownloadsDir,
             new[] { StoragePaths.DownloadsDir }, new[] { StoragePaths.DownloadsDir },
             Cleanable: true, Movable: true,
-            Tip: "Archives downloaded from Nexus or GitHub plus intermediate extraction files. Useless once installation finishes — safe to clean."));
+            Tip: "从 Nexus 或 GitHub 下载 mod 时的压缩包和解压中间产物 安装完成后就没用了 可放心清理"));
 
-        list.Add(new("smapi", "SMAPI Installer Cache", "Installer download and extraction artifacts",
+        list.Add(new("smapi", "SMAPI 安装包缓存", "安装器下载与解压产物",
             StoragePaths.SmapiInstallerDir,
             new[] { StoragePaths.SmapiInstallerDir }, new[] { StoragePaths.SmapiInstallerDir },
             Cleanable: true, Movable: true,
-            Tip: "The official SMAPI installer and extracted files downloaded when installing or updating SMAPI. Useless once installed — safe to clean."));
+            Tip: "安装或更新 SMAPI 时下载的官方安装包和解压文件 装完就没用了 可放心清理"));
 
-        // Only count/clean the HTTP and shader cache subdirectories (names match the actual local EBWebView layout) —
-        // Cookies/LocalStorage live in other subdirectories, so login state is unaffected.
+        // 只统计/清理 HTTP 与着色器缓存子目录（目录名对照本机 EBWebView 实测结构）——
+        // Cookie/LocalStorage 在其它子目录，登录态不受影响
         var wv2Root = StoragePaths.WebView2Dir;
         var wv2Caches = new[]
         {
@@ -79,16 +78,16 @@ public sealed class StorageService
             Path.Combine(wv2Root, "EBWebView", "GrShaderCache"),
             Path.Combine(wv2Root, "EBWebView", "ShaderCache"),
         };
-        list.Add(new("wv2", "WebView2 Network Cache", "Web page and image cache (keeps you logged in)", wv2Root,
+        list.Add(new("wv2", "WebView2 网络缓存", "网页与图片缓存（保留登录态）", wv2Root,
             wv2Caches, wv2Caches, Cleanable: true, Movable: true,
-            Tip: "The whole UI is a set of web components. This is the network cache left behind while loading mod cover images and such. Cleaning it does not affect your Nexus login. Changing the cache location takes effect after restarting the app."));
+            Tip: "整个界面就是一套网页组件 加载 mod 封面等图片时留下的网络缓存 清理不影响 Nexus 登录状态 更改缓存位置后 重启应用生效"));
 
-        // Pre-update safety snapshot of Mods: cleanup = keep the most recent, delete the rest (idiot-proof: dir names are timestamps)
+        // 更新前的 Mods 安全快照：清理 = 保留最近一次，其余全删（防呆：目录名是时间戳）
         var backupRoot = StoragePaths.ModsBackupDir;
         var oldSnapshots = SafeDirs(backupRoot).OrderByDescending(p => p, StringComparer.OrdinalIgnoreCase).Skip(1).ToArray();
-        list.Add(new("backup", "Pre-update Mods Backup", "Safety snapshot taken before SMAPI updates (cleanup keeps the latest)", backupRoot,
+        list.Add(new("backup", "更新前 Mods 备份", "SMAPI 更新前的安全快照（清理保留最近一次）", backupRoot,
             new[] { backupRoot }, oldSnapshots, Cleanable: oldSnapshots.Length > 0, Movable: true,
-            Tip: "Before updating SMAPI, all mods are backed up automatically. Use it to restore if an update fails. Cleanup only removes older backups — the most recent one is always kept."));
+            Tip: "更新 SMAPI 前自动把全部 mod 备份一份 更新失败可用它恢复 清理只删较旧的备份 最近一次永远保留"));
 
         var logFiles = new[]
         {
@@ -97,17 +96,17 @@ public sealed class StorageService
             Path.Combine(StoragePaths.AppDataDir, "startup.log"),
             Path.Combine(StoragePaths.AppDataDir, "crash.log"),
         };
-        list.Add(new("logs", "Log Files", "Runtime and crash logs", StoragePaths.AppDataDir,
+        list.Add(new("logs", "日志文件", "运行与崩溃日志", StoragePaths.AppDataDir,
             logFiles, logFiles, Cleanable: true, Movable: false,
-            Tip: "Text logs written while the app runs or crashes, used only for troubleshooting. Cleaning them affects nothing."));
+            Tip: "程序运行和崩溃时记录的文字日志 只用于排查问题 清理不影响任何功能"));
 
         var gp = _cfg.Current.GamePath;
         if (!string.IsNullOrWhiteSpace(gp))
         {
             var trash = StoragePaths.GameTrashDir(gp);
-            list.Add(new("trash", "Game Uninstall Trash", "Trash bin for uninstalled mods", trash,
+            list.Add(new("trash", "游戏卸载回收站", "卸载 mod 时的回收站", trash,
                 new[] { trash }, new[] { trash }, Cleanable: true, Movable: false,
-                Tip: "When you uninstall a mod, its files are moved here instead of being deleted right away. Those mods are truly gone (and unrecoverable) only after this bin is emptied — make sure you no longer need them."));
+                Tip: "卸载 mod 时文件先移到这里而不是直接删除 清空后那些 mod 才真正消失 且无法恢复 请确认不再需要"));
         }
 
         var dataFiles = new[]
@@ -115,18 +114,18 @@ public sealed class StorageService
             Path.Combine(StoragePaths.AppDataDir, "junigrid.config.json"),
             Path.Combine(StoragePaths.AppDataDir, "tasks.json"),
         };
-        list.Add(new("data", "Settings & Task Data", "Config and task records (fixed · not cleanable)", StoragePaths.AppDataDir,
+        list.Add(new("data", "设置与任务数据", "配置与任务记录（固定·不可清理）", StoragePaths.AppDataDir,
             dataFiles, Array.Empty<string>(), Cleanable: false, Movable: false,
-            Tip: "Your settings, Nexus API key, mod save list, and download task records. This is personal data — the app never cleans it automatically."));
+            Tip: "你的设置 Nexus API Key mod 存档列表和下载任务记录 属于个人数据 程序永远不会自动清理它"));
 
         return list;
     }
 
-    /// <summary>Refresh usage for all categories (skipped if refreshed within the last 30 seconds unless force). For callers that don't care about the result.</summary>
+    /// <summary>刷新全部占用（30 秒内已刷过则跳过，除非 force）。不关心结果的地方用。</summary>
     public void RefreshAll(bool force = false) => _ = RefreshAllAsync(force);
 
-    /// <summary>Refresh usage for all categories and wait — returns true when every category computed successfully, false if any failed
-    /// (used by the "Refresh usage" button to toast success/failure).</summary>
+    /// <summary>刷新全部占用并等待完成 —— 全部项都算出占用返回 true，任一项算失败返回 false
+    /// （供「刷新占用」按钮弹 toast 上报成功/失败）。</summary>
     public async Task<bool> RefreshAllAsync(bool force = false)
     {
         if (!force && DateTime.UtcNow - _lastRefreshUtc < TimeSpan.FromSeconds(30)) return true;
@@ -137,7 +136,7 @@ public sealed class StorageService
 
     private async Task<bool> ComputeAsync(StorageCategory c)
     {
-        lock (_gate) { if (!_computing.Add(c.Id)) return true; }   // already computing — count as in-progress success
+        lock (_gate) { if (!_computing.Add(c.Id)) return true; }   // 已在算，视为进行中即成功
         try
         {
             var roots = c.SizeRoots;
@@ -181,21 +180,21 @@ public sealed class StorageService
     }
 
     /// <summary>
-    /// Cleans one category. Progress reported through the task center; deletes file by file, skipping in-use files.
-    /// Returns a one-line result for the toast. Cleanup is refused while download/install tasks run (it would delete zips in use).
+    /// 清理一个分类。走任务中心报进度；逐文件删除，被占用的跳过。
+    /// 返回给 toast 的结果一句话。下载/安装类目录有任务进行中时拒绝清理（会删掉正在用的 zip）。
     /// </summary>
     public Task<string> CleanCategoryAsync(string id)
     {
         var c = GetCategories().FirstOrDefault(x => x.Id == id);
-        if (c is null || !c.Cleanable) return Task.FromResult("This item cannot be cleaned");
+        if (c is null || !c.Cleanable) return Task.FromResult("这一项不可清理");
         if ((c.Id == "downloads" || c.Id == "smapi") && _center.RunningCount > 0)
-            return Task.FromResult("A download/install task is running; clean after it finishes");
+            return Task.FromResult("有下载/安装任务进行中，结束后再清理");
 
-        var task = _center.Start("Clean: " + c.Name, "cleanup");
-        _center.Report(task, "Starting cleanup…", 3);
+        var task = _center.Start("清理：" + c.Name, "cleanup");
+        _center.Report(task, "开始清理…", 3);
 
         var roots = c.CleanRoots;
-        var pruneDirs = roots.Any(Directory.Exists);   // only directory roots need empty shells pruned
+        var pruneDirs = roots.Any(Directory.Exists);   // 目录根才需要收尾空壳
         return Task.Run(() =>
         {
             long freed = 0, skipped = 0;
@@ -208,21 +207,21 @@ public sealed class StorageService
                     File.Delete(files[i]);
                     freed += len;
                 }
-                catch { skipped++; }   // in use / access denied: skip without aborting
+                catch { skipped++; }   // 占用中/权限不足：跳过，不中断
                 if (i % 50 == 0 || i == files.Count - 1)
                     _center.Report(task,
-                        $"Cleaned {ResumableDownload.FormatBytes(freed)} (skipped {skipped} in-use files)",
+                        $"已清理 {ResumableDownload.FormatBytes(freed)}（跳过占用中 {skipped} 个）",
                         3 + 92.0 * (i + 1) / Math.Max(1, files.Count));
             }
             if (pruneDirs)
                 foreach (var root in roots) PruneEmptyDirs(root);
 
             var msg = files.Count == 0
-                ? "Already clean — nothing to remove"
-                : $"Cleanup finished: freed {ResumableDownload.FormatBytes(freed)}" +
-                  (skipped > 0 ? $", skipped {skipped} in-use file(s)" : "");
+                ? "这里已经很干净了"
+                : $"清理完成：释放 {ResumableDownload.FormatBytes(freed)}" +
+                  (skipped > 0 ? $"，跳过占用中的 {skipped} 个文件" : "");
             _center.Finish(task, true, msg);
-            AppLog.Warn("Storage", $"Cleanup[{c.Id}] freed {freed} bytes, skipped {skipped}");
+            AppLog.Warn("Storage", $"清理[{c.Id}] 释放 {freed} 字节，跳过 {skipped}");
             lock (_gate) _sizes[c.Id] = DirSizeSum(roots);
             OnStats?.Invoke();
             return msg;
@@ -251,7 +250,7 @@ public sealed class StorageService
         return files;
     }
 
-    /// <summary>Prune empty directory shells after cleaning (keeps the root itself; the service still writes into it).</summary>
+    /// <summary>清完后把空目录壳一并摘掉（保留根目录本身，服务还要往里写）。</summary>
     private static void PruneEmptyDirs(string root)
     {
         try
@@ -261,7 +260,7 @@ public sealed class StorageService
             {
                 RecurseSubdirectories = true,
                 AttributesToSkip = 0
-            }).OrderByDescending(d => d.Length);   // delete deepest first so parent dirs empty out
+            }).OrderByDescending(d => d.Length);   // 先删最深的，父目录才空得出来
             foreach (var dir in dirs)
             {
                 try
@@ -274,7 +273,7 @@ public sealed class StorageService
         catch { }
     }
 
-    /// <summary>Lists first-level subdirectory full paths (returns empty if missing/unreadable).</summary>
+    /// <summary>列出目录下的一级子目录全路径（不存在/不可读返回空）。</summary>
     private static List<string> SafeDirs(string dir)
     {
         try
@@ -287,17 +286,16 @@ public sealed class StorageService
     }
 
     /// <summary>
-    /// Changes the unified cache directory (newRoot = null restores the default location): downloads/install temp,
-    /// SMAPI installer, and Mods backup switch immediately with on-the-spot migration of existing content;
-    /// WebView2 data is in use, so it is recorded in PendingWebView2MoveFrom and migrated automatically by
-    /// MainWindow on the next startup (before WebView2 initialization).
+    /// 更改统一缓存目录（newDir = null 表示恢复默认位置）：下载/安装临时、SMAPI 安装包、
+    /// Mods 备份三处立即切换并现场搬迁现有内容；WebView2 数据正被占用，记入
+    /// PendingWebView2MoveFrom，由 MainWindow 在下次启动（WebView2 初始化之前）自动搬迁。
     /// </summary>
     public async Task<string> MigrateCacheRootAsync(string? newRoot)
     {
         newRoot = string.IsNullOrWhiteSpace(newRoot) ? null : Path.GetFullPath(newRoot.Trim());
         if (newRoot is not null) Directory.CreateDirectory(newRoot);
 
-        // Grab the old locations before saving (SyncStoragePaths switches resolution to the new root)
+        // 保存前先抓旧位置（SyncStoragePaths 会把解析结果切到新根）
         var oldDownloads = StoragePaths.DownloadsDir;
         var oldSmapi = StoragePaths.SmapiInstallerDir;
         var oldBackup = StoragePaths.ModsBackupDir;
@@ -307,8 +305,8 @@ public sealed class StorageService
         cfg.CacheRoot = newRoot;
         _cfg.Save(cfg);
 
-        var task = _center.Start(newRoot is null ? "Restore default cache location" : "Migrate cache directory", "cleanup");
-        _center.Report(task, newRoot is null ? "Restoring default location…" : $"Target: {newRoot}", 5);
+        var task = _center.Start(newRoot is null ? "恢复默认缓存位置" : "迁移缓存目录", "cleanup");
+        _center.Report(task, newRoot is null ? "正在恢复默认位置…" : $"目标：{newRoot}", 5);
         return await Task.Run(() =>
         {
             long moved = 0, skipped = 0;
@@ -330,7 +328,7 @@ public sealed class StorageService
                 if (moved + skipped > m0 + s0)
                 {
                     movedNotes.Add($"{Path.GetFileName(oldDir)} → {Path.GetFileName(target)}");
-                    // If the old dir is fully moved out, delete the empty shell (kept if in-use files remain)
+                    // 旧目录搬空了就顺手删掉空壳（被占用的文件留在里面则保留）
                     try
                     {
                         if (Directory.Exists(oldDir) && !Directory.EnumerateFileSystemEntries(oldDir).Any())
@@ -340,30 +338,30 @@ public sealed class StorageService
                 }
             }
 
-            // WebView2 is in use by this process → record a pending migration; MainWindow migrates it on next startup (before WebView2 init)
+            // WebView2 正被本进程占用 → 记遗留迁移，MainWindow 下次启动（WebView2 初始化前）自动搬
             var wv2Note = "";
             if (!string.Equals(Path.GetFullPath(oldWv2), Path.GetFullPath(StoragePaths.WebView2Dir), StringComparison.OrdinalIgnoreCase)
                 && Directory.Exists(oldWv2))
             {
                 cfg.PendingWebView2MoveFrom = oldWv2;
                 _cfg.Save(cfg);
-                wv2Note = "; WebView2 data will migrate automatically after the app restarts";
-                _center.Report(task, "WebView2 data will migrate automatically after restart", 90);
+                wv2Note = "；WebView2 数据将在重启应用后自动迁移";
+                _center.Report(task, "WebView2 数据将在重启后自动迁移", 90);
             }
 
             var msg = newRoot is null
-                ? "Default location restored" + wv2Note
-                : $"Migration finished: moved {ResumableDownload.FormatBytes(moved)}" +
-                  (skipped > 0 ? $", {ResumableDownload.FormatBytes(skipped)} left in place (in use)" : "") + wv2Note;
+                ? "已恢复默认位置" + wv2Note
+                : $"迁移完成：挪入 {ResumableDownload.FormatBytes(moved)}" +
+                  (skipped > 0 ? $"，{ResumableDownload.FormatBytes(skipped)} 正在使用留在原目录" : "") + wv2Note;
             _center.Finish(task, true, msg);
-            AppLog.Warn("Storage", $"Cache directory migrated to {newRoot ?? "<default>"}: moved {moved}, skipped {skipped}");
+            AppLog.Warn("Storage", $"缓存目录迁移到 {newRoot ?? "<默认>"}：挪入 {moved}，跳过 {skipped}");
             lock (_gate) _sizes.Clear();
             RefreshAll(force: true);
             return msg;
         }).ConfigureAwait(false);
     }
 
-    /// <summary>Moves everything in src into dstDir (tries Move per item; falls back to copy + delete source; still failing counts as skipped).</summary>
+    /// <summary>把 src 里的所有内容挪进 dstDir（逐项尝试 Move，失败复制+删源，仍失败计 skipped）。</summary>
     private static void MoveInto(string src, string dstDir, ref long moved, ref long skipped)
     {
         try
@@ -397,11 +395,11 @@ public sealed class StorageService
                 }
             }
         }
-        catch (Exception ex) { AppLog.Warn("Storage", "Failed to migrate directory: " + ex.Message); }
+        catch (Exception ex) { AppLog.Warn("Storage", "迁移目录失败: " + ex.Message); }
     }
 
-    /// <summary>Move a whole tree: Move directly on the same volume; across volumes / when in use, copy + delete per file;
-    /// any in-use file marks the whole tree as failed (left in place). Used by MainWindow at startup for the pending WebView2 data migration.</summary>
+    /// <summary>整树挪动：同盘直接 Move；跨盘/占用时逐文件复制+删源，部分文件占用算失败（整树留在原地）。
+    /// 供 MainWindow 启动时执行 WebView2 数据的遗留迁移。</summary>
     public static bool TryMoveTree(string srcDir, string dstDir)
     {
         try

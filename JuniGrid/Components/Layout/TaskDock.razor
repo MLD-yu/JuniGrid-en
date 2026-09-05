@@ -5,27 +5,24 @@
 @inject ConfigService Cfg
 @implements IDisposable
 
-@* v1.06.4: the floating dock stays permanently visible — no longer auto-hides (it used to
-   disappear 8 seconds after everything completed, and didn't render at all when there were
-   no tasks on cold start). With no tasks it shows "No tasks"; while running it refreshes
-   progress percentage and speed in real time (every TaskCenterService.Report triggers a refresh).
-   Colors: idle state is a black background; while downloading the whole pill turns grey and a
-   black fill layer sweeps back over it from left to right according to download progress.
-   v1.07: when everything completes the whole pill morphs into a circle + white checkmark
-   (same morph as the gsap smooth-morph demo, driven by taskDockMorph via width/height/padding
-   transitions); it morphs back to a pill when new tasks arrive, with the downloading display unchanged.
-   v0.2.2: hidden permanently when the settings toggle "Show task dock" is off, only shown while
-   download tasks are running; draggable (makeTaskDockDraggable; dragging over 5px swallows the click). *@
+@* v1.06.4：悬浮窗常驻实时可见 —— 不再自动隐藏（原来全部完成 8 秒后就消失，
+   冷启动无任务时也整个不渲染）。没任务时显示「暂无任务」，运行中实时刷新
+   进度百分比与速度（TaskCenterService.Report 每次回报都会触发刷新）。
+   配色：常态黑底；下载中整体变灰，黑色填充层按下载进度从左往右盖回黑色。
+   v1.07：全部完成时整个胶囊 morph 成圆 + 白色对号（gsap smooth-morph 同款形变，
+   由 taskDockMorph 驱动宽高/内边距过渡）；来任务时再 morph 回胶囊，下载态展示不变。
+   v0.2.2：设置页「打开任务管理悬浮窗」关闭时常驻隐藏，仅下载任务运行时显示；
+   悬浮窗可拖动（makeTaskDockDraggable，拖动超过 5px 吞掉本次点击）。 *@
 @if (Cfg.Current.ShowTaskDock || Center.RunningCount > 0)
 {
-    <button class="jg-taskdock @(Center.RunningCount > 0 ? "running" : "") @(_done ? "done" : "")" @onclick="Go" title="Download/install tasks">
+    <button class="jg-taskdock @(Center.RunningCount > 0 ? "running" : "") @(_done ? "done" : "")" @onclick="Go" @oncontextmenu="HideFromMenu" @oncontextmenu:preventDefault title="Download / install tasks (left-click: open task center, right-click: hide)">
     @if (Center.RunningCount > 0)
     {
         <div class="jg-taskdock-fill" style="@($"width:{Center.TotalPercent:0}%")"></div>
     }
     <div class="jg-taskdock-body">
         <div class="jg-taskdock-title">@(Center.RunningCount > 0
-            ? $"{Center.RunningCount} tasks running"
+            ? $"{Center.RunningCount} task(s) running"
             : Center.RunningCount == 0 && Center.Items.Count > 0 ? "" : Center.Items.Count > 0 ? "All done" : "No tasks")</div>
         @if (Center.RunningCount > 0)
         {
@@ -39,28 +36,27 @@
 }
 
 @code {
-    private bool _done;          // whether the last render was in the "all-done circle" state, driving the morph
-    private bool _morphReady;    // don't trigger the animation before the first render
+    private bool _done;          // 上一次渲染是否处于「全部完成圆」态，驱动 morph
+    private bool _morphReady;    // 首渲染前不触发动画
 
     protected override void OnInitialized()
     {
         Center.OnChanged += Refresh;
-        ConfigService.Saved += Refresh;   // re-show/hide instantly when the settings toggle "Show task dock" changes
+        ConfigService.Saved += Refresh;   // 设置页切换「打开任务管理悬浮窗」时即时显隐
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Cursor-driven perspective tilt (same as the gsap cursor-driven-perspective-tilt demo), bound once
+        // 光标透视倾斜（gsap cursor-driven-perspective-tilt demo 同款），只绑一次
         if (firstRender)
         {
             try { await JS.InvokeVoidAsync("junigridJs.taskDockTilt", ".jg-taskdock"); } catch { }
         }
-        // Drag binding: the element may be recreated on show/hide toggles (the binding function has an
-        // internal duplicate guard), so re-bind after every render
+        // 拖动绑定：元素可能因显隐切换被重建（绑定函数内部有防重复标记），每次渲染后补绑
         try { await JS.InvokeVoidAsync("junigridJs.makeTaskDockDraggable", ".jg-taskdock"); } catch { }
 
-        // Pill ↔ circle morph (same as gsap smooth-morph): state flips are transitioned by a gsap timeline;
-        // the first placement snaps instantly with no animation
+        // 胶囊 ↔ 圆 morph（gsap smooth-morph 同款）：状态翻转时交给 gsap 时间线过渡；
+        // 首次落位直接瞬时置态，不做动画
         var done = Center.RunningCount == 0 && Center.Items.Count > 0;
         if (!_morphReady)
         {
@@ -84,11 +80,11 @@
         ConfigService.Saved -= Refresh;
     }
 
-    // OnChanged may fire from a background download thread, so InvokeAsync is required to get back to the UI thread
+    // OnChanged 可能从后台下载线程触发，必须 InvokeAsync 回 UI 线程
     private void Refresh() => InvokeAsync(StateHasChanged);
 
-    // v1.06.6: the downloads page expand/collapse animation is disabled — a click is just a plain toggle;
-    // while on the downloads page, clicking the dock = history.back to the page before entering it
+    // v1.06.6：下载页的展开/收起动画已关闭 —— 点击就是普通切换；
+    // 在下载页时点悬浮窗 = history.back 回到进入前的页面
     private void Go()
     {
         if (Nav.Uri.EndsWith("/tasks", StringComparison.OrdinalIgnoreCase))
@@ -97,5 +93,16 @@
             return;
         }
         Nav.NavigateTo("/tasks");
+    }
+
+    // v1.1.4：右键悬浮窗 = 隐藏 + 同步关闭设置里的「打开任务管理悬浮窗」开关（落盘）。
+    // 任务运行中右键无效 —— 那时球本就因任务常驻（渲染条件 ShowTaskDock || RunningCount>0），
+    // 关了开关球也不会消失，徒增「点了没反应」的困惑，干脆不响应。
+    private void HideFromMenu()
+    {
+        if (Center.RunningCount > 0) return;
+        var cfg = Cfg.Current;
+        cfg.ShowTaskDock = false;
+        Cfg.Save(cfg);   // Saved 事件 → 本组件 Refresh 即时消失；设置页订阅同步开关 UI
     }
 }

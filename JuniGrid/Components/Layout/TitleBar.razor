@@ -1,6 +1,6 @@
 @namespace JuniGrid.Components.Layout
 @inject IJSRuntime JS
-@inject JuniGrid.Services.UpdateService Upd
+@inject ConfigService Cfg
 @implements IAsyncDisposable
 
 <div class="jg-titlebar">
@@ -10,31 +10,26 @@
             <div class="jg-brand-text">
                 <span class="jg-brand-name">JuniGrid</span>
             </div>
-            @* Self-update button: completely absent (not rendered) until a newer release
-               exists on GitHub, so there is nothing to click when up-to-date. While the
-               download runs, a ring fills clockwise from 12 o'clock; 100% = installer launches.
-               Clicking mid-download cancels. *@
-            @if (_selfUpdate is not null)
-            {
-                <button class="jg-upd-btn @(_updating ? "jg-upd-running" : "")" @onclick="OnUpdateClick"
-                        title="@UpdateTooltip">
-                    <span class="jg-upd-ring">
-                        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                            <circle class="jg-upd-ring-track" cx="12" cy="12" r="10" />
-                            <circle class="jg-upd-ring-fill" cx="12" cy="12" r="10"
-                                    stroke-dasharray="@RingCircumference.ToString("0.##")"
-                                    stroke-dashoffset="@RingOffset.ToString("0.##")" />
-                        </svg>
-                        <svg class="jg-upd-icon" viewBox="0 0 1024 1024" width="12" height="12" aria-hidden="true">
-                            <path d="M512 56.878545c251.345455 0 455.121455 203.776 455.121455 455.121455S763.345455 967.121455 512 967.121455 56.878545 763.345455 56.878545 512 260.654545 56.878545 512 56.878545z m1.629091 227.141819l-181.061818 181.061818a28.439273 28.439273 0 1 0 40.261818 40.215273l110.312727-110.312728v315.717818a28.439273 28.439273 0 0 0 56.878546 0V390.981818l114.408727 114.362182a28.439273 28.439273 0 1 0 40.215273-40.215273l-181.061819-181.061818z"></path>
-                        </svg>
-                    </span>
-                </button>
-            }
+            @* v1.0.8：自更新按钮 —— 有新版本时显示在 logo + JuniGrid 右侧（无更新完全不渲染） *@
+            <SelfUpdateButton />
         </div>
     </div>
 
     <div class="jg-titlebar-actions">
+        @* ── v1.1.1：深浅主题开关（Element Plus 导航栏同款胶囊：浅色=太阳居左，
+             深色=月亮居右）。视觉完全由 html[data-theme] 驱动，Blazor 不需要持有状态；
+             点击走 junigridJs.toggleTheme 的 View Transitions 圆形揭示动画。 ── *@
+        <div class="jg-theme-wrap">
+            <button class="jg-theme-toggle" @onclick="ToggleThemeAsync" title="Toggle dark / light theme" aria-label="Toggle dark / light theme">                <span class="jg-tt-knob">
+                    <svg class="jg-tt-sun" viewBox="0 0 1024 1024" aria-hidden="true">
+                        <path fill="currentColor" d="M512 298.666667a170.666667 170.666667 0 1 0 0 341.333333 170.666667 170.666667 0 0 0 0-341.333333z m0 284.444444a113.777778 113.777778 0 1 1 0-227.555555 113.777778 113.777778 0 0 1 0 227.555555zM512 85.333333a28.444444 28.444444 0 0 1 28.444444 28.444445v56.888889a28.444444 28.444444 0 1 1-56.888888 0V113.777778a28.444444 28.444444 0 0 1 28.444444-28.444445z m0 739.555556a28.444444 28.444444 0 0 1 28.444444 28.444444v56.888889a28.444444 28.444444 0 1 1-56.888888 0v-56.888889a28.444444 28.444444 0 0 1 28.444444-28.444444zM85.333333 512a28.444444 28.444444 0 0 1 28.444445-28.444444h56.888889a28.444444 28.444444 0 1 1 0 56.888888H113.777778a28.444444 28.444444 0 0 1-28.444445-28.444444z m739.555556 0a28.444444 28.444444 0 0 1 28.444444-28.444444h56.888889a28.444444 28.444444 0 1 1 0 56.888888h-56.888889a28.444444 28.444444 0 0 1-28.444444-28.444444zM231.762946 231.762946a28.444444 28.444444 0 0 1 40.220445 0l40.220444 40.220445a28.444444 28.444444 0 1 1-40.220444 40.220444l-40.220445-40.220444a28.444444 28.444444 0 0 1 0-40.220445z m480.033219 480.033219a28.444444 28.444444 0 0 1 40.220444 0l40.220445 40.220444a28.444444 28.444444 0 1 1-40.220445 40.220445l-40.220444-40.220445a28.444444 28.444444 0 0 1 0-40.220444z m40.220444-480.033219a28.444444 28.444444 0 0 1 0 40.220445l-40.220444 40.220444a28.444444 28.444444 0 1 1-40.220444-40.220444l40.220444-40.220445a28.444444 28.444444 0 0 1 40.220444 0zM271.983391 711.796165a28.444444 28.444444 0 0 1 0 40.220444l-40.220445 40.220445a28.444444 28.444444 0 1 1-40.220444-40.220445l40.220444-40.220444a28.444444 28.444444 0 0 1 40.220445 0z"/>
+                    </svg>
+                    <svg class="jg-tt-moon" viewBox="0 0 1024 1024" aria-hidden="true">
+                        <path fill="currentColor" d="M611.817431 915.372149a448.780663 448.780663 0 0 1-117.551653-15.615723C356.800732 866.906047 246.055297 763.759853 202.887924 628.376477 141.768509 436.553056 232.815251 230.198646 415.606761 143.229517a36.488429 36.488429 0 0 1 48.730103 47.787592 249.970211 249.970211 0 0 0-15.743645 161.007307 252.457616 252.457616 0 0 0 178.344349 178.408311 249.970211 249.970211 0 0 0 161.007307-15.743645 36.488429 36.488429 0 0 1 47.787592 48.730103 444.443514 444.443514 0 0 1-223.915036 351.95297z m-135.066415-104.16663z m-135.066414-626.23753z"/>
+                    </svg>
+                </span>
+            </button>
+        </div>
         <button class="jg-winbtn" @onclick="Minimize" title="Minimize">—</button>
         <button class="jg-winbtn" @onclick="ToggleMax" title="@(_isMax ? "Restore" : "Maximize")">@(_isMax ? "❐" : "☐")</button>
         <button class="jg-winbtn jg-winbtn-close" @onclick="Close" title="Close">✕</button>
@@ -50,12 +45,12 @@
     {
         if (!firstRender) return;
         _selfRef = DotNetObjectReference.Create(this);
-        // Safety net: if junigridJs isn't ready yet (script load failure), the first-render Task must not become an unobserved exception
+        // 兜底：万一 junigridJs 还没就绪（脚本加载异常），首渲染的 Task 不能变成未观察异常
         try { await JS.InvokeVoidAsync("junigridJs.enableWindowDrag", _dragZone, _selfRef); }
         catch { }
 
-        // Track window maximized state: when maximized, the button icon switches to the "restore" shape (❐) and
-        // the jg-max class is added to body to remove CSS rounded corners (DWM drops the rounded corners when maximized).
+        // 跟踪窗口最大化状态：最大化时按钮图标换成「还原」形状（❐），并给 body
+        // 加 jg-max 类去掉 CSS 圆角（DWM 在最大化时圆角会消失）。
         var w = GetWindow();
         if (w is not null)
         {
@@ -64,83 +59,14 @@
             await SyncMaxClass();
         }
 
-        // Quiet self-update check shortly after startup: keeps the button hidden unless a
-        // newer release is actually published.
-        _ = CheckForSelfUpdateAsync();
-    }
-
-    // ---- Self-update button ----
-    private JuniGrid.Services.SelfUpdateInfo? _selfUpdate;
-    private bool _updating;
-    private double? _progressPercent;
-    private string? _updateStatus;
-    private CancellationTokenSource? _updateCts;
-
-    // Ring geometry: r=10 in a 24x24 viewBox; the fill arc starts at 12 o'clock (CSS rotate)
-    // and closes into a full circle exactly when the download reaches 100%.
-    private const double RingCircumference = 2 * Math.PI * 10;
-    private double RingOffset => _updating && _progressPercent is > 0
-        ? RingCircumference * (1 - Math.Min(1, _progressPercent.Value / 100))
-        : RingCircumference;   // fully offset = invisible until bytes actually arrive
-
-    private string UpdateTooltip => _updating
-        ? (_progressPercent is > 0
-            ? $"{_progressPercent:0}% — click to cancel"
-            : _updateStatus ?? "Preparing download…")
-        : $"Update to {_selfUpdate?.Version} available — click to install";
-
-    private async Task CheckForSelfUpdateAsync()
-    {
-        var info = await Upd.CheckSelfUpdateAsync();
-        if (info is null) return;   // up-to-date or offline: button stays hidden
-        await InvokeAsync(() => { _selfUpdate = info; StateHasChanged(); });
-    }
-
-    private Progress<JuniGrid.Services.UpdateService.InstallProgress> MakeProgress() =>
-        new(p => InvokeAsync(() =>
-        {
-            _updateStatus = p.Message;
-            _progressPercent = p.Percent;
-            StateHasChanged();
-        }));
-
-    private void OnUpdateClick()
-    {
-        if (_selfUpdate is null) return;
-        if (_updating) { _updateCts?.Cancel(); return; }   // second click cancels the download
-        _ = StartSelfUpdateAsync();
-    }
-
-    private async Task StartSelfUpdateAsync()
-    {
-        _updating = true;
-        _progressPercent = null;
-        _updateStatus = "Preparing download…";
-        _updateCts = new CancellationTokenSource();
-        StateHasChanged();
-        try
-        {
-            await Upd.DownloadAndRunSelfUpdateAsync(_selfUpdate, MakeProgress(), _updateCts.Token);
-            // The silent installer is running — close the app so files can be replaced.
-            await Task.Delay(1500);
-            GetWindow()?.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
-        }
-        catch (OperationCanceledException)
-        {
-            // User cancelled mid-download: keep the partial temp file so the next click
-            // resumes from where it stopped; the button returns to its "available" state.
-            _updateStatus = null;
-            _progressPercent = null;
-            _updating = false;
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (Exception ex)
-        {
-            _updateStatus = "Update failed: " + ex.Message;
-            _progressPercent = null;
-            _updating = false;
-            await InvokeAsync(StateHasChanged);
-        }
+        // v1.1.1：主题对账 —— 预置脚本已按 localStorage 打上 data-theme（防闪白的
+        // 同步快路径）；这里再用配置文件兜底对齐（localStorage 被 UWP 清理/换缓存
+        // 目录丢失时，配置文件里的选择仍生效），并让 WPF 窗口底色跟随主题。
+        var cfgTheme = string.IsNullOrWhiteSpace(Cfg.Current.Theme) ? "light" : Cfg.Current.Theme;
+        var applied = "light";
+        try { applied = await JS.InvokeAsync<string>("junigridJs.applyTheme", cfgTheme); }
+        catch { }
+        MainWindow.ApplyShellTheme(applied == "dark");
     }
 
     private void OnWindowStateChanged(object? sender, EventArgs e)
@@ -159,12 +85,12 @@
         try
         {
             await JS.InvokeVoidAsync("junigridJs.setMaximized", _isMax);
-            await JS.InvokeVoidAsync("junigridJs.restored");   // remove the shrink fade-out style when restoring from minimized
+            await JS.InvokeVoidAsync("junigridJs.restored");   // 从最小化恢复时移除缩小淡出样式
         }
-        catch { /* ignore if JS isn't ready yet */ }
+        catch { /* JS 还没就绪时忽略 */ }
     }
 
-    // ---- Window dragging (JS mousedown → here; DragMove must be called while the left button is held)----
+    // ---- 拖动窗口（JS mousedown → 这里；必须在左键按住时调用 DragMove）----
     [JSInvokable]
     public void BeginDrag()
     {
@@ -178,21 +104,21 @@
         }
         catch (InvalidOperationException)
         {
-            // DragMove throws this when the mouse is already released — normal, ignore
+            // 鼠标已松开时 DragMove 会抛这个，正常忽略
         }
     }
 
     [JSInvokable]
     public void ToggleMaximize() => ToggleMax();
 
-    // ---- Window buttons ----
+    // ---- 窗口按钮 ----
     private async Task Minimize()
     {
         var w = GetWindow();
         if (w is null) return;
-        // Borderless window minimize: use StaticMethod.ShowWindow (Win32) to force the minimize so the
-        // WebView child windows are withdrawn from the screen too, avoiding a leftover transparent
-        // interactive window (the desktop can't be clicked at the original position after minimizing).
+        // 无边框窗口最小化：直接用 StaticMethod.ShowWindow(Win32) 强制最小化，
+        // 保证连同 WebView 子窗口一起从屏幕撤出，避免残留透明交互窗
+        // （最小化后原位置桌面点不动）。
         try
         {
             await JS.InvokeVoidAsync("junigridJs.animateMinimize");
@@ -211,6 +137,35 @@
     }
 
     private void Close() => GetWindow()?.Close();
+
+    // ---- v1.1.2：深浅主题切换（WPF 覆盖层圆形揭示，坐标取自点击位置）----
+    private bool _switchingTheme;
+
+    private async Task ToggleThemeAsync(Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
+    {
+        if (_switchingTheme) return;   // 揭示动画进行中忽略连点
+        _switchingTheme = true;
+        try
+        {
+            var next = string.Equals(Cfg.Current.Theme, "dark", StringComparison.OrdinalIgnoreCase)
+                ? "light"
+                : "dark";
+            // 揭示动画在宿主侧：截旧主题页面 → 覆盖层挖圆洞 → JS 瞬时切主题
+            await MainWindow.RevealThemeSwitchAsync(
+                e.ClientX, e.ClientY, next,
+                async t => await JS.InvokeVoidAsync("junigridJs.applyTheme", t));
+            if (!string.Equals(Cfg.Current.Theme, next, StringComparison.OrdinalIgnoreCase))
+            {
+                Cfg.Current.Theme = next;
+                Cfg.Save(Cfg.Current);
+            }
+            MainWindow.ApplyShellTheme(next == "dark");
+        }
+        finally
+        {
+            _switchingTheme = false;
+        }
+    }
 
     private static System.Windows.Window? GetWindow()
     {

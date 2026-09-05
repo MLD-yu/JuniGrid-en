@@ -1,8 +1,21 @@
+# .NET build artifacts
 bin/
 obj/
 .vs/
 *.user
-.zcode/
+*.suo
+
+# stray junk
+$null
+NVIDIA Corporation/
+*.bak
+
+# installer payload & build output (generated from publish/sc)
+installer/JuniGridInstaller/payload.lz
+installer/JuniGridInstaller/payload.zip
+installer/publish/
+
+# build outputs & local artifacts
+dist-tmp/
 publish/
-release/
-dist/
+.workbuddy/

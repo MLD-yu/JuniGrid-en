@@ -20,14 +20,12 @@ public sealed class ModService
         var modsDir = Path.Combine(gamePath, "Mods");
         if (!Directory.Exists(modsDir)) return Array.Empty<ModEntry>();
 
-        // v0.52.0: clean up the recycle bin left over from a previous locked-file run (delete if possible, skip if not — it may contain locked files)
-        var trashDir = Path.Combine(modsDir, ".junigrid_trash");
-        if (Directory.Exists(trashDir))
-            try { Directory.Delete(trashDir, recursive: true); } catch { }
+        // v1.09：.junigrid_trash 改为常驻回收站 —— 勾选"移入mod回收站"删除的 mod
+        // 会留在这里等用户手动还原/清理，扫描启动时不再自动清空（只跳过不扫描）。
+        // 清理入口收敛到 设置 → 存储 → 游戏卸载回收站。
 
-        // v0.72.6: materialize the directory list first — during bulk enable/disable, folders get
-        // renamed mid-enumeration (X ↔ .X), and the enumerator throws DirectoryNotFoundException
-        // that blows up the whole Rescan (one root cause of the 2026-08-29 error wall)
+        // v0.72.6：先物化目录列表 —— 批量启禁时目录在惰性枚举途中被改名（X ↔ .X），
+        // 枚举器会直接抛 DirectoryNotFoundException 炸穿整个 Rescan（2026-08-29 错误墙根因之一）
         List<string> dirs;
         try { dirs = Directory.EnumerateDirectories(modsDir).ToList(); }
         catch (DirectoryNotFoundException) { return Array.Empty<ModEntry>(); }
@@ -35,18 +33,16 @@ public sealed class ModService
         var results = new List<ModEntry>();
         foreach (var dir in dirs)
         {
-            // v0.72.6: a single directory being renamed/deleted at the instant of scanning is a legitimate
-            // race — tolerate it locally and skip the item; never let it abort the whole scan. IO/permission
-            // errors are logged separately without changing the scan-result semantics (not swallowed wholesale)
+            // v0.72.6：单个目录在扫描瞬间被改名/删除属合法竞态 —— 局部容错跳过该项，
+            // 绝不让它中断整次扫描；IO/权限异常单独记录但不改变原有扫描结果语义（不整吞）
             try
             {
-                // v0.52.0: the recycle bin directory is not scanned
+                // v0.52.0：回收站目录不参与扫描
                 if (string.Equals(Path.GetFileName(dir), ".junigrid_trash", StringComparison.OrdinalIgnoreCase))
                     continue;
-                // Folders starting with "." are "disable-marker directories" (created by renaming to .X on disable).
-                // They must NOT be skipped: include them and mark them Disabled so the UI can show "Disabled"
-                // and re-enable them. (v0.42.0 used to skip them with continue, which made disabled mods vanish
-                // from the list and become impossible to re-enable — reverted.)
+                // . 开头的文件夹是"禁用标记目录"（禁用时改名 .X 产生）。
+                // 不能跳过：必须把它收进来、标成 Disabled，UI 才能显示“已禁用”并可重新启用。
+                // （v0.42.0 曾用 continue 跳过，导致禁用的 mod 直接从列表消失、再也启用不了 —— 已回退）
                 var manifest = Path.Combine(dir, "manifest.json");
                 if (!File.Exists(manifest))
                 {
@@ -54,11 +50,11 @@ public sealed class ModService
                         .EnumerateFiles(dir, "manifest.json", SearchOption.AllDirectories)
                         .OrderBy(f => f.Length)
                         .ToList();
-                    // A folder may contain multiple sub-mods (Content Pack subfolders are common);
-                    // each nested manifest is treated as its own mod
+                    // 一个文件夹里可能装了多个子 mod（Content Pack 分包很常见），
+                    // 每个 nested manifest 都当成一个 mod 收进来
                     if (nested.Count == 0)
                     {
-                        // No manifest at any level → fall back to the folder name so the mod doesn't vanish
+                        // 连一层 manifest 都没有 → 用文件夹名兜底显示，避免整个 mod 消失
                         results.Add(OrphanEntry(modsDir, dir));
                         continue;
                     }
@@ -66,13 +62,12 @@ public sealed class ModService
                     {
                         var e = BuildModEntry(modsDir, dir, nm);
                         if (e is not null) { results.Add(e); continue; }
-                        // v1.06.4: manifest exists but is empty/unparseable → must still be included as a fallback.
-                        // Dropping it used to make the whole package invisible in the list: "Disable all" couldn't
-                        // touch it (the folder gets no dot prefix) while SMAPI still scanned it, flooding the log
-                        // with Skipped mods (root cause for East Scarp REMASTERED and three other large packs
-                        // shipping a 0-byte top-level manifest).
+                        // v1.06.4：manifest 存在但是空文件/解析失败 → 也必须兜底收进来。
+                        // 之前直接丢弃会让整个包从列表隐身：「全部禁用」碰不到它（文件夹不加
+                        // 点前缀），SMAPI 却照样扫，日志里刷一屏 Skipped mods（East Scarp
+                        // REMASTERED 等四个大包整包 manifest 为 0 字节的根因）。
                         results.Add(OrphanEntry(modsDir, Path.GetDirectoryName(nm)!,
-                            "⚠ manifest.json is empty or unparseable (reinstalling this mod is recommended)"));
+                            "⚠ manifest.json 为空或无法解析（建议重装该 mod）"));
                     }
                     continue;
                 }
@@ -85,39 +80,69 @@ public sealed class ModService
                 }
                 else
                 {
-                    // Empty/unparseable manifest → fall back to the folder name, marked unrecognized, so the mod doesn't vanish
+                    // manifest 为空 / 无法解析 → 用文件夹兜底，标记为不可识别，别让 mod 消失
                     results.Add(OrphanEntry(modsDir, dir));
                 }
                     }
             catch (DirectoryNotFoundException) { continue; }
-            catch (IOException ioe) { AppLog.Warn("Mods", "Scan skipped (IO): " + Path.GetFileName(dir) + " - " + ioe.Message); continue; }
-            catch (UnauthorizedAccessException) { AppLog.Warn("Mods", "Scan skipped (no permission): " + Path.GetFileName(dir)); continue; }
+            catch (IOException ioe) { AppLog.Warn("Mods", "扫描跳过(IO): " + Path.GetFileName(dir) + " - " + ioe.Message); continue; }
+            catch (UnauthorizedAccessException) { AppLog.Warn("Mods", "扫描跳过(无权限): " + Path.GetFileName(dir)); continue; }
         }
-        return results;
+        // v1.08：UniqueID 判重 —— 同一个 mod 的禁用副本（.X）与启用副本（X）并存时
+        // 只显示一份（常见于：旧副本被禁用后又重新下载/重装了新副本）。规则：优先保留
+        // 启用的那份；同为启用/禁用则保留版本号高的。被隐藏的副本留在磁盘不动，不删文件。
+        var byUid = new Dictionary<string, ModEntry>(StringComparer.OrdinalIgnoreCase);
+        var ordered = new List<ModEntry>();
+        foreach (var e in results)
+        {
+            var uid = e.UniqueID?.Trim();
+            if (string.IsNullOrWhiteSpace(uid)) { ordered.Add(e); continue; }
+            if (byUid.TryGetValue(uid, out var prev))
+            {
+                ModEntry keep = prev, drop = e;
+                var prevBetter = !prev.Disabled && e.Disabled;
+                var dropBetter = prev.Disabled && !e.Disabled;
+                if (dropBetter) { keep = e; drop = prev; }
+                else if (!prevBetter && !dropBetter)
+                {
+                    var vp = Version.TryParse((prev.Version ?? "").TrimStart('v', 'V'), out var a) ? a : null;
+                    var ve = Version.TryParse((e.Version ?? "").TrimStart('v', 'V'), out var b) ? b : null;
+                    if (ve is not null && (vp is null || ve > vp)) { keep = e; drop = prev; }
+                }
+                ordered.Remove(drop);
+                ordered.Add(keep);
+                AppLog.Warn("Mods", $"[判重] UniqueID {uid} 存在多份：显示 {keep.Folder}，隐藏 {drop.Folder}");
+            }
+            else
+            {
+                byUid[uid] = e;
+                ordered.Add(e);
+            }
+        }
+        return ordered;
     }
 
     // ------------------------------------------------------------------
     // Enable / disable / uninstall
     // ------------------------------------------------------------------
     /// <summary>Disabling = prefixing the folder with a dot (SMAPI skips those).
-    /// Only the "top-level folder" is renamed: if a multi-level sub-path is passed (e.g. a Content Pack
-    /// subfolder like Weather-Beta/[CC]), only the first segment (the entire top-level mod) is renamed.
-    /// Disabling a multi-pack mod therefore renames it as a whole, without splitting directories or leaving husks.</summary>
+    /// 只对"顶层文件夹"改名：若传入的是多级子路径（如 Weather-Beta/[CC] 这种 Content Pack 分包），
+    /// 永远只改第一段（整个顶层 mod）。这样禁用一个多分包时是整体改名，不会劈目录、不会残留空壳。</summary>
     public string? SetDisabled(string gamePath, string folderName, bool disabled)
     {
         try
         {
             var modsDir = Path.Combine(gamePath, "Mods");
-            // Take only the top level: multi-level sub-paths ("top/sub-pack") resolve to the top-level folder for a whole-folder rename
+            // 只取最顶层：多级子路径（"顶层/子包"）统一落到顶层文件夹，整体重命名
             var topLevel = folderName.Split('/')[0];
             var src = Path.Combine(modsDir, topLevel);
             if (!Directory.Exists(src) && !disabled && !topLevel.StartsWith('.'))
             {
-                // Enable tolerance: the caller passes the old name without a dot, but the disk actually has .X
+                // 启用容错：调用方传的是不带点的旧名，但磁盘上实际是 .X
                 var alt = Path.Combine(modsDir, "." + topLevel);
                 if (Directory.Exists(alt)) { topLevel = "." + topLevel; src = alt; }
             }
-            if (!Directory.Exists(src)) return "Mod folder not found";
+            if (!Directory.Exists(src)) return "找不到 Mod 文件夹";
 
             var targetName = disabled
                 ? (topLevel.StartsWith('.') ? topLevel : "." + topLevel)
@@ -126,62 +151,87 @@ public sealed class ModService
             if (targetName == topLevel) return null;
 
             var dest = Path.Combine(modsDir, targetName);
-            if (Directory.Exists(dest)) return "A folder with the same name already exists; cannot rename";
-            // v0.44.0: src and dest are both in the same Mods directory, so Directory.Move is a pure
-            // metadata rename (instant, no content copy). The old MoveDirectorySafe fell back to
-            // "copy + delete source" on locks, which for large mods meant moving hundreds of MB —
-            // the root cause of very slow bulk enable/disable. Use the instant rename instead and let
-            // Windows fail directly on a lock; the caller surfaces the message.
+            if (Directory.Exists(dest))
+            {
+                // v1.08：目标已存在 = 同一 mod 的重复副本（如禁用的 .X 与新装的 X 并存）。
+                // 把旧的重复副本挪进 .junigrid_trash（不真删，可找回），再完成本次改名。
+                var trash = Path.Combine(modsDir, ".junigrid_trash");
+                Directory.CreateDirectory(trash);
+                var grave = Path.Combine(trash,
+                    targetName.TrimStart('.') + "-" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+                Directory.Move(dest, grave);
+                AppLog.Warn("Mods", $"[判重清理] 重复副本 {targetName} 已移入回收站（{Path.GetFileName(grave)}）");
+            }
+            // v0.44.0：src 和 dest 都在同一个 Mods 目录下，Directory.Move 是纯元数据
+            // 重命名（瞬时，不复制内容）。原 MoveDirectorySafe 遇占用会走"复制+删源"，
+            // 大 mod 要搬几百 MB → 批量启禁巨慢的根因。改用瞬时改名，占用时让 Windows
+            // 直接报错，由调用方提示。
             Directory.Move(src, dest);
             return null;
         }
         catch (Exception ex)
         {
-            // v0.51.0: show a friendly message when files are locked instead of the raw English exception
+            // v0.51.0：文件被占用时给中文提示，不再显示英文异常原文
             if (ex is IOException or UnauthorizedAccessException)
-                return $"\"{folderName}\" is currently in use. Close the related program before {(disabled ? "disabling" : "enabling")} it";
+                return $"「{folderName}」正被占用，请先退出相关程序再{(disabled ? "禁用" : "启用")}";
             return ex.Message;
         }
     }
 
-    public string? Uninstall(string gamePath, string folderName)
+    /// <param name="toTrash">true = 移入 Mods/.junigrid_trash 常驻回收站（可手动还原）；
+    /// false = 沿用旧"原子化"流程：先进回收站验证可删，再彻底删除。</param>
+    public string? Uninstall(string gamePath, string folderName, bool toTrash = false)
     {
         try
         {
             var dir = Path.Combine(gamePath, "Mods", folderName);
-            if (!Directory.Exists(dir)) return "Mod folder not found";
-            // v0.51.0: atomic delete — first move the whole folder into the recycle bin to verify it
-            // "can be deleted"; only if the move succeeds is it fully deleted from the bin. If it can't
-            // move (locked), it is restored — never leave half a folder behind
+            if (!Directory.Exists(dir)) return "找不到 Mod 文件夹";
             var trash = Path.Combine(gamePath, "Mods", ".junigrid_trash");
             Directory.CreateDirectory(trash);
-            var staging = Path.Combine(trash, folderName.Replace('/', '_') + "_" + Guid.NewGuid().ToString("N")[..8]);
+            var baseName = folderName.Replace('/', '_');
+            string staging;
+            if (toTrash)
+            {
+                // v1.09：回收站条目带时间戳 —— 删了"1"再装"1"再删，两份都保留互不覆盖；
+                // 同一秒重名（批量删除同名 mod 理论上可能）再追加序号兜底
+                var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                staging = Path.Combine(trash, baseName + "_" + stamp);
+                for (var n = 2; Directory.Exists(staging); n++)
+                    staging = Path.Combine(trash, $"{baseName}_{stamp}_{n}");
+            }
+            else
+            {
+                staging = Path.Combine(trash, baseName + "_" + Guid.NewGuid().ToString("N")[..8]);
+            }
             try
             {
-                Directory.Move(dir, staging);   // same-volume instant rename; a lock throws right here
+                Directory.Move(dir, staging);   // 同盘瞬时改名，占用时这里直接抛异常
             }
             catch (Exception ex)
             {
-                // Locked → restore (if staging was partially moved, move it back)
+                // 占用 → 还原（如果 staging 已部分移走就移回去）
                 if (Directory.Exists(staging) && !Directory.Exists(dir))
                     try { Directory.Move(staging, dir); } catch { }
                 if (ex is IOException or UnauthorizedAccessException)
-                    return $"\"{folderName}\" is currently in use. Close the related program before deleting it";
+                    return $"「{folderName}」正被占用，请先退出相关程序再删除";
                 return ex.Message;
             }
-            // Move succeeded → delete from the recycle bin for good
-            try { Directory.Delete(staging, recursive: true); }
-            catch (Exception ex) { AppLog.Warn("ModService", "Recycle bin cleanup failed: " + ex.Message); }
-            // v0.52.0: right after deleting, remove the recycle bin itself if empty so no .junigrid_trash husk shows up in the list
-            try { if (Directory.Exists(trash) && !Directory.EnumerateFileSystemEntries(trash).Any()) Directory.Delete(trash); }
-            catch { }
+            if (!toTrash)
+            {
+                // 移成功 → 从回收站彻底删
+                try { Directory.Delete(staging, recursive: true); }
+                catch (Exception ex) { AppLog.Warn("ModService", "回收站清理失败: " + ex.Message); }
+                // v0.52.0：删完立刻把回收站空目录也删掉，避免列表里多出 .junigrid_trash 空壳
+                try { if (Directory.Exists(trash) && !Directory.EnumerateFileSystemEntries(trash).Any()) Directory.Delete(trash); }
+                catch { }
+            }
             return null;
         }
         catch (Exception ex)
         {
-            // v0.47.0: understandable message when a file is locked (e.g. Stardrop.exe is running)
+            // v0.47.0：文件被占用（如 Stardrop.exe 正在运行）时给人看得懂的提示
             if (ex is UnauthorizedAccessException or IOException)
-                return $"\"{folderName}\" is currently in use. Close the related program before deleting it";
+                return $"「{folderName}」正被占用，请先退出相关程序再删除";
             return ex.Message;
         }
     }
@@ -201,11 +251,11 @@ public sealed class ModService
         try
         {
             var manifest = ExtractToTemp(zipPath, "mod-update-", out temp);
-            if (manifest is null) return "manifest.json not found in the archive";
+            if (manifest is null) return "压缩包里没找到 manifest.json";
             var modRoot = Path.GetDirectoryName(manifest)!;
 
-            // Safety lock: when multiple mods share one GitHub repo, the latest release may belong to
-            // a different mod. If the UniqueID doesn't match, abort — never install the wrong package.
+            // 安全锁：多 Mod 共用一个 GitHub 仓库时，latest release 可能是别的 Mod。
+            // 校验 UniqueID 不符就放弃，绝不能覆盖错装。
             if (expectedUniqueId is not null)
             {
                 try
@@ -214,9 +264,9 @@ public sealed class ModService
                     var uid = check.RootElement.TryGetProperty("UniqueID", out var u)
                         ? u.GetString() : null;
                     if (!string.Equals(uid, expectedUniqueId, StringComparison.OrdinalIgnoreCase))
-                        return "The downloaded package is not this mod (the release repo contains multiple mods); installation aborted to prevent a wrong install";
+                        return "下载的包不是这个 Mod（发布仓库里含多个 Mod），已放弃安装防止装错";
                 }
-                catch { return "Unable to verify the update package; installation aborted"; }
+                catch { return "无法校验更新包，已放弃安装"; }
             }
 
             try
@@ -228,10 +278,30 @@ public sealed class ModService
             catch (Exception __ex) { AppLog.Warn("ModService", __ex.Message); }
 
             var dest = Path.Combine(gamePath, "Mods", targetFolderName);
-            if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
-            MoveDirectorySafe(modRoot, dest);   // cross-volume safety
+            // v1.1.1：旧版不再直接删除 —— 先整体改名移入 .junigrid_trash（同盘原子改名，
+            // 绝不出现"删一半"），再装新版；安装失败时原路移回 Mods。任何中断旧版都不丢。
+            string? stagedOld = null;
+            if (Directory.Exists(dest))
+            {
+                try { stagedOld = StageExistingToTrash(gamePath, dest); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { return $"「{targetFolderName}」正被占用，无法备份旧版，已放弃更新（旧版未动）"; }
+            }
+            try
+            {
+                MoveDirectorySafe(modRoot, dest);   // 跨盘保护
+            }
+            catch
+            {
+                // 清掉可能残缺的新版半成品，再把旧版原路移回；移不回去就留在回收站（可手动还原）
+                try { if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true); } catch { }
+                if (stagedOld is not null) RestoreStaged(stagedOld, dest);
+                throw;
+            }
 
             TryDelete(temp);
+            if (stagedOld is not null)
+                AppLog.Warn("Mods", $"[更新] 旧版已移入回收站保留：{Path.GetFileName(stagedOld)}（可在设置中还原或清理）");
             return null;
         }
         catch (Exception ex)
@@ -255,13 +325,12 @@ public sealed class ModService
             var manifest = ExtractToTemp(zipPath, "mod-install-", out temp);
             if (manifest is null)
             {
-                // Archives without manifest.json are not standalone mods (usually translation patches or
-                // overlay-only file packs). Auto-installing them would mix "orphan folders" into the list,
-                // with no way to identify version/dependencies. Instead, prompt for a manual download and
-                // let the user decide how to handle it.
+                // 没有 manifest.json 的不是独立 mod（多为汉化补丁/覆盖型文件包），
+                // 自动装进去会以"孤儿文件夹"混进列表、且无法识别版本/依赖。
+                // 改为提示手动下载，让用户自己决定怎么处理。
                 TryDelete(temp);
                 modName = null;
-                return "This archive has no manifest.json, so it is not a complete standalone mod (likely a translation patch or overlay pack). Please use Manual download instead and place the files yourself.";
+                return "这个压缩包没有 manifest.json，不是完整的独立 mod（可能是汉化补丁/覆盖包）。请改用 Manual download 手动下载并自行放置。";
             }
             var modRoot = Path.GetDirectoryName(manifest)!;
 
@@ -277,16 +346,30 @@ public sealed class ModService
             if (string.IsNullOrEmpty(folderName) || modRoot == temp)
                 folderName = SanitizeFolderName(modName ?? "NewMod");
 
+            // v1.1.1：同名旧目录（启用/禁用两份）不再直接删除 —— 先移入回收站，安装失败回滚
             var dest = Path.Combine(gamePath, "Mods", folderName);
-            if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true);
-            // v0.71.9: a same-named disabled directory (.folderName) must also be removed — the old logic
-            // only checked the dot-less dest, so a disabled mod (Mods/.X) plus a fresh download (Mods/X)
-            // could coexist and the scan would list the same mod twice.
+            string? stagedDest = null, stagedDisabled = null;
+            if (Directory.Exists(dest))
+            {
+                try { stagedDest = StageExistingToTrash(gamePath, dest); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { TryDelete(temp); return $"「{folderName}」正被占用，无法备份旧版，已放弃安装（旧版未动）"; }
+            }
+            // v0.71.9：同名【禁用】目录（.folderName）也要清掉 —— 旧逻辑只查不带点的 dest，
+            // 禁用 mod（Mods/.X）+ 新下载（Mods/X）会同时存在，扫描出来就是同一个 mod 两行。
             var destDisabled = Path.Combine(gamePath, "Mods", "." + folderName);
-            if (Directory.Exists(destDisabled)) Directory.Delete(destDisabled, recursive: true);
-            // v0.71.9: also deduplicate by manifest UniqueID — folders with different names but the same
-            // UniqueID (e.g. ABC / ABC-1.2 / .ABC) are the same mod and are cleaned up too, preventing
-            // duplicates of any kind.
+            if (Directory.Exists(destDisabled))
+            {
+                try { stagedDisabled = StageExistingToTrash(gamePath, destDisabled); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    if (stagedDest is not null) RestoreStaged(stagedDest, dest);
+                    TryDelete(temp);
+                    return $"「.{folderName}」正被占用，无法备份旧版，已放弃安装（旧版未动）";
+                }
+            }
+            // v0.71.9：再按 manifest UniqueID 兜底判重 —— 文件夹名不同但 UniqueID 相同
+            // （如 ABC / ABC-1.2 / .ABC）也属于同一个 mod，一并清理，防任何形式的重复项。
             try
             {
                 string? newUid = null;
@@ -300,7 +383,7 @@ public sealed class ModService
                         var name2 = Path.GetFileName(dir2);
                         if (string.Equals(name2, folderName, StringComparison.OrdinalIgnoreCase)
                             || string.Equals(name2, "." + folderName, StringComparison.OrdinalIgnoreCase))
-                            continue;   // already handled above
+                            continue;   // 上面已处理
                         foreach (var mf in Directory.EnumerateFiles(dir2, "manifest.json", SearchOption.AllDirectories))
                         {
                             try
@@ -308,19 +391,43 @@ public sealed class ModService
                                 using var d2 = JsonDocument.Parse(File.ReadAllText(mf));
                                 if (d2.RootElement.TryGetProperty("UniqueID", out var u2)
                                     && string.Equals(u2.GetString(), newUid, StringComparison.OrdinalIgnoreCase))
-                                { Directory.Delete(dir2, recursive: true); break; }
+                                {
+                                    // v1.1.1：不再永久删除 —— 旧副本整体移入回收站（可还原）；
+                                    // 移不动（被占用）就保留原样并记日志，不阻断安装
+                                    try
+                                    {
+                                        var stagedDup = StageExistingToTrash(gamePath, dir2);
+                                        AppLog.Warn("Mods", $"[判重清理] 同 UniqueID 旧副本 {name2} 已移入回收站：{Path.GetFileName(stagedDup)}");
+                                    }
+                                    catch (Exception stageEx)
+                                    {
+                                        AppLog.Warn("Mods", $"[判重清理] {name2} 移入回收站失败（可能被占用），保留原样: {stageEx.Message}");
+                                    }
+                                    break;
+                                }
                             }
                             catch { }
                         }
                     }
                 }
             }
-            catch (Exception __ex) { AppLog.Warn("ModService", "UniqueID dedup cleanup failed: " + __ex.Message); }
+            catch (Exception __ex) { AppLog.Warn("ModService", "UniqueID 判重清理失败: " + __ex.Message); }
 
-            if (modRoot == temp)
-                CopyDirectoryContents(temp, dest);   // files at zip root — copy into named folder
-            else
-            MoveDirectorySafe(modRoot, dest);   // cross-volume safety
+            try
+            {
+                if (modRoot == temp)
+                    CopyDirectoryContents(temp, dest);   // files at zip root — copy into named folder
+                else
+                    MoveDirectorySafe(modRoot, dest);   // 跨盘保护
+            }
+            catch
+            {
+                // v1.1.1：安装失败 → 清掉残缺半成品，把回收站里的旧版原路移回
+                try { if (Directory.Exists(dest)) Directory.Delete(dest, recursive: true); } catch { }
+                if (stagedDest is not null) RestoreStaged(stagedDest, dest);
+                if (stagedDisabled is not null) RestoreStaged(stagedDisabled, destDisabled);
+                throw;
+            }
 
             TryDelete(temp);
             return null;
@@ -349,9 +456,9 @@ public sealed class ModService
 
 
     /// <summary>
-    /// Cross-volume-safe directory move: Directory.Move only supports the same volume and throws
-    /// "Source and destination path must have identical roots" across volumes.
-    /// When different drives are detected, fall back to "copy + delete source".
+    /// 跨盘安全的目录移动：Directory.Move 只支持同卷，跨卷会抛
+    /// "Source and destination path must have identical roots"。
+    /// 这里检测到不同盘符时改用"复制 + 删源"。
     /// </summary>
     private static void MoveDirectorySafe(string src, string dest)
     {
@@ -361,7 +468,7 @@ public sealed class ModService
         }
         catch (IOException)
         {
-            // Cross-volume / dest already exists / handle locked → copy + delete source
+            // 跨盘 / 目标目录已存在 / 句柄占用 → 用复制+删源
             Directory.CreateDirectory(dest);
             CopyDirectoryContents(src, dest);
             try { Directory.Delete(src, recursive: true); } catch (Exception __ex) { AppLog.Warn("ModService", __ex.Message); }
@@ -374,6 +481,33 @@ public sealed class ModService
             File.Copy(f, Path.Combine(dest, Path.GetFileName(f)), overwrite: true);
         foreach (var d in Directory.GetDirectories(src))
             CopyDirectoryContents(d, Path.Combine(dest, Path.GetFileName(d)));
+    }
+
+    /// <summary>
+    /// v1.1.1：把 Mods 下已存在的旧版目录整体改名移入 .junigrid_trash（同盘瞬时原子改名，
+    /// 失败即整体失败，绝不出现"删一半"）。命名沿用 Uninstall 的时间戳+序号兜底规则。
+    /// 返回 staging 路径；被占用等改名失败直接抛异常，由调用方决定放弃或回滚。
+    /// </summary>
+    private static string StageExistingToTrash(string gamePath, string existingDir)
+    {
+        var trash = Path.Combine(gamePath, "Mods", ".junigrid_trash");
+        Directory.CreateDirectory(trash);
+        var baseName = Path.GetFileName(existingDir).TrimStart('.');
+        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var staging = Path.Combine(trash, baseName + "_" + stamp);
+        for (var n = 2; Directory.Exists(staging); n++)
+            staging = Path.Combine(trash, $"{baseName}_{stamp}_{n}");
+        Directory.Move(existingDir, staging);
+        return staging;
+    }
+
+    /// <summary>安装失败回滚：把回收站里的旧版原路移回 Mods；移不回去就留在回收站并记日志，
+    /// 用户可在设置 → 游戏卸载回收站 里手动还原。</summary>
+    private static void RestoreStaged(string staging, string dest)
+    {
+        try { Directory.Move(staging, dest); }
+        catch (Exception __ex)
+        { AppLog.Warn("Mods", $"[回滚] 旧版未能移回，已保留在回收站：{Path.GetFileName(staging)} - {__ex.Message}"); }
     }
 
     private static string SanitizeFolderName(string name)
@@ -390,8 +524,8 @@ public sealed class ModService
     }
 
     /// <summary>
-    /// Reads manifest text: strips the non-strict comments common in Stardew Valley mods (/* */ and //).
-    /// Returns null for empty/unreadable files; callers fall back to the folder name so the mod isn't swallowed.
+    /// 读取 manifest 文本：剥掉星露谷 mod 常见但非严格的注释（/* */ 与 //），
+    /// 空文件 / 无法读取返回 null，调用方据此用文件夹名兜底，避免整个 mod 被吞掉。
     /// </summary>
     private static string? TryReadManifestCleaned(string manifestPath)
     {
@@ -399,8 +533,8 @@ public sealed class ModService
         {
             var text = File.ReadAllText(manifestPath);
             if (string.IsNullOrWhiteSpace(text)) return null;
-            // Return the raw text — Newtonsoft's JObject.Parse is lenient and
-            // accepts SMAPI manifests with trailing commas, inline // comments, and /* */ comments.
+            // 直接返回原文——Newtonsoft JObject.Parse 本身宽松，
+            // 可接受 SMAPI manifest 的尾随逗号、行内 // 注释、/* */ 注释。
             return text;
         }
         catch
@@ -409,7 +543,7 @@ public sealed class ModService
         }
     }
 
-    /// <summary>Sub-directories with no manifest at any level (or empty folders, etc.): fall back to the folder name.</summary>
+    /// <summary>连一层 manifest 都没有的子目录（或空目录等），用文件夹名兜底显示。</summary>
     private static ModEntry OrphanEntry(string modsDir, string modDir, string? note = null)
     {
         var folderName = Path.GetRelativePath(modsDir, modDir).Replace('\\', '/');
@@ -420,15 +554,15 @@ public sealed class ModService
             Disabled = folderName.StartsWith('.') || folderName.Contains("/."),
             Name = Path.GetFileName(modDir.TrimEnd(Path.DirectorySeparatorChar)),
             Version = "?",
-            Description = note ?? "⚠ This folder has no manifest.json",
+            Description = note ?? "⚠ 该文件夹没有 manifest.json",
             HasManifest = false,
         };
     }
 
     /// <summary>
-    /// Builds a ModEntry from a single manifest.json.
-    /// Missing/empty/unparseable manifest → returns null (caller falls back to OrphanEntry).
-    /// Parses the Dependencies array and ContentPackFor.UniqueID as "dependencies" (for missing-mod detection).
+    /// 从单个 manifest.json 构建 ModEntry。
+    /// 读不到 manifest / 空 / 解析失败 → 返回 null（调用方用 OrphanEntry 兜底）。
+    /// 解析 Dependencies 数组和 ContentPackFor.UniqueID 作为"依赖"（供缺失检测）。
     /// </summary>
     private static ModEntry? BuildModEntry(string modsDir, string ownerDir, string manifestPath,
         string? displayNameOverride = null)
@@ -441,11 +575,11 @@ public sealed class ModService
 
         try
         {
-            // Lenient Newtonsoft parsing: SMAPI manifests allow trailing commas/inline comments;
-            // strict JsonDocument would wrongly report "no manifest". JObject.Parse handles all of it.
+            // Newtonsoft 宽松解析：SMAPI manifest 允许尾随逗号/行内注释，
+            // 严格 JsonDocument 会误判"无清单"。JObject.Parse 一律兼容。
             var root = Newtonsoft.Json.Linq.JObject.Parse(cleaned);
 
-            // UpdateKeys: Nexus / GitHub
+            // UpdateKeys：Nexus / GitHub
             int? nexusId = null;
             string? githubRepo = null;
             if (root["UpdateKeys"] is Newtonsoft.Json.Linq.JArray uksArr)
@@ -456,7 +590,7 @@ public sealed class ModService
                     if (nexusId is null
                         && s.StartsWith("Nexus:", StringComparison.OrdinalIgnoreCase))
                     {
-                        // e.g. "Nexus:23135@main": strip the GitHub-style @suffix, then take the numeric ID
+                        // 形如 "Nexus:23135@main"：去掉 @ 后的 GitHub 风格后缀再取纯数字 ID
                         var idPart = s[6..].Split('@')[0].Trim();
                         if (int.TryParse(idPart, out var id))
                             nexusId = id;
@@ -471,9 +605,8 @@ public sealed class ModService
                 }
             }
 
-            // Dependencies: only "required" ones. SMAPI's IsRequired (formerly Required) defaults to true;
-            // explicit IsRequired=false marks an optional dependency (may be absent and shouldn't be reported
-            // as missing) → excluded, to avoid false positives.
+            // Dependencies：只收"必需"依赖。SMAPI 的 IsRequired(旧名 Required) 默认 true，
+            // 显式标 IsRequired=false 的是可选依赖（可缺但不应报缺失）→ 排除，避免凭空多报。
             var deps = new List<string>();
             if (root["Dependencies"] is Newtonsoft.Json.Linq.JArray depsArr)
             {
@@ -484,7 +617,7 @@ public sealed class ModService
                     var s = (string)io["UniqueID"]!;
                     if (string.IsNullOrWhiteSpace(s)) continue;
 
-                    // Explicit IsRequired/Required=false → optional dependency, not a required one
+                    // 显式标了 IsRequired/Required=false 的 → 可选依赖，不算必需
                     var required = true;
                     var reqToken = io["IsRequired"] ?? io["Required"];
                     if (reqToken?.Type == Newtonsoft.Json.Linq.JTokenType.Boolean)
@@ -493,9 +626,8 @@ public sealed class ModService
                 }
             }
 
-            // ContentPackFor: "this pack requires a host framework". A missing host is not something the
-            // user should be told to hard-install — many packs merely lose dynamic features without it,
-            // so don't misreport it as a "missing dependency" → stored in a separate field, not in deps.
+            // ContentPackFor：这是"该 pack 需要宿主框架"。宿主不是用户硬装的缺失，
+            // 很多包缺框架也只是动态功能缺失，不当"缺失依赖"误报 → 存单独字段，不进 deps。
             string? contentPackHost = null;
             if (root["ContentPackFor"] is Newtonsoft.Json.Linq.JObject cpfObj)
             {
@@ -503,15 +635,15 @@ public sealed class ModService
                     ? (string)cpfObj["UniqueID"]! : null;
             }
 
-            // v0.45.0: category tag — a manifest with EntryDll is a code mod (contains C# logic);
-            // one declaring ContentPackFor is a content pack (attached to a host framework like Content Patcher).
+            // v0.45.0：分类标签 —— manifest 里有 EntryDll 的是代码 Mod（含 C# 逻辑），
+            // 声明了 ContentPackFor 的是内容包（依附宿主框架，如 Content Patcher）。
             var hasEntryDll = root["EntryDll"]?.Type == Newtonsoft.Json.Linq.JTokenType.String;
-            var category = hasEntryDll && contentPackHost is not null ? "Code · Content pack"
-                : hasEntryDll ? "Code mod"
-                : contentPackHost is not null ? "Content pack"
+            var category = hasEntryDll && contentPackHost is not null ? "代码 · 内容包"
+                : hasEntryDll ? "代码 Mod"
+                : contentPackHost is not null ? "内容包"
                 : "";
 
-            // Path relative to Mods/ as the unique folder identity (multi-level structures are labeled clearly, e.g. "SVE/[CP] xx")
+            // 相对 Mods/ 的路径作为唯一 folder 标识（多级结构也标清，如 "SVE/[CP] xx"）
             var manifestDir = Path.GetDirectoryName(manifestPath) ?? ownerDir;
             var relFolder = Path.GetRelativePath(modsDir, manifestDir).Replace('\\', '/');
             var dis = relFolder.StartsWith('.') || relFolder.Contains("/.");
@@ -529,7 +661,10 @@ public sealed class ModService
                 Author = root["Author"]?.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string)root["Author"]! : "Unknown",
                 Version = root["Version"]?.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string)root["Version"]! : "?",
                 Description = root["Description"]?.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string)root["Description"]! : "",
-                UniqueID = root["UniqueID"]?.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string)root["UniqueID"]! : "",
+                // v1.08：忽略大小写读取 —— SMAPI 内置 mod 的 manifest 写的是 "UniqueId"，
+                // 严格匹配会读空导致同一 mod 的禁用/启用副本无法判重（列表出现两行）。
+                UniqueID = (root.GetValue("UniqueID", StringComparison.OrdinalIgnoreCase)?.Type == Newtonsoft.Json.Linq.JTokenType.String
+                    ? (string)root.GetValue("UniqueID", StringComparison.OrdinalIgnoreCase)! : ""),
                 NexusModId = nexusId,
                 GitHubRepo = githubRepo,
                 Dependencies = deps,
@@ -548,19 +683,19 @@ public sealed class ModService
 public sealed class ModEntry
 {
     public string Folder { get; set; } = "";
-    /// <summary>Last write time of the mod folder, used for "sort by time".</summary>
+    /// <summary>mod 文件夹的最后写入时间，用于"按时间排序"。</summary>
     public DateTime LastWrite { get; set; }
     public bool Disabled { get; set; }
     public string Name { get; set; } = "";
     public string Author { get; set; } = "";
     public string Version { get; set; } = "";
     public string Description { get; set; } = "";
-    public string UniqueID { get; set; } = "";           // unique ID from the manifest, used to verify update packages
+    public string UniqueID { get; set; } = "";           // manifest 里的唯一标识，更新包校验用
     public int? NexusModId { get; set; }   // from manifest UpdateKeys "Nexus:<id>"
-    public string? GitHubRepo { get; set; }  // from manifest UpdateKeys "GitHub:<owner>/<repo>" (free direct download)
-    public List<string> Dependencies { get; set; } = new();  // UniqueIDs this mod depends on (including ContentPackFor host)
-    public List<string> ContentPackIds { get; set; } = new(); // host mod UniqueIDs required when this is a content pack (merged into Dependencies for missing-mod detection)
-    public bool HasManifest { get; set; } = true;   // false = this folder has no valid manifest (folder name used as fallback)
-    /// <summary>v0.45.0: category tag (PCL2-style), shown before the summary line in the list. Code mod / Content pack / Code · Content pack; empty if none.</summary>
+    public string? GitHubRepo { get; set; }  // from manifest UpdateKeys "GitHub:<owner>/<repo>"（免费直下）
+    public List<string> Dependencies { get; set; } = new();  // 本 mod 依赖的 UniqueID（含 ContentPackFor 宿主）
+    public List<string> ContentPackIds { get; set; } = new(); // 它作为内容包时依赖的宿主 mod UniqueID（合并进 Dependencies 用于缺失检测）
+    public bool HasManifest { get; set; } = true;   // false = 该文件夹没有有效 manifest（用文件夹名兜底）
+    /// <summary>v0.45.0：分类标签（仿 PCL2），在列表行简介前显示。代码 Mod / 内容包 / 代码·内容包；都不是则为空。</summary>
     public string Category { get; set; } = "";
 }

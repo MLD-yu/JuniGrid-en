@@ -4,12 +4,10 @@ using System.Runtime.InteropServices;
 namespace JuniGrid.Services;
 
 /// <summary>
-/// v0.2.1: memory management — memory snapshots of the system/self/WebView2/game processes,
-/// working-set compaction (self + game), timer- and threshold-based auto-compaction,
-/// and system-level standby memory page release (requires admin, run via an elevated child instance).
-/// A background loop runs for the app's lifetime (started when DI resolves this service): every 5s it
-/// pushes a snapshot and checks the auto-compaction conditions, regardless of whether the settings
-/// page is open. OnSnapshot may fire on a background thread; UI subscribers must dispatch themselves.
+/// v0.2.1：内存管理 —— 系统/自身/WebView2/游戏进程内存快照、工作集压缩（自身+游戏）、
+/// 定时与阈值自动压缩、系统级待机内存页释放（需管理员，经提权子实例执行）。
+/// 后台循环常驻（随 DI 解析启动）：每 5s 推一次快照并检查自动压缩条件，
+/// 不依赖设置页是否打开。OnSnapshot 可能在后台线程触发，UI 订阅方自行调度。
 /// </summary>
 public sealed class MemoryService
 {
@@ -22,7 +20,7 @@ public sealed class MemoryService
 
     public event Action<MemorySnapshot>? OnSnapshot;
 
-    /// <summary>Memory snapshot. Every per-process figure uses the private working set, matching Task Manager's "Memory (active)" column.</summary>
+    /// <summary>内存快照。各进程数字均为【私有工作集】口径，与任务管理器「内存(活动)」一致。</summary>
     public sealed record MemorySnapshot(
         long SysTotalBytes,
         long SysAvailBytes,
@@ -40,7 +38,7 @@ public sealed class MemoryService
 
     public MemorySnapshot GetSnapshot() => Build();
 
-    private DateTime _lastTrimUtc = DateTime.UtcNow;   // observe one cycle after startup before triggering
+    private DateTime _lastTrimUtc = DateTime.UtcNow;   // 启动后先观察一个周期，不立刻触发
     private readonly object _trimGate = new();
 
     private async Task LoopAsync()
@@ -57,30 +55,30 @@ public sealed class MemoryService
                 var sinceTrim = now - _lastTrimUtc;
                 var cooldown = TimeSpan.FromMinutes(Math.Max(5, c.MemTimerMinutes));
                 var thresholdHit = c.MemThresholdEnabled && snap.SysPercent >= Math.Max(50, c.MemThresholdPercent)
-                                   && sinceTrim >= TimeSpan.FromMinutes(2);   // threshold triggers wait at least 2 minutes apart to avoid rapid-fire compaction
+                                   && sinceTrim >= TimeSpan.FromMinutes(2);   // 阈值触发至少间隔 2 分钟，避免连续狂压
                 var timerHit = c.MemTimerEnabled && sinceTrim >= cooldown;
                 if (thresholdHit || timerHit)
                 {
                     lock (_trimGate)
                     {
-                        // Double-check: only compact if the interval is still satisfied after taking the lock (prevents concurrent double triggers)
+                        // 双检：拿锁后时间已满足才压，杜绝并发双触发
                         if (now - _lastTrimUtc >= (thresholdHit ? TimeSpan.FromMinutes(2) : cooldown))
                         {
                             _lastTrimUtc = now;
                             var (b, a) = CompressSelf();
                             AppLog.Warn("Memory",
-                                $"Auto-compaction: {ResumableDownload.FormatBytes(b)} → {ResumableDownload.FormatBytes(a)}" +
-                                $" ({(thresholdHit ? "threshold" : "timer")} triggered, system {snap.SysPercent:F0}%)");
+                                $"自动压缩：{ResumableDownload.FormatBytes(b)} → {ResumableDownload.FormatBytes(a)}" +
+                                $"（{(thresholdHit ? "阈值" : "定时")}触发，系统 {snap.SysPercent:F0}%）");
                         }
                     }
                 }
             }
-            catch { /* no exception from snapshot/compaction may take down the loop */ }
+            catch { /* 快照/压缩的任何异常都不允许带崩循环 */ }
             await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         }
     }
 
-    /// <summary>Compacts self: full-generational blocking compacting GC + swapping out the entire working set. Returns (before, after) working set.</summary>
+    /// <summary>压缩自身：全代阻塞压缩 GC + 工作集整体换出。返回 (压缩前, 压缩后) 工作集。</summary>
     public (long before, long after) CompressSelf()
     {
         var before = Environment.WorkingSet;
@@ -92,13 +90,12 @@ public sealed class MemoryService
         return (before, after);
     }
 
-    /// <summary>Swaps out only this process's working set (no GC, no perceptible pause). The managed heap is small to begin with;
-    /// most of the working set is runtime/JIT/framework images — the system pages them back in on demand.
-    /// Used for gentle slimming after startup and on minimize.</summary>
+    /// <summary>只把自身工作集换出（不做 GC，无暂停感）。托管堆本来就小，工作集大头是
+    /// 运行时/JIT/框架映像 —— 换出后系统按需自动换回。用于启动完成后与最小化时的温和瘦身。</summary>
     public static void TrimWorkingSet() =>
         SetProcessWorkingSetSize(GetCurrentProcess(), new IntPtr(-1), new IntPtr(-1));
 
-    /// <summary>Trims the game process's working set (both SMAPI and Steam launch modes are probed). Returns the number of processes handled.</summary>
+    /// <summary>清理游戏进程工作集（SMAPI 与 Steam 两种模式都在探测范围内）。返回处理到的进程数。</summary>
     public int TrimGameWorkingSet()
     {
         var n = 0;
@@ -108,7 +105,7 @@ public sealed class MemoryService
             {
                 using (p)
                 {
-                    try { if (EmptyWorkingSet(p.Handle)) n++; } catch { /* exited / access denied */ }
+                    try { if (EmptyWorkingSet(p.Handle)) n++; } catch { /* 已退出/权限不足 */ }
                 }
             }
         }
@@ -116,10 +113,9 @@ public sealed class MemoryService
     }
 
     /// <summary>
-    /// Trims the working sets of the WebView2 child processes. The renderer processes are isolated sandboxes we can't GC inside,
-    /// but EmptyWorkingSet can swap their working sets out entirely (the system pages them back in on demand;
-    /// the UI is unaffected, though the first scroll/interaction after page-in may briefly stutter).
-    /// Returns (process count, total working set before/after).
+    /// 压缩 WebView2 子进程工作集。渲染进程是独立沙箱，进不去做 GC；
+    /// 但 EmptyWorkingSet 可以把它们的工作集整体换出（系统按需自动换回，
+    /// UI 不受影响，回来后首次滚动/交互可能略顿）。返回 (进程数, 压缩前后合计工作集)。
     /// </summary>
     public (int count, long before, long after) TrimWebView2()
     {
@@ -138,13 +134,13 @@ public sealed class MemoryService
                 p.Refresh();
                 after += p.WorkingSet64;
             }
-            catch { /* exited / access denied */ }
+            catch { /* 已退出/权限不足 */ }
         }
         return (n, before, after);
     }
 
     // ------------------------------------------------------------------
-    // Snapshot
+    // 快照
     // ------------------------------------------------------------------
 
     private sealed record ProcRow(long Pid, long ParentPid, long PrivateWs, string ImageName);
@@ -184,7 +180,7 @@ public sealed class MemoryService
             wvWs, wvCount, gameWs, gameRunning);
     }
 
-    /// <summary>Whether the pid hangs under this process (walks up the parent chain; the chain may pass through other webview processes).</summary>
+    /// <summary>pid 是否挂在【本进程】之下（沿父进程链向上找，链条可穿过其它 webview 进程）。</summary>
     private static bool InTreeOf(Dictionary<long, ProcRow> byPid, long pid)
     {
         var mine = (long)Environment.ProcessId;
@@ -198,10 +194,10 @@ public sealed class MemoryService
     }
 
     /// <summary>
-    /// Full process table (pid → parent pid / private working set / image name), fetched in one NtQuerySystemInformation call.
-    /// Uniformly uses the private working set — the same column as Task Manager's "Memory (active)".
-    /// Previously the full working set (WorkingSet64) counted image pages shared by the six Chromium processes once per process,
-    /// which is why the card showed 425MB while Task Manager showed 145MB.
+    /// 全量进程表（pid → 父pid/私有工作集/映像名），一次 NtQuerySystemInformation 拿齐。
+    /// 统一口径用【私有工作集】—— 与任务管理器「内存(活动)」同列。
+    /// 此前用完整工作集（WorkingSet64）会把六个 Chromium 进程共享的映像各算一遍，
+    /// 才出现卡片 425MB / 任务管理器 145MB 的差距。
     /// </summary>
     private static Dictionary<long, ProcRow> ProcTable()
     {
@@ -215,7 +211,7 @@ public sealed class MemoryService
                 var status = NtQuerySystemInformation(SystemProcessInformation, buf, len, out var needed);
                 if (status != 0)
                 {
-                    // Only "buffer too small" (0xC0000004) is worth resizing and retrying; give up on other errors
+                    // 只有「缓冲区不够大」值得扩容重试，其余错误直接放弃
                     if (status != unchecked((int)0xC0000004)) break;
                     len = needed > len ? needed + 65536 : len * 2;
                     continue;
@@ -224,9 +220,9 @@ public sealed class MemoryService
                 var cur = buf;
                 while (true)
                 {
-                    // x64 SYSTEM_PROCESS_INFORMATION fixed field offsets (stable since Vista):
-                    // +8 WorkingSetPrivateSize (private working set, bytes)
-                    // +56 UNICODE_STRING.Length / +64 .Buffer (image name)
+                    // x64 SYSTEM_PROCESS_INFORMATION 固定字段偏移（自 Vista 起稳定）：
+                    // +8 WorkingSetPrivateSize（私有工作集，字节）
+                    // +56 UNICODE_STRING.Length / +64 .Buffer（映像名）
                     // +80 UniqueProcessId / +88 InheritedFromUniqueProcessId
                     var pid = Marshal.ReadInt64(cur, 80);
                     var parent = Marshal.ReadInt64(cur, 88);
@@ -238,8 +234,8 @@ public sealed class MemoryService
                         : "";
                     byPid[pid] = new ProcRow(pid, parent, privateWs, name);
 
-                    var next = Marshal.ReadInt32(cur, 0);   // NextEntryOffset; 0 = last entry
-                    if (next <= 0 || next > 0x100000) break; // upper bound guards against a corrupt-data infinite loop
+                    var next = Marshal.ReadInt32(cur, 0);   // NextEntryOffset，0 = 最后一条
+                    if (next <= 0 || next > 0x100000) break; // 上限防脏数据死循环
                     cur = IntPtr.Add(cur, next);
                 }
                 return byPid;

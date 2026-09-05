@@ -23,7 +23,7 @@ public sealed class ConfigService
     public ConfigService()
     {
         Load();
-        // v0.72.6: before process exit, synchronously flush queued (debounced) changes that haven't hit disk — the last change within the debounce window is never lost
+        // v0.72.6：进程退出前把防抖队列里未落盘的修改同步写盘 —— 防抖窗口内的最后修改不丢
         System.AppDomain.CurrentDomain.ProcessExit += (_, _) => Flush();
     }
 
@@ -40,35 +40,62 @@ public sealed class ConfigService
             }
             catch
             {
+                // v1.1.2：损坏现场先留档再重置 —— 之前静默重置，用户游戏路径/登录态全丢且无法诊断；
+                // 备份带时间戳，可手工抢救关键字段，也便于定位损坏原因
+                try
+                {
+                    if (File.Exists(ConfigPath))
+                    {
+                        var backup = ConfigPath + ".corrupt-" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                        File.Copy(ConfigPath, backup, true);
+                        AppLog.Error("Config", "配置文件解析失败，已备份为 " + Path.GetFileName(backup) + "，本次启动使用默认配置");
+                    }
+                }
+                catch { }
                 Current = new JuniGridConfig();
             }
             SyncAdultFilter();
             SyncStoragePaths();
+            // v1.1.5：首次使用日期只补写一次（老用户从本次升级后开始起算）
+            if (Current.FirstRunDate is null)
+            {
+                Current.FirstRunDate = DateTime.Now.ToString("O");
+                Save(Current);
+            }
         }
 
-        /// <summary>Syncs the "filter adult content" toggle to NexusService's static query flag (whether browse GraphQL includes the adult filter condition).</summary>
-        private void SyncAdultFilter() =>
-            NexusService.IncludeAdultContent = !Current.FilterAdultContent;
+    /// <summary>把「过滤成人内容 / 只显示成人内容」两个互斥开关同步到 NexusService 的静态查询开关
+    /// （浏览 GraphQL 是否加 adult 过滤条件）。开关实际发生变化时递增 NexusService.AdultFilterVersion，
+    /// Nexus 页据此判断手里的浏览快照是不是旧过滤条件拉的、要不要弃用重拉。</summary>
+    private void SyncAdultFilter()
+    {
+        var only = Current.OnlyAdultContent;
+        var include = !Current.OnlyAdultContent && !Current.FilterAdultContent;
+        if (NexusService.OnlyAdultContent != only || NexusService.IncludeAdultContent != include)
+            System.Threading.Interlocked.Increment(ref NexusService.AdultFilterVersion);
+        NexusService.OnlyAdultContent = only;
+        NexusService.IncludeAdultContent = include;
+    }
 
-        /// <summary>v0.2.1: syncs the unified cache directory into StoragePaths' static entry point — all services pick up new paths immediately with zero changes.</summary>
+        /// <summary>v0.2.1：把统一缓存目录同步到 StoragePaths 静态入口 —— 各服务取路径零改动即时生效。</summary>
         private void SyncStoragePaths() =>
             StoragePaths.CacheRoot = string.IsNullOrWhiteSpace(Current.CacheRoot) ? null : Current.CacheRoot;
 
-    // v0.72.6: persistence coordinator — Save() no longer writes the whole file every call; instead a dirty flag +
-    // 250ms debounced coalescing + version snapshots + a single-writer background flush + tmp atomic replace + async retries.
-    // 100+ save requests from batch-applying 63 mods coalesce into one real disk write (the persistence-side root cause of "slow batch operations").
-    // Preserves v0.72.5's correct semantics: serialized writes, tmp + atomic replace, retry on failure, no UnobservedTaskException crashes.
-    private int _dirtyVersion;              // incremented on every Save()
-    private int _savedVersion;              // version already persisted
-    private int _saveRunning;               // single-writer gate (0/1)
-    private readonly object _schedGate = new();   // guards scheduling state only, never wraps I/O
+    // v0.72.6：持久化协调器 —— Save() 不再每次全量写盘，改为 dirty 标记 + 250ms 防抖合并 +
+    // 版本号快照 + 单写者后台落盘 + tmp 原子替换 + 异步重试。批量 63 个 mod 的 100+ 次
+    // 保存请求合并为一次真实磁盘写入（"批量操作慢"的持久化侧根因）。
+    // 保留 v0.72.5 的正确语义：串行写、tmp+原子替换、失败重试、不炸 UnobservedTaskException。
+    private int _dirtyVersion;              // 每次 Save() +1
+    private int _savedVersion;              // 已落盘的版本
+    private int _saveRunning;               // 单写者闸门（0/1）
+    private readonly object _schedGate = new();   // 只护调度状态，绝不包 I/O
     private System.Threading.CancellationTokenSource? _debounceCts;
     private const int DebounceMs = 250;
 
-    /// <summary>Unified save entry point: updates Current + sets the dirty flag + schedules a coalesced write. Returns immediately, never blocks the caller.
-    /// All existing call sites (including 4 synchronous ones) need no change — final persistence semantics are guaranteed by debounce + exit Flush.</summary>
-    /// <summary>v0.2.2: lightweight notification fired after any save (e.g. TaskDock listens to ShowTaskDock to show/hide instantly).
-    /// May fire on a background thread; subscribers must dispatch back to the UI thread themselves.</summary>
+    /// <summary>统一保存入口：更新 Current + 打脏标记 + 调度合并写盘。立即返回，不阻塞调用线程。
+    /// 现有全部调用点（含 4 处同步调用）无需改动 —— 最终持久化语义由防抖+退出 Flush 保证。</summary>
+    /// <summary>v0.2.2：任意保存后触发的轻量通知（如 TaskDock 监听 ShowTaskDock 即时显隐）。
+    /// 可能在后台线程触发，订阅方需自行调度回 UI 线程。</summary>
     public static event Action? Saved;
 
     public void Save(JuniGridConfig cfg)
@@ -86,19 +113,19 @@ public sealed class ConfigService
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 try { await System.Threading.Tasks.Task.Delay(DebounceMs, token).ConfigureAwait(false); }
-                catch (OperationCanceledException) { return; }   // coalesced away by a newer save request
+                catch (OperationCanceledException) { return; }   // 被更新的一次保存请求合并掉
                 try { await SaveLoopAsync().ConfigureAwait(false); }
-                catch (Exception ex) { AppLog.Error("Config", "Background save loop exception (caught, to avoid UnobservedTaskException): " + ex.Message); }
+                catch (Exception ex) { AppLog.Error("Config", "后台保存循环异常(已捕获,防 UnobservedTaskException): " + ex.Message); }
             });
         }
     }
 
-    /// <summary>Write loop: take a version snapshot → serialize (retake the snapshot if a concurrent change collides) → tmp + atomic replace →
-    /// after writing, if the dirty version advanced (new changes arrived during the write), immediately write another round — never overwrite new state with a stale snapshot;
-    /// on failure keep dirty and retry later, never silently treating it as success.</summary>
+    /// <summary>写盘循环：取版本快照 → 序列化（撞上并发修改则重取快照）→ tmp+原子替换 →
+    /// 写完后若 dirty 版本已前进（保存期间有新修改）立即再写一轮 —— 绝不用旧快照覆盖新状态；
+    /// 失败保持 dirty 稍后重试，不静默当成功。</summary>
     private async System.Threading.Tasks.Task SaveLoopAsync()
     {
-        if (System.Threading.Interlocked.Exchange(ref _saveRunning, 1) == 1) return;  // a write loop is already running
+        if (System.Threading.Interlocked.Exchange(ref _saveRunning, 1) == 1) return;  // 已有写盘循环在跑
         try
         {
             while (true)
@@ -112,22 +139,22 @@ public sealed class ConfigService
                 {
                     try { json = JsonSerializer.Serialize(cfg, JsonOpts); break; }
                     catch (InvalidOperationException)
-                    { await System.Threading.Tasks.Task.Delay(25).ConfigureAwait(false); }  // serialization hit a concurrent dictionary change → retake snapshot
+                    { await System.Threading.Tasks.Task.Delay(25).ConfigureAwait(false); }  // 序列化撞上并发改字典 → 重取快照
                 }
                 if (json is null)
-                { AppLog.Error("Config", "Config serialization failed repeatedly (concurrent changes too frequent); staying dirty until next save"); return; }
+                { AppLog.Error("Config", "配置序列化连续失败（并发修改过频），保持 dirty 等待下次保存"); return; }
 
                 if (await WriteAtomicAsync(json).ConfigureAwait(false))
                     System.Threading.Volatile.Write(ref _savedVersion, v);
                 else
-                { await System.Threading.Tasks.Task.Delay(800).ConfigureAwait(false); continue; }  // keep dirty on failure, retry later
-                // loop back and re-check dirtyVersion — changes made during the write trigger the next round
+                { await System.Threading.Tasks.Task.Delay(800).ConfigureAwait(false); continue; }  // 失败保 dirty，稍后重试
+                // 回到循环顶部重查 dirtyVersion —— 写盘期间的新修改会触发下一轮
             }
         }
         finally { System.Threading.Volatile.Write(ref _saveRunning, 0); }
     }
 
-    /// <summary>tmp + atomic replace + async retries (no locks held, never blocks the UI thread).</summary>
+    /// <summary>tmp + 原子替换 + 异步重试（不占锁、不卡 UI 线程）。</summary>
     private static async System.Threading.Tasks.Task<bool> WriteAtomicAsync(string json)
     {
         for (var attempt = 1; ; attempt++)
@@ -137,18 +164,18 @@ public sealed class ConfigService
                 Directory.CreateDirectory(ConfigDir);
                 var tmp = ConfigPath + ".tmp";
                 await File.WriteAllTextAsync(tmp, json).ConfigureAwait(false);
-                File.Move(tmp, ConfigPath, true);   // atomic replace: a crash mid-write never truncates the old config
+                File.Move(tmp, ConfigPath, true);   // 原子替换：写一半崩溃也不会截断旧配置
                 return true;
             }
             catch (IOException) when (attempt < 4)
             { await System.Threading.Tasks.Task.Delay(40 * attempt).ConfigureAwait(false); }
             catch (Exception ex)
-            { AppLog.Error("Config", $"Config save failed (after {attempt} attempt(s)): " + ex.Message); return false; }
+            { AppLog.Error("Config", $"配置保存失败(尝试 {attempt} 次): " + ex.Message); return false; }
         }
     }
 
-    /// <summary>Exit safety net (called from ProcessExit): cancels the debounce and synchronously writes any unpersisted changes to disk.
-    /// Guarantees the last config change is never lost when the app exits.</summary>
+    /// <summary>退出兜底（ProcessExit 调用）：取消防抖，若有未落盘修改则同步写盘。
+    /// 保证应用退出时最后一次配置修改不丢。</summary>
     public void Flush()
     {
         try
@@ -163,7 +190,7 @@ public sealed class ConfigService
                 try { json = JsonSerializer.Serialize(cfg, JsonOpts); break; }
                 catch (InvalidOperationException) { System.Threading.Thread.Sleep(20); }
             }
-            if (json is null) { AppLog.Error("Config", "Exit Flush serialization failed"); return; }
+            if (json is null) { AppLog.Error("Config", "退出 Flush 序列化失败"); return; }
             for (var attempt = 1; ; attempt++)
             {
                 try
@@ -176,14 +203,14 @@ public sealed class ConfigService
                     return;
                 }
                 catch (IOException) when (attempt < 4) { System.Threading.Thread.Sleep(40 * attempt); }
-                catch (Exception ex) { AppLog.Error("Config", "Exit Flush write failed: " + ex.Message); return; }
+                catch (Exception ex) { AppLog.Error("Config", "退出 Flush 写盘失败: " + ex.Message); return; }
             }
         }
-        catch (Exception ex) { AppLog.Error("Config", "Flush exception: " + ex.Message); }
+        catch (Exception ex) { AppLog.Error("Config", "Flush 异常: " + ex.Message); }
     }
 }
 
-/// <summary>v0.46.0: mod save profile (modeled after Stardrop profiles) — records which mods (by UniqueID) are enabled under this profile.</summary>
+/// <summary>v0.46.0：mod 存档（仿 Stardrop Profile）—— 记录该存档下启用哪些 mod（按 UniqueID）。</summary>
 public sealed class ModProfile
 {
     public string Name { get; set; } = "";
@@ -203,87 +230,97 @@ public sealed class JuniGridConfig
     public string? LastLaunchMode { get; set; }
     public int TotalLaunchCount { get; set; }
 
-    // Nexus cover cache: mod folder name → cover image URL (saved opportunistically during update checks so lists open instantly)
+    /// <summary>v1.1.5：首次使用 JuniGrid 的日期（ISO-8601，首次保存配置时补写一次）。
+    /// 首页游玩热力图的年份列表从这里起算到今年。</summary>
+    public string? FirstRunDate { get; set; }
+
+    // Nexus 封面缓存：mod 文件夹名 → 封面图 URL（检查更新时顺手存，列表秒开）
     public Dictionary<string, string> ModCovers { get; set; } = new();
 
-    /// <summary>User-assigned remark per mod: mod folder name → remark (shown in the list as "remark (original name)").</summary>
+    /// <summary>用户给 mod 起的备注名：mod 文件夹名 → 备注（列表里显示成 “备注(原名)”）。</summary>
     public Dictionary<string, string> ModRemarks { get; set; } = new();
 
-    /// <summary>v1.01.0: Nexus page search history (mirrors the site's Recent Searches; up to 10 entries, newest first).</summary>
+    /// <summary>v1.01.0：Nexus 页搜索历史（对照官网 Recent Searches，最多 10 条，新词排前）。</summary>
     public List<string> NexusSearchHistory { get; set; } = new();
 
     /// <summary>
-    /// Filter adult content toggle. On by default — Nexus browsing/search always excludes adult content;
-    /// when turned off, the settings page asks for a date of birth to verify age 18+ (local check only, no online verification).
+    /// 过滤色情（成人）内容开关。默认开启 —— Nexus 浏览/搜索一律排除成人内容；
+    /// 与「只显示成人内容」互斥，开关切换均无年龄验证（早期版本的出生年月验证已移除）。
     /// </summary>
     public bool FilterAdultContent { get; set; } = true;
+    /// <summary>「只显示成人内容」开关，与 FilterAdultContent 互斥（两者最多一个开启，可同时关闭）。默认关闭。</summary>
+    public bool OnlyAdultContent { get; set; } = false;
     /// <summary>
-    /// Nexus one-click install (no browser popup; downloads in the background and installs straight into Mods). On by default;
-    /// when turned off, the "Install" button on the detail page falls back to opening the built-in browser.
+    /// Nexus 一键安装（免弹浏览器、后台直接下载并装进 Mods）。默认开启；
+    /// 关闭后详情页的「安装」按钮改为打开内置浏览器兜底。
     /// </summary>
     public bool EnableOneClickInstall { get; set; } = true;
 
-    /// <summary>User info cached after Nexus login (from /v1/users/validate.json).</summary>
+    /// <summary>Nexus 登录后缓存的用户信息（来自 /v1/users/validate.json）。</summary>
     public string NexusUserName { get; set; } = "";
     public string NexusUserEmail { get; set; } = "";
     public string NexusProfileUrl { get; set; } = "";
     public bool   NexusIsPremium { get; set; }
-    /// <summary>v0.69.0: modId → date (yyyy-MM-dd) of the last file downloaded from that mod. Recorded on local install/update and merged with the Nexus download history.</summary>
+
+    /// <summary>v1.1.1：界面主题（"light" | "dark"）。标题栏开关切换并落盘；
+    /// 启动时 TitleBar 用它对齐前端（localStorage 为防闪白的同步快路径）。
+    /// v1.1.2：默认改为 dark（用户主用暗色观察界面）。</summary>
+    public string Theme { get; set; } = "dark";
+    /// <summary>v0.69.0：modId → 最后一次从该 mod 下载文件的日期（yyyy-MM-dd）。本地安装/更新时记录，并与 N 网下载历史合并。</summary>
     public Dictionary<string, string> ModLastDownload { get; set; } = new();
-    /// <summary>v0.69.0: fileId → download date for that file (only files downloaded through the app itself).</summary>
+    /// <summary>v0.69.0：fileId → 该文件的下载日期（仅本机经系统内下载过的）。</summary>
     public Dictionary<string, string> ModFileLastDownload { get; set; } = new();
 
-    /// <summary>v0.68.2: settings-page "auto-install updates" toggle (Nexus Premium members only).
-    /// When on, entering the Mods page installs detected updates automatically instead of showing a confirmation dialog.</summary>
+    /// <summary>v0.68.2：设置页「自动安装更新」开关（仅 Nexus Premium 会员可开启）。
+    /// 开启后进入 Mod 页检测到更新不再弹询问窗，直接在系统内自动安装。</summary>
     public bool EnableAutoInstall { get; set; } = false;
 
-    /// <summary>v0.2.2: keep the task manager floating window always visible. When on it stays visible; when off it shows only while download tasks run.</summary>
-    public bool ShowTaskDock { get; set; } = true;
+    /// <summary>v0.2.2：任务管理悬浮窗常驻开关。开启常驻显示；关闭后仅在下载任务运行时显示。</summary>
+    public bool ShowTaskDock { get; set; } = false;
     public string NexusAvatarDataUri { get; set; } = "";
 
-    /// <summary>Total play time (minutes). LauncherService accumulates when the game process exits.</summary>
+    /// <summary>累计游玩时间（分钟）。LauncherService 在游戏进程退出时累加。</summary>
     public long TotalPlayMinutes { get; set; }
 
-    /// <summary>v0.46.0: mod save profiles ("Default" is the built-in profile and cannot be deleted).</summary>
+    /// <summary>v0.46.0：mod 存档列表（"默认" 为内置存档，不可删除）。</summary>
     public List<ModProfile> ModProfiles { get; set; } = new();
-    /// <summary>Name of the currently active profile.</summary>
-    public string ActiveProfile { get; set; } = "Default";
+    /// <summary>当前激活的存档名。</summary>
+    public string ActiveProfile { get; set; } = "默认";
 
-    /// <summary>Official Nexus category table (category_id → English name), fetched once at runtime with an API key and cached.</summary>
+    /// <summary>Nexus 官方分类表（category_id → 英文名），运行时带 API Key 拉取一次并缓存。</summary>
     public Dictionary<int, string> NexusCategories { get; set; } = new();
-    /// <summary>mod folder → English category name on the site (cached opportunistically during update checks / cover fetches; same lifetime as ModCovers).</summary>
+    /// <summary>mod 文件夹 → 官网分类英文名（检查更新/补封面时顺手缓存，与 ModCovers 同生命周期）。</summary>
     public Dictionary<string, string> ModCategories { get; set; } = new();
 
     /// <summary>
-    /// vNext: update-check fingerprint cache — Nexus modId → (updatedAt fingerprint, latest MAIN file version found in the last deep check, check time).
-    /// Entering the Mods page first runs a keyless GraphQL batch fingerprint comparison: mods whose updatedAt is unchanged reuse the cached version
-    /// (the file list hasn't changed, so the result can't be stale); only those with a changed/missing fingerprint get an individual files.json deep check,
-    /// whose result is written back to this cache.
-    /// Persisted in the config so it survives app restarts — a routine page visit collapses from N requests to ~N/50.
+    /// vNext：更新检查指纹缓存 —— Nexus modId → (updatedAt 指纹, 上次精查到的最新 MAIN 文件版本, 精查时间)。
+    /// 进 Mod 页先跑一次免 key 的 GraphQL 批量指纹比对：updatedAt 没变的 mod 直接复用缓存版本号
+    /// （文件列表没变，结果不会过期），只有指纹变化/缓存缺失的才逐个 files.json 精查并回写本缓存。
+    /// 持久化到配置里，重启应用后依然命中 —— 常规进页的检查从 N 个请求塌缩到 ~N/50 个。
     /// </summary>
     public Dictionary<int, ModUpdateFingerprintEntry> ModUpdateFingerprints { get; set; } = new();
 
-    /// <summary>v0.2.1: unified cache directory (null = each cache type uses its historical default location).
-    /// When set, download/install temp, SMAPI installer, WebView2 data, and Mods backups all move into subdirectories under it.</summary>
+    /// <summary>v0.2.1：统一缓存目录（null = 各类缓存走历史默认位置）。
+    /// 设置后下载/安装临时、SMAPI 安装包、WebView2 数据、Mods 备份都迁到该目录下的子目录。</summary>
     public string? CacheRoot { get; set; }
 
-    /// <summary>v0.2.2: pending WebView2 data directory migration marker — when changing the cache directory, WebView2 is in use and can't move right away,
-    /// so the old location is recorded; it migrates automatically on next startup (before WebView2 initialization) and the marker is cleared.</summary>
+    /// <summary>v0.2.2：WebView2 数据目录迁移遗留标记 —— 更改缓存目录时 WebView2 正被占用无法立即搬，
+    /// 记下旧位置，下次启动（WebView2 初始化之前）自动搬迁后清空。</summary>
     public string? PendingWebView2MoveFrom { get; set; }
 
-    /// <summary>v0.2.1: memory management — timed automatic compaction toggle and interval (minutes).</summary>
+    /// <summary>v0.2.1：内存管理 —— 定时自动压缩开关与间隔（分钟）。</summary>
     public bool MemTimerEnabled { get; set; } = false;
     public int MemTimerMinutes { get; set; } = 30;
 
-    /// <summary>v0.2.1: memory management — compact automatically when system memory usage reaches the threshold (%).</summary>
+    /// <summary>v0.2.1：内存管理 —— 系统内存占用达到阈值(%)时自动压缩。</summary>
     public bool MemThresholdEnabled { get; set; } = false;
     public int MemThresholdPercent { get; set; } = 80;
 
 }
 
-/// <summary>vNext: a single update-check fingerprint. UpdatedAt is compared verbatim against the GraphQL batch result;
-/// LatestFileVersion is only written after a successful files.json deep check (same authoritative source as installation);
-/// CheckedAtUtc gives the cache a validity floor (24h, guarding against extreme cases beyond the updatedAt assumption).</summary>
+/// <summary>vNext：单条更新检查指纹。UpdatedAt 与 GraphQL 批量结果逐字比对；
+/// LatestFileVersion 只会写「files.json 精查成功」的结果（与安装源同一权威口径）；
+/// CheckedAtUtc 给缓存兜底有效期（24h，防 updatedAt 假设之外的极端情况长期滞留）。</summary>
 public sealed class ModUpdateFingerprintEntry
 {
     public string UpdatedAt { get; set; } = "";

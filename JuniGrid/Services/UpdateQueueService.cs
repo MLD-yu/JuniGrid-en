@@ -1,8 +1,8 @@
 namespace JuniGrid.Services;
 
 /// <summary>
-/// Placeholder implementation left after the built-in browser was removed: keeps the old interface to avoid cascading changes.
-/// The queued auto-update feature is disabled ("Update" now opens the system browser instead).
+/// 内置浏览器移除后的占位实现：保留旧接口避免连锁改动，
+/// 队列自动更新功能已停用（点「更新」改为打开系统浏览器）。
 /// </summary>
 public sealed class UpdateQueueService
 {

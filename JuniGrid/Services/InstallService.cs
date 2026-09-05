@@ -35,72 +35,81 @@ public sealed class InstallService
     public bool Busy { get; private set; }
 
     // ------------------------------------------------------------------
-    // Direct install (no built-in browser popup)
+    // 直接安装（免弹内置浏览器）
     // ------------------------------------------------------------------
-    // When "Install" is clicked on the ModDetail / trending pages, the app requests a one-time
-    // download link from Nexus in the background and streams the download + install,
-    // never leaving the launcher. Free accounts are throttled to about 1MB/s;
-    // on 403 (mod is Premium-only) the caller falls back to opening the built-in browser.
+    // 在 ModDetail / 榜单页点「安装」时，后台向 Nexus 请求一次性下载
+    // 链接并流式下载安装，全程不出启动器。免费账户限速约 1MB/s；
+    // 返回 403（该 mod 强制 Premium）时由调用方回落为打开内置浏览器。
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// One-click direct install: downloads and installs the latest MAIN file of the given mod in the background.
-    /// Returns null on success; otherwise returns an error message (containing the "premium" keyword means Premium is required).
-    /// Progress feeds the task center: a task appears in the bottom-right corner and the /tasks page shows download percent/speed/per-step details.
+    /// 一键直装：后台下载并安装指定 mod 的最新 MAIN 文件。
+    /// 返回 null 表示成功；否则返回错误消息（含 "premium" 关键字表示需要 Premium）。
+    /// 进度接入任务中心：右下角出现任务，/tasks 页能看到下载百分比/速度/每步详情。
     /// </summary>
     public async Task<string?> InstallModDirectAsync(int modId)
     {
-        if (Busy) return "The previous install is still running — wait for it to finish and try again";
+        if (Busy) return "上一个安装还没完成，等它结束再试";
 
         var cfg = _cfg.Current;
         if (string.IsNullOrWhiteSpace(cfg.NexusApiKey))
-            return "No Nexus API Key configured — paste one on the Nexus page first";
+            return "还没配置 Nexus API Key —— 先到「Nexus」页粘贴";
         if (string.IsNullOrWhiteSpace(cfg.GamePath))
-            return "Game directory not set — choose one on the Settings page first";
+            return "还没设置游戏目录 —— 先到「设置」页选择";
 
         var taskTitle = await ResolveModTitleAsync(cfg.NexusApiKey, modId, null);
-        var task = _center.Start($"Download and install {taskTitle}", "install");
+        var task = _center.Start($"Download & install {taskTitle}", "install");
 
         void Step(string msg, double? pct = null, double? speed = null) =>
             _center.Report(task, msg, pct, speed);
 
         Busy = true;
+        string? zipPath = null;   // v1.1.3：取消时清理半截包用（catch 里拿不到 try 内的局部量）
         try
         {
             Step("Fetching file info…", 2);
             var file = await _nexus.GetLatestMainFileAsync(cfg.NexusApiKey, modId);
-            if (file is null) { _center.Finish(task, false, "No downloadable file found"); return "No downloadable file found"; }
+            if (file is null) { _center.Finish(task, false, "找不到可下载的文件"); return "找不到可下载的文件"; }
 
             Step("Fetching download URL…", 5);
             var dl = await _nexus.GetDownloadUrlAsync(cfg.NexusApiKey, modId, file.FileId);
             if (dl.NeedsPremium)
-            { _center.Finish(task, false, "Nexus Premium required; falling back to the web flow"); return "premium: direct download of this mod requires a Nexus Premium membership"; }
+            { _center.Finish(task, false, "需要 Nexus Premium 会员，已改为网页方式"); return "premium：这个 mod 的直链下载需要 Nexus Premium 会员"; }
             if (dl.Url is null)
-            { _center.Finish(task, false, "Failed to get download URL: " + (dl.Error ?? "unknown error")); return "Failed to get download URL: " + (dl.Error ?? "unknown error"); }
+            { _center.Finish(task, false, "获取下载地址失败：" + (dl.Error ?? "未知错误")); return "获取下载地址失败：" + (dl.Error ?? "未知错误"); }
 
             var zip = Path.Combine(StoragePaths.DownloadsDir,
                 $"direct-{modId}-{file.FileId}.zip");
+            zipPath = zip;
             Directory.CreateDirectory(Path.GetDirectoryName(zip)!);
 
             var progress = new Progress<NexusDownloadProgress>(p =>
                 Step(p.Message, p.Percent, p.SpeedMBps));
             Step($"Downloading {file.Name}…", 8, 0);
-            await _nexus.DownloadFileAsync(dl.Url, zip, progress);
+            await _nexus.DownloadFileAsync(dl.Url, zip, progress, task.Cts.Token);
+            if (task.Cts.IsCancellationRequested)   // 下完才发现被移除 → 别装了，清掉半截包
+            { try { File.Delete(zip); } catch { } return "已取消"; }
 
-            Step("Installing into Mods…", 95);
+            Step("Installing to Mods…", 95);
             var err = _mods.InstallNew(cfg.GamePath, zip, out var modName);
             if (err is not null)
-            { _center.Finish(task, false, "Install failed: " + err); return "Install failed: " + err; }
+            { _center.Finish(task, false, "安装失败：" + err); return "安装失败：" + err; }
 
             _queue.NotifyInstalled(modId);
-            // v0.69.0: record the "last download date" (shown under the detail-page title + as the green check on the Files tab)
+            // v0.69.0：记录「最后下载日期」（详情页标题下 + 文件页签绿色✓ 用）
             cfg.ModLastDownload[modId.ToString()] = DateTime.Now.ToString("yyyy-MM-dd");
             cfg.ModFileLastDownload[file.FileId.ToString()] = DateTime.Now.ToString("yyyy-MM-dd");
             _cfg.Save(cfg);
-            var done = $"Install finished: {modName ?? "New Mod"}";
+            var done = $"安装完成：{modName ?? "新 Mod"}";
             _center.Finish(task, true, done);
             Notify("✅ " + done);
             return null;
+        }
+        catch (OperationCanceledException)
+        {
+            // v1.1.3：用户移除了任务 → 清半截包，静默退出（任务条目已不在列表）
+            try { if (zipPath is not null && File.Exists(zipPath)) File.Delete(zipPath); } catch { }
+            return "已取消";
         }
         catch (Exception ex)
         {
@@ -118,10 +127,11 @@ public sealed class InstallService
     {
         if (Busy)
         {
-            Notify("⏳ The previous install is still running — wait for it to finish before clicking again");
+            Notify("⏳ 上一个安装还没完成，等它结束再点");
             return;
         }
-        var task = _center.Start("Web one-click install (Nexus)", "install");
+        var task = _center.Start("网页一键安装（Nexus）", "install");
+        string? zipPath = null;   // v1.1.3：取消清理用
 
         void Step(string msg, double? pct = null, double? speed = null) =>
             _center.Report(task, msg, pct, speed);
@@ -129,65 +139,72 @@ public sealed class InstallService
         Busy = true;
         try
         {
-            Step("Parsing the received Nexus download link…", 2);
+            Step("解析收到的 Nexus 下载链接…", 2);
             if (!TryParseNxm(link, out var modId, out var fileId, out var key, out var exp))
             {
-                _center.Finish(task, false, "Could not parse the link");
-                Notify("❌ Could not parse the link: " + link);
+                _center.Finish(task, false, "无法解析链接");
+                Notify("❌ 无法解析链接：" + link);
                 return;
             }
 
             var cfg = _cfg.Current;
             if (string.IsNullOrWhiteSpace(cfg.NexusApiKey))
             {
-                _center.Finish(task, false, "No Nexus API Key configured");
-                Notify("❌ No Nexus API Key configured — paste one on the Nexus page first");
+                _center.Finish(task, false, "还没配置 Nexus API Key");
+                Notify("❌ 还没配置 Nexus API Key —— 先到「Nexus」页粘贴");
                 return;
             }
             if (string.IsNullOrWhiteSpace(cfg.GamePath))
             {
-                _center.Finish(task, false, "Game directory not set");
-                Notify("❌ Game directory not set — choose one on the Settings page first");
+                _center.Finish(task, false, "还没设置游戏目录");
+                Notify("❌ 还没设置游戏目录 —— 先到「设置」页选择");
                 return;
             }
 
-            // Once modId is parsed, enrich the task title with the mod name so it's recognizable on /tasks
-            task.Title = "Download and install " + await ResolveModTitleAsync(cfg.NexusApiKey, modId, null);
+            // 解析出 modId 后把任务标题补上 mod 名称，方便在 /tasks 页识别
+            task.Title = "Download & install " + await ResolveModTitleAsync(cfg.NexusApiKey, modId, null);
 
-            Step($"Fetching download URL (Mod #{modId})…", 8);
-            // v0.62.0: restored the API key header — Nexus's download_link.json endpoint requires the apikey header;
-            // even with key/expires in the URL it returns 401 without the header (removing the key in v0.61 introduced this error).
+            Step($"Fetching download URL (mod #{modId})…", 8);
+            // v0.62.0：恢复带 API key 头 —— Nexus 的 download_link.json 端点强制要求 apikey 头，
+            // 即使 URL 里有 key/expires，没头直接 401（v0.61 把 key 去掉反而引入了这个错）。
             var dl = await _nexus.GetNxmDownloadUrlAsync(cfg.NexusApiKey, modId, fileId, key, exp);
             if (dl.Url is null)
             {
-                _center.Finish(task, false, dl.Error ?? "Failed to get download URL");
-                Notify("❌ " + (dl.Error ?? "Failed to get download URL"));
-                _queue.NotifyFailed(modId);   // expired/rejected link → skip, don't let the queue stall
+                _center.Finish(task, false, dl.Error ?? "获取下载地址失败");
+                Notify("❌ " + (dl.Error ?? "获取下载地址失败"));
+                _queue.NotifyFailed(modId);   // 链接过期/被拒 → 跳过，别让队列卡死
                 return;
             }
 
             var zip = Path.Combine(StoragePaths.DownloadsDir, $"nxm-{modId}-{fileId}.zip");
+            zipPath = zip;
             Directory.CreateDirectory(Path.GetDirectoryName(zip)!);
 
             var progress = new Progress<NexusDownloadProgress>(p =>
                 Step(p.Message, p.Percent, p.SpeedMBps));
             Step("Downloading…", 12, 0);
-            await _nexus.DownloadFileAsync(dl.Url, zip, progress);
+            await _nexus.DownloadFileAsync(dl.Url, zip, progress, task.Cts.Token);
+            if (task.Cts.IsCancellationRequested)   // 下完才发现被移除 → 别装了，清掉半截包
+            { try { File.Delete(zip); } catch { } return; }
 
-            Step("Installing into Mods…", 95);
+            Step("Installing to Mods…", 95);
             var err = _mods.InstallNew(cfg.GamePath, zip, out var modName);
             if (err is null)
             {
-                _queue.NotifyInstalled(modId);   // update queue: one installed, advance automatically
-                _center.Finish(task, true, $"Install finished: {modName ?? "New Mod"}");
-                Notify($"✅ Install finished: {modName ?? "New Mod"} (now visible on the Mod Management page)");
+                _queue.NotifyInstalled(modId);   // 更新队列：装完一个，自动前进
+                _center.Finish(task, true, $"安装完成：{modName ?? "新 Mod"}");
+                Notify($"✅ 安装完成：{modName ?? "新 Mod"}（已在 Mod 管理页可见）");
             }
             else
             {
-                _center.Finish(task, false, "Install failed: " + err);
-                Notify("❌ Install failed: " + err);
-                _queue.NotifyFailed(modId);   // advance the queue even when the install fails
+                _center.Finish(task, false, "安装失败：" + err);
+                Notify("❌ 安装失败：" + err);
+                _queue.NotifyFailed(modId);   // 装不进去也推进队列
             }
+        }
+        catch (OperationCanceledException)
+        {
+            try { if (zipPath is not null && File.Exists(zipPath)) File.Delete(zipPath); } catch { }
         }
         catch (Exception ex)
         {
@@ -209,8 +226,8 @@ public sealed class InstallService
     }
 
     /// <summary>
-    /// Resolves a readable mod name for the task title (the /tasks page needs to show "which mod is downloading").
-    /// Falls back to the given fallbackName or "Mod #{id}" when the network request can't get the name.
+    /// 解析出可读的 mod 名称用于任务标题（/tasks 页需要显示"在下载哪个 mod"）。
+    /// 网络请求拿不到名称时回退到传入的 fallback 或 "Mod #{id}"。
     /// </summary>
     private async Task<string> ResolveModTitleAsync(string apiKey, int modId, string? fallbackName)
     {
