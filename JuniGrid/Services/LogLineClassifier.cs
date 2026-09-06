@@ -17,15 +17,15 @@ public static class LogLineClassifier
     private static readonly Regex YouHaveVersion =
         new(@"\(\s*you have\s+[\d.]+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // "已加载"筛选：SMAPI 的 "Loaded N mods:" / "Loaded N content packs:" 块及其条目行
-    // 条目形如:  [.. INFO SMAPI]    Cloudy Skies 1.9.1 by Khloe Leclair | ...
+    // "Loaded" filter: SMAPI's "Loaded N mods:" / "Loaded N content packs:" block and its entry lines
+    // entries look like:  [.. INFO SMAPI]    Cloudy Skies 1.9.1 by Khloe Leclair | ...
     private static readonly Regex LoadedHeader =
         new(@"Loaded \d+ (mods|content packs):", RegexOptions.Compiled);
     private static readonly Regex LoadedEntry =
         new(@"^\[[^\]]*\]\s{2,}\S.*\s\d+(\.\d+)+[\w.-]*\s+by\s+.+\|", RegexOptions.Compiled);
 
-    /// <summary>行是否属于指定筛选分类。err/upd 与着色同一规则；
-    /// loaded 为成功加载的 mod / 内容包清单块。</summary>
+    /// <summary>Whether the line belongs to the given filter category. err/upd use the same rules as coloring;
+    /// loaded is the block of successfully loaded mods / content packs.</summary>
     public static bool MatchesFilter(string line, string filter) => filter switch
     {
         "err" => Classify(line) == "err",
@@ -44,15 +44,15 @@ public static class LogLineClassifier
             || line.Contains("[ERROR]"))
             return "err";
 
-        // 日志文件的行自带级别标签（[HH:MM:SS LEVEL SMAPI]），标签优先于内容启发式：
-        // mod 简介里碰巧含 "update" 的普通 INFO 行（如作者署名 "1.6 update by …"）不再误判成可更新。
+        // Lines from log files carry their own level tag ([HH:MM:SS LEVEL SMAPI]); the tag takes precedence over content heuristics:
+        // ordinary INFO lines whose text happens to contain "update" (e.g. an author credit "1.6 update by …") are no longer misclassified as updates.
         if (line.Contains(" ALERT ")) return "upd";
         if (line.Contains(" WARN ")) return "warn";
         if (line.Contains(" INFO ")) return "info";
         if (line.Contains(" TRACE ") || line.Contains(" DEBUG ")) return "trace";
 
-        // 无级别标签的行（如 stderr 转发）才走启发式：SMAPI 更新提示的稳定特征
-        // 是 "update" / "(you have x)" 字样（SMAPI 控制台把更新提示渲染为品红）。
+        // Only lines without a level tag (e.g. forwarded stderr) go through the heuristics: SMAPI update notices are reliably identified
+        // by "update" / "(you have x)" (SMAPI's console renders update notices in magenta).
         if (line.Contains("update", StringComparison.OrdinalIgnoreCase)
             || YouHaveVersion.IsMatch(line))
             return "upd";

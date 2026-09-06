@@ -1,11 +1,11 @@
 /* ============================================================
-   detail：Mod 详情页 —— 多图画廊 / 文件页签 / Requirements / 手风琴 / tooltip
+   detail: Mod detail page - multi-image gallery / file tabs / Requirements / accordion / tooltip
    ============================================================ */
-/* ============ v0.56.0：Edge 翻译器 + 详情图 + 封面放大 ============ */
+/* ============ v0.56.0: Edge translator + detail images + cover zoom ============ */
 
-/* Edge 风格翻译器 */
+/* Edge-style translator */
 .jg-detail-topbar { display: flex; align-items: center; gap: 6px; }
-/* 详细介绍里的图片 */
+/* Images in the detailed description */
 .jg-moddetail-desc img.jg-desc-img {
     max-width: 100%;
     border-radius: 10px;
@@ -18,7 +18,7 @@
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
 
-/* 封面可点击放大 */
+/* Cover is clickable to zoom */
 .jg-flip-cover {
     cursor: zoom-in;
     transition: transform 0.2s;
@@ -27,11 +27,11 @@
     transform: scale(1.01);
 }
 
-/* Flip modal 里的图片完整显示 */
+/* Images display in full inside the Flip modal */
 
-/* ============ v0.59.0：mod 列表 shimmer 骨架 + 图片放大占位符 + 页面切换轻量化 ============ */
+/* ============ v0.59.0: mod list shimmer skeleton + image zoom placeholder + lighter page transitions ============ */
 
-/* Mod 行 shimmer */
+/* Mod row shimmer */
 .jg-modrows-skeleton {
     display: flex;
     flex-direction: column;
@@ -71,7 +71,7 @@
     flex: none;
 }
 
-/* 图片放大占位符 */
+/* Image zoom placeholder */
 .jg-zoom-placeholder {
     background: var(--jg-well);
     border-radius: 10px;
@@ -79,7 +79,7 @@
     box-sizing: border-box;
 }
 
-/* 页面切换过渡轻量化：把 v0.31.0 的每子项动画简化成整块淡入，减少重排卡顿 */
+/* Lighter page-switch transition: the v0.31.0 per-child animation is simplified into a single block fade-in, reducing reflow jank */
 .jg-page-enter {
     animation: jg-page-fadein 0.22s ease-out;
 }
@@ -89,7 +89,7 @@
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* v0.68.2：官方 Nexus 风格 Premium 橙色胶囊徽章 */
+/* v0.68.2: official Nexus-style Premium orange pill badge */
 .jg-premium-badge {
     display: inline-flex; align-items: center;
     padding: 1px 9px; border-radius: 999px;
@@ -99,8 +99,8 @@
     line-height: 1.55; white-space: nowrap;
 }
 
-/* ===== v0.69.0：详情页新增模块 ===== */
-/* 标题旁的「关于」问号（仿 GSAP easeReverse demo 的粉色渐变圆） */
+/* ===== v0.69.0: new detail page modules ===== */
+/* "About" question mark next to the title (pink gradient circle modeled on the GSAP easeReverse demo) */
 .jg-about-q {
     display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; margin-left: 10px; border: none; cursor: pointer;
@@ -110,10 +110,10 @@
     transition: transform .25s cubic-bezier(.34,1.56,.64,1);
 }
 .jg-about-q:hover { transform: scale(1.18); }
-/* v0.69.1：mod 名称后的最后安装时间（深灰、无对号） */
+/* v0.69.1: last install time after the mod name (dark gray, no checkmark) */
 .jg-dl4-lastdl { font-size: 12px; color: var(--jg-text-2); font-weight: 400; margin-left: 12px; }
 
-/* 视差图片轮播 */
+/* Parallax image carousel */
 .jg-carousel {
     display: flex; gap: 12px; overflow-x: auto; margin-top: 14px;
     padding: 4px 2px 10px; scroll-behavior: smooth;
@@ -127,7 +127,7 @@
 }
 .jg-carousel-img:hover { transform: translateY(-4px) scale(1.02); }
 
-/* 关于区块（仿图七：左白卡 + 右编号手风琴） */
+/* About section (modeled on screenshot 7: white card on the left + numbered accordion on the right) */
 .jg-about-panel {
     display: flex; gap: 16px; margin-top: 14px;
     background: var(--jg-well); border-radius: 16px; padding: 16px;
@@ -168,7 +168,7 @@
     .jg-about-left { flex: none; width: 100%; }
 }
 
-/* 文件页签（仿官网主/旧文件结构，浅色主题） */
+/* File tabs (modeled on the website's main/old files structure, light theme) */
 .jg-file-card {
     border: 1px solid var(--jg-line); border-radius: 12px;
     padding: 12px 14px; margin-bottom: 8px; background: var(--jg-card);
@@ -191,7 +191,7 @@
 .jg-file-desc { font-size: 12.5px; color: var(--jg-text-2); line-height: 1.6; margin-top: 8px; }
 .jg-file-btns { display: flex; gap: 8px; margin-top: 10px; }
 
-/* ===== v0.69.1：文件页签行式列表（官网式）===== */
+/* ===== v0.69.1: file tabs row list (website style) ===== */
 .jg-frow { border: 1px solid var(--jg-line); border-radius: 10px; margin-bottom: 6px; background: var(--jg-card); overflow: hidden; }
 .jg-frow-head {
     width: 100%; display: flex; align-items: center; gap: 14px;
@@ -211,7 +211,7 @@
 .jg-about-acc { background: var(--jg-card); border: 1px solid var(--jg-line); border-radius: 14px; padding: 2px 14px; }
 .jg-dl4-meta-under { margin-top: 10px; flex-wrap: wrap; justify-content: flex-start; }
 
-/* ═══ v0.69.3：Requirements（官网同款深色表格）═══ */
+/* ═══ v0.69.3: Requirements (dark table styled like the website) ═══ */
 .jg-req { margin-top: 18px; border: 1px solid var(--jg-line-strong); border-radius: 12px; overflow: hidden; background: var(--jg-card); }
 .jg-req-head { display: flex; align-items: baseline; gap: 12px; padding: 13px 16px; cursor: pointer; user-select: none; background: var(--jg-well); }
 .jg-req-head:hover { background: var(--jg-well); }
@@ -230,7 +230,7 @@
 .jg-req-name .jg-linklike:hover { text-decoration: underline; }
 .jg-req-notes { color: var(--jg-text-2); font-size: 12.5px; }
 
-/* ═══ v0.69.5：左栏手风琴填充 + 右侧封面吸顶 + 手风琴多开/内部滚动/标题吸顶 ═══ */
+/* ═══ v0.69.5: left column accordion fill + right cover sticky + accordion multi-open/internal scroll/sticky headers ═══ */
 .jg-dl4-hero { align-items: flex-start; }
 .jg-dl4-left { min-width: 0; }
 .jg-dl4-right { position: sticky; top: 12px; align-self: flex-start; }
@@ -243,7 +243,7 @@
 .jg-acc.open .jg-acc-arrow { transform: rotate(180deg); }
 .jg-acc-body { padding: 4px 0 12px; }
 
-/* ═══ v0.69.6：手风琴滚动条按需出现（展开完成前隐藏，内容超高才出）═══ */
+/* ═══ v0.69.6: accordion scrollbar appears on demand (hidden until expansion completes; shows only when content overflows) ═══ */
 .jg-acc-inner { scrollbar-width: none; }
 .jg-acc-inner::-webkit-scrollbar { width: 0; height: 0; }
 .jg-acc.open.jg-acc-scroll .jg-acc-inner::-webkit-scrollbar { width: 6px; }
@@ -251,25 +251,27 @@
 .jg-req-row { display: grid; grid-template-columns: 1fr 1fr; padding: 9px 14px; font-size: 13px; align-items: center; }
 .jg-req-row + .jg-req-row { border-top: 1px solid var(--jg-line); }
 
-/* ═══ v0.69.7：Requirements 链接去下划线 + 封面缩略图 ═══ */
+/* ═══ v0.69.7: Requirements links without underline + cover thumbnails ═══ */
 .jg-req-link { background: none; border: none; padding: 0; cursor: pointer; font-size: 13px;
     color: #b8860b; font-weight: 600; text-align: left; text-decoration: none; }
 .jg-req-link:hover { color: #9a7109; text-decoration: none; }
 .jg-req-cover { width: 30px; height: 30px; object-fit: cover; border-radius: 6px; flex: none; }
 .jg-req-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.jg-req-missing { flex: none; font-size: 10.5px; font-weight: 600; color: #c50f1f;
+  border: 1px solid rgba(197,15,31,.45); border-radius: 999px; padding: 1px 7px; }
 .jg-req-table { margin-top: 4px; }
 .jg-detail-section { margin-top: 18px; }
 .jg-detail-section-title { font-size: 14.5px; font-weight: 700; color: var(--jg-text); margin-bottom: 8px; }
 
-/* ═══ v0.69.9：手风琴头部悬浮时不压内容 + 头部实心背景 + Body 顶部空出 ═══ */
+/* ═══ v0.69.9: accordion header no longer overlaps content on hover + solid header background + body gets top padding ═══ */
 .jg-acc-head { background: var(--jg-card); }
 .jg-acc.open .jg-acc-body { padding-top: 8px; }
 .jg-acc-inner { position: relative; }
 
-/* ═══ v0.70.0：hover 实色背景（旧 rgba 半透明 + sticky 导致下层文字透过来叠字）═══ */
+/* ═══ v0.70.0: solid hover background (the old translucent rgba + sticky let underlying text bleed through and overlap) ═══ */
 .jg-acc-head:hover { background: var(--jg-well) !important; }
 
-/* ═══ v0.70.1：用户头像 tooltip（easeReverse 风格）═══ */
+/* ═══ v0.70.1: user avatar tooltip (easeReverse style) ═══ */
 .jg-user-tip { position: relative; display: inline-block; }
 .jg-user-tip-avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
     border: 1px solid var(--jg-line); cursor: pointer; display: block; }
@@ -289,22 +291,23 @@
 .jg-user-tip-link { margin-top: 9px; background: none; border: none; padding: 0; cursor: pointer;
     color: #b8860b; font-size: 12px; font-weight: 600; }
 .jg-user-tip-link:hover { text-decoration: underline; }
-/* 无 GSAP 时的退化方案 */
+/* Degraded path when GSAP is unavailable */
 .jg-user-tip-nogsap .jg-user-tip-bubble { transition: opacity .2s, transform .2s; transform: scale(.9); }
 .jg-user-tip-nogsap:hover .jg-user-tip-bubble { visibility: visible; opacity: 1; pointer-events: auto; transform: scale(1); }
-/* GSAP 控制 visible 时 bubble 需要可交互（点链接） */
+/* When GSAP sets it visible, the bubble must be interactive (to click links) */
 .jg-user-tip:hover .jg-user-tip-bubble { pointer-events: auto; }
-/* v1.08.0：卡片改点击开合（hover 自动开关已废除）—— .open 由 JS 在开/关时同步翻转，
-   开启态气泡必须可交互，否则「查看主页/退出登录」点不了、点击会穿透到下方 mod 卡 */
+/* v1.08.0: the card now toggles on click (hover auto open/close is retired) - .open is flipped by JS on open/close,
+   and the open-state bubble must be interactive, otherwise "View profile/Log out" can't be clicked and clicks
+   pass through to the mod card below */
 .jg-user-tip.open .jg-user-tip-bubble { pointer-events: auto; }
 
-/* ═══ v0.70.2：Tooltip 桥接（消除头像与 bubble 之间 12px hover 死区）═══ */
-/* v1.05.1：桥接 14→22px，配合 400ms 关闭延迟 —— 从头像拖到卡片不再中途关闭 */
-.jg-user-tip { padding-bottom: 22px; margin-bottom: -22px; }   /* 承接鼠标穿过 */
-.jg-user-tip-bubble { top: calc(100% + 2px); }                  /* 缩短垂直缝 */
+/* ═══ v0.70.2: tooltip bridge (eliminates the 12px hover dead zone between the avatar and the bubble) ═══ */
+/* v1.05.1: bridge 14→22px, paired with the 400ms close delay - dragging from the avatar to the card no longer closes mid-way */
+.jg-user-tip { padding-bottom: 22px; margin-bottom: -22px; }   /* catches the mouse passing through */
+.jg-user-tip-bubble { top: calc(100% + 2px); }                  /* shortens the vertical gap */
 
-/* ═══ v0.70.2：官网风 mod 卡片 + 无限滚动网格（v0.75.0：改白色系，与整站浅色主题一致）═══ */
-/* v1.04.0：官网紧凑排列 —— 网格更密（minmax 230）、封面 16/9、卡体只留 标题/分类chip/两行简介 */
+/* ═══ v0.70.2: website-style mod cards + infinite scroll grid (v0.75.0: switched to the white palette, consistent with the site-wide light theme) ═══ */
+/* v1.04.0: website-compact layout - denser grid (minmax 230), 16/9 covers, card body keeps only title/category chip/two-line summary */
 .jg-browse2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
     gap: 16px; margin-top: 12px; }
 .jg-modcard2 { background: var(--jg-card); border: 1px solid var(--jg-line); border-radius: 10px;
@@ -327,7 +330,7 @@
 .jg-modcard2-title { font-size: 13.5px; font-weight: 600; color: var(--jg-text); line-height: 1.35;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     text-decoration: none; }
-/* v1.04.0：分类 chip（官网同款描边小圆角块，替代原紫色文字行） */
+/* v1.04.0: category chip (small outlined rounded block like the website, replacing the old purple text line) */
 .jg-modcard2-cat-chip { align-self: flex-start; font-size: 10.5px; font-weight: 600; color: #6b6b70;
     border: 1px solid var(--jg-line-strong); background: var(--jg-well);
     border-radius: 5px; padding: 2px 8px; letter-spacing: .01em; white-space: nowrap;
@@ -342,43 +345,44 @@
 .jg-modcard2-sentinel { grid-column: 1 / -1; height: 1px; }
 .jg-modcard2-skel { pointer-events: none; }
 .jg-modcard2-skel .jg-modcard2-cover { aspect-ratio: 16/9; }
-/* v0.75.0：深色模式才用深色卡片（整站默认白色系）*/
+/* v0.75.0: dark cards only in dark mode (the site defaults to the white palette) */
 
-/* ═══ v0.71.0：Showcase 4 风分类 pills ═══ */
+/* ═══ v0.71.0: Showcase 4 style category pills ═══ */
 .jg-pill-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px;
     border-top: 1px solid var(--jg-line); }
-/* v0.71.6：此规则只作用于分类筛选的 .jg-pill-row，不再误伤启动模式的 .jg-mode-pills */
-/* width:auto —— 覆盖启动模式 .jg-pill 基类的 width:100%，否则分类胶囊每个占满一整行 */
+/* v0.71.6: this rule only targets the category filter's .jg-pill-row, no longer clobbering the launch mode's .jg-mode-pills */
+/* width:auto - overrides the launch-mode .jg-pill base class's width:100%, otherwise each category pill fills an entire row */
 .jg-pill-row .jg-pill { width: auto; flex: 0 0 auto; border: 1px solid var(--jg-line-strong); background: var(--jg-card); border-radius: 999px;
     padding: 5px 13px; font-size: 12px; color: var(--jg-text-2); cursor: pointer;
     transition: background .18s, color .18s, border-color .18s, transform .15s; }
 .jg-pill-row .jg-pill:hover { background: var(--jg-well); transform: translateY(-1px); }
 .jg-pill-row .jg-pill.active { background: var(--jg-ink); color: var(--jg-on-ink); border-color: var(--jg-outline); }
-/* 启动模式分段按钮：未选中项强制透明无框（只留外层浅灰轨道 + 黑色滑块），选中项文字反白 */
+/* Launch mode segmented buttons: unselected items forced transparent with no border (leaving only the outer light-gray track + black thumb); the selected item's text inverts to white */
 .jg-mode-pills .jg-pill { background: transparent !important; border: none !important;
     box-shadow: none !important; color: var(--jg-text-2); }
 .jg-mode-pills .jg-pill:hover { background: transparent !important; transform: none; }
 .jg-mode-pills .jg-pill.active { background: transparent !important; color: var(--jg-on-ink); font-weight: 600; }
 .jg-pill-n { opacity: .55; font-size: 11px; margin-left: 3px; }
 
-/* ═══ v0.71.1：存档重命名 input 占满剩余宽度 ═══ */
+/* ═══ v0.71.1: profile rename input fills the remaining width ═══ */
 .jg-profile-item .jg-profile-input { flex: 1; min-width: 0; }
 
-/* ═══ v0.71.2：存档遮罩点穿（防 z-index 意外覆盖时仍不拦点击）═══ */
-/* v0.71.7：删除旧的 pointer-events:none 禁用 —— 它把 v0.71.6 的可点遮罩整体废了，
-   导致排序/存档下拉点外部收不回。遮罩恢复可点，菜单靠 z-index:9500 高于遮罩 9000。 */
+/* ═══ v0.71.2: profile overlay click-through (in case of accidental z-index overlap it still doesn't block clicks) ═══ */
+/* v0.71.7: removed the old pointer-events:none disabling - it completely killed the v0.71.6 clickable overlay,
+   so sort/profile dropdowns couldn't be closed by clicking outside. The overlay is clickable again; the menu
+   sits above the overlay at 9000 via z-index:9500. */
 
-/* ═══ v0.71.3：存档重命名铅笔按钮 ═══ */
+/* ═══ v0.71.3: profile rename pencil button ═══ */
 .jg-profile-rename { background: transparent; border: none; cursor: pointer; padding: 4px;
     border-radius: 5px; display: inline-flex; align-items: center; opacity: .55;
     transition: opacity .15s, background .15s; }
 .jg-profile-rename:hover { opacity: 1; background: var(--jg-track); }
 
-/* v0.71.4：存档重命名挪到下拉按钮右侧（按钮 ↔ 输入框互换） */
+/* v0.71.4: profile rename moved to the right of the dropdown button (button ↔ input swapped) */
 .jg-profile-headinput { width: 150px; flex: none; }
 .jg-profile-headrename { margin-left: 2px; }
 
-/* v0.71.5：存档重命名态 —— 输入框保持与下拉按钮一致的胶囊形状，确定按钮黑底白字 */
+/* v0.71.5: profile rename state - the input keeps the same pill shape as the dropdown button; the confirm button is black with white text */
 .jg-profile-headinput {
     flex: none;
     width: 132px;
@@ -399,24 +403,26 @@
 }
 .jg-profile-headconfirm:hover { background: var(--jg-ink-hover); transform: scale(1.08); }
 
-/* v0.71.6：排序下拉与遮罩层叠 —— 排序 dd 提到遮罩(9000)之上，点菜单不触发收回 */
+/* v0.71.6: sort dropdown vs overlay stacking - the sort dd is raised above the overlay (9000), so clicking the menu doesn't trigger a close */
 .jg-sort-dd { z-index: 9500; }
 
-/* v0.72.4：滚动恢复待落位期间隐藏行列表（visibility 保留占位，limit 可算），
-   落位后同帧摘除 —— 浏览器永远画不出「列表在顶部」的那一帧，消除闪屏 */
+/* v0.72.4: hide the row list while scroll restore is pending placement (visibility keeps the layout and the limit
+   is computable), removed in the same frame once placed - the browser can never paint that "list at the top"
+   frame, eliminating the flash */
 .jg-restore-pending .jg-modrows { visibility: hidden; }
-/* vNext：Nexus 页返回恢复同款 —— .jg-nexus-scope 是 Nexus 页根节点，待落位期间
-   整页隐藏（visibility 保留占位与高度，restoreFor 仍可测 limit），落位/放弃的
-   同一帧摘除；「先画顶部、再闪回中间」的那几帧浏览器永远画不出来 */
+/* vNext: same restore pattern for Nexus page back navigation - .jg-nexus-scope is the Nexus page root; while
+   placement is pending the whole page is hidden (visibility keeps the layout and height, restoreFor can still
+   measure the limit), removed in the same frame as placement/abandonment; the "paint the top first, then flash
+   back to the middle" frames can never be painted by the browser */
 .jg-restore-pending .jg-nexus-scope { visibility: hidden; }
 
-/* v0.73.0：Nexus 浏览页官网对齐 —— 作者头像 / 绝对日期 / 时间范围下拉 */
+/* v0.73.0: Nexus browse page aligned with the website - author avatar / absolute dates / time range dropdown */
 .jg-modcard2-avatar { width: 16px; height: 16px; border-radius: 50%; object-fit: cover; flex: none; }
 .jg-modcard2-avatar-fb { display: inline-flex; align-items: center; justify-content: center;
     background: var(--jg-well); color: var(--jg-text-3); font-size: 9px; font-weight: 600; }
 .jg-modcard2-author { display: flex; align-items: center; gap: 5px; }
 .jg-modcard2-timeabs { opacity: .55; margin-left: 6px; }
-/* v0.75.0：时间范围下拉改白色系 */
+/* v0.75.0: time range dropdown switched to the white palette */
 .jg-timerange { background: var(--jg-card); color: var(--jg-text-2); border: 1px solid var(--jg-line-strong);
     border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer; outline: none; }
 .jg-timerange:hover { border-color: var(--jg-line-heavy); }

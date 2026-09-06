@@ -7,15 +7,17 @@ using System.Windows.Media.Animation;
 namespace JuniGrid;
 
 /// <summary>
-/// 用 Win32 WS_EX_LAYERED + SetLayeredWindowAttributes 做 DWM 合成器层的透明控制。
+/// Uses Win32 WS_EX_LAYERED + SetLayeredWindowAttributes for transparency control at the DWM compositor level.
 ///
-/// 为什么不用 WPF 的 Window.Opacity：
-/// 当 WindowStyle=None + AllowsTransparency=False + WindowChrome 组合时，
-/// WPF Opacity 属性对 DWM 合成不生效一小段时间（走 GDI 兜底路径），
-/// 表现为 Show()/最小化恢复瞬间闪一帧黑框（就是 v0.20 里图一那个鬼影）。
+/// Why not WPF's Window.Opacity:
+/// with the WindowStyle=None + AllowsTransparency=False + WindowChrome combination,
+/// the WPF Opacity property does not take effect for DWM composition for a short while
+/// (it goes through the GDI fallback path), showing as a one-frame black border flash
+/// on Show()/restore from minimize (the ghosting seen in v0.20, screenshot one).
 ///
-/// WS_EX_LAYERED 是 DWM 合成器层的属性，一旦置位，窗口的每一帧都由
-/// DWM 按 alpha 值合成，物理上不可能露出未绘制的底色。
+/// WS_EX_LAYERED is a DWM compositor-level attribute; once set, every frame of the
+/// window is composited by DWM according to the alpha value, so unpainted background
+/// can physically never show through.
 /// </summary>
 internal static class WindowLayered
 {
@@ -30,7 +32,7 @@ internal static class WindowLayered
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
 
-    /// <summary>把窗口设为 layered 并置 alpha=0（完全透明）。必须在窗口 HWND 已建立后调用。</summary>
+    /// <summary>Makes the window layered and sets alpha=0 (fully transparent). Must be called after the window's HWND exists.</summary>
     public static void MakeLayeredInvisible(Window w)
     {
         var hwnd = new WindowInteropHelper(w).Handle;
@@ -40,7 +42,7 @@ internal static class WindowLayered
         SetLayeredWindowAttributes(hwnd, 0, 0, LWA_ALPHA);
     }
 
-    /// <summary>直接把 alpha 设为某个值（0..255）。</summary>
+    /// <summary>Sets alpha directly to a given value (0..255).</summary>
     public static void SetAlpha(Window w, byte alpha)
     {
         var hwnd = new WindowInteropHelper(w).Handle;
@@ -48,13 +50,13 @@ internal static class WindowLayered
         SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
     }
 
-    /// <summary>把 alpha 用 DoubleAnimation 平滑动画到 255（不透明）。</summary>
+    /// <summary>Smoothly animates alpha to 255 (opaque) with a DoubleAnimation.</summary>
     public static void FadeInToOpaque(Window w, int durationMs = 260)
     {
         var hwnd = new WindowInteropHelper(w).Handle;
         if (hwnd == IntPtr.Zero) return;
 
-        // 用 DispatcherTimer 手动步进 alpha —— DoubleAnimation 绑不到 Win32 属性
+        // Step alpha manually with a DispatcherTimer — a DoubleAnimation cannot bind to a Win32 attribute
         var start = DateTime.UtcNow;
         var timer = new System.Windows.Threading.DispatcherTimer
         {
@@ -64,7 +66,7 @@ internal static class WindowLayered
         {
             var t = (DateTime.UtcNow - start).TotalMilliseconds / durationMs;
             if (t >= 1) { SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA); timer.Stop(); RemoveLayered(w); return; }
-            // CubicEase EaseOut：1 - (1-t)^3
+            // CubicEase EaseOut: 1 - (1-t)^3
             var eased = 1 - Math.Pow(1 - t, 3);
             byte a = (byte)Math.Clamp(Math.Round(eased * 255), 0, 255);
             SetLayeredWindowAttributes(hwnd, 0, a, LWA_ALPHA);
@@ -72,7 +74,7 @@ internal static class WindowLayered
         timer.Start();
     }
 
-    /// <summary>动画完成后移除 WS_EX_LAYERED —— 不移除会长期走 DWM 逐帧合成，浪费 GPU。</summary>
+    /// <summary>Removes WS_EX_LAYERED after the animation finishes — leaving it on keeps DWM compositing frame by frame, wasting GPU.</summary>
     private static void RemoveLayered(Window w)
     {
         var hwnd = new WindowInteropHelper(w).Handle;

@@ -1,10 +1,11 @@
 // ============================================================
-// 通用 UI 交互：toast、光标倾斜、像素溶解（PixelSwap/启动按钮 hover）、
-// scrollSpy、存档/头像/更新/作者气泡 tooltip、聚焦辅助
+// General UI interactions: toast, cursor tilt, pixel dissolve (PixelSwap/launch button hover),
+// scrollSpy, saves/avatar/update/author bubble tooltips, focus helpers
 // ============================================================
-// ------------------ 全局 toast（黑底白字默认；kind="err" 红底白字；2.6s 自动消失） ------------------
-// 直接挂 document.body，避开 Blazor 组件树里 transform/filter 祖先破坏 position:fixed 的坑。
-// 同类不叠加：上一个还在就先移除再显示新的。
+// ------------------ Global toast (black bg / white text by default; kind="err" red bg / white text; auto-dismisses after 2.6s) ------------------
+// Attached directly to document.body to dodge the pitfall where transform/filter ancestors inside the Blazor
+// component tree break position:fixed. No stacking of the same toast: if the previous one is still around,
+// remove it before showing the new one.
 (function () {
     window.junigridJs = window.junigridJs || {};
     var current = null;
@@ -41,13 +42,13 @@
                     }, 450);
                 }
             }, 2300);
-        } catch (e) { /* toast 失败不影响主流程 */ }
+        } catch (e) { /* toast failure must not affect the main flow */ }
     };
 
-    // v0.67.0：spring 胶囊已删除，导航项 tooltip 统一由后面的 .jg-cursor-tip 处理
+    // v0.67.0: The spring pill has been removed; nav item tooltips are handled uniformly by the .jg-cursor-tip below
 })();
 
-// 光标驱动透视倾斜（GSAP quickTo，效果同 demos.gsap.com 的 cursor-driven perspective tilt）
+// Cursor-driven perspective tilt (GSAP quickTo; same effect as demos.gsap.com's cursor-driven perspective tilt)
 window.junigridJs.tiltPerspective = function (selector, opts) {
     opts = opts || {};
     if (!window.gsap) return;
@@ -61,14 +62,14 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
     var innerX = gsap.quickTo(el, 'x', { ease: 'power3', duration: opts.duration || 0.35 });
     var innerY = gsap.quickTo(el, 'y', { ease: 'power3', duration: opts.duration || 0.35 });
 
-    // 启动中/运行中这类非空闲状态下，关闭 3D 倾斜（按钮 disabled 或处于 .running）
+    // In non-idle states such as launching/running, turn off the 3D tilt (button disabled or in .running)
     function busy() {
         return el.disabled || !!el.closest('.jg-launch-row.running');
     }
     function onMove(e) {
         if (busy()) { onLeave(); return; }
         var r = el.getBoundingClientRect();
-        var nx = (e.clientX - r.left) / r.width;      // 0..1 相对按钮自身
+        var nx = (e.clientX - r.left) / r.width;      // 0..1 relative to the button itself
         var ny = (e.clientY - r.top) / r.height;
         outerRX(gsap.utils.interpolate(10, -10, ny));
         outerRY(gsap.utils.interpolate(-10, 10, nx));
@@ -84,8 +85,8 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
 };
 
 
-// ---- PixelSwap 像素溶解：第二阶段内容以像素块逐个 reveal/收合。（纯 JS，WAAPI）----
-// pixelSwap(btn, maskEl, activate, opts)：把 maskEl 作为第二态，以网格像素 reveal(进入)或收回(离开)。
+// ---- PixelSwap pixel dissolve: the second-stage content is revealed/collapsed as individual pixels. (Pure JS, WAAPI) ----
+// pixelSwap(btn, maskEl, activate, opts): uses maskEl as the second state, revealed (enter) or collapsed (leave) via grid pixels.
 (function () {
     if (typeof document === 'undefined') return;
 
@@ -120,7 +121,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
     window.junigridJs.pixelSwap = function (btn, mask, activate, opts) {
         opts = opts || {};
         if (!btn) return;
-        // 清除旧网格
+        // Clear the old grid
         var old = btn.querySelector('.px-grid');
         var oldAnims = old ? old.__anims : null;
         if (oldAnims) oldAnims.forEach(function (a) { try { a.cancel(); } catch (e) {} });
@@ -137,7 +138,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
         var spread = Math.max(0, ms - pixMs);
         var s0 = opts.pixelScale || 0.3;
 
-        // 生成 keyframes（放大揭示）
+        // Build keyframes (scale-up reveal)
         var kf = [];
         for (var s = 0; s <= 10; s++) {
             var p = s / 10, t = p;
@@ -145,7 +146,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
             kf.push({ offset: p, opacity: t, transform: 'scale(' + sc + ')' });
         }
 
-        // 若 activate=false(收回)：反向收缩 + 淡出（scale 1→s0, opacity 1→0）
+        // If activate=false (collapse): reverse shrink + fade out (scale 1→s0, opacity 1→0)
         var outKf = [];
         for (var q = 0; q <= 10; q++) {
             var pr = q / 10;
@@ -163,7 +164,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
             var px = document.createElement('div');
             px.style.cssText = 'position:absolute;left:' + p.left + 'px;top:' + p.top + 'px;width:' + grid.size + 'px;height:' + grid.size + 'px;border-radius:' + (opts.pixelRadius || 3) + '%;overflow:hidden;';
 
-            // 每个像素内放 mask 的窗口版
+            // Inside each pixel, place a windowed copy of the mask
             var win = document.createElement('div');
             win.style.cssText = 'width:100%;height:100%;';
             var clone = mask.cloneNode(true);
@@ -176,7 +177,8 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
         });
         gridEl.__anims = anims;
 
-        // 非激活（收回时）：动画结束移除网格；激活则保留住呈现第二态，稍后清理由 leave 触发收回
+        // When not activating (collapsing): remove the grid once the animation ends; when activating, keep it to show the second
+        // state - the later leave triggers the collapse cleanup
         if (!activate) {
             setTimeout(function () {
                 if (gridEl.parentNode) gridEl.parentNode.removeChild(gridEl);
@@ -184,22 +186,22 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
         }
     };
 
-    // hover 绑定：etriz进入 显示"点击启动！"白蒙版；离开 收回到按钮原样
+    // Hover binding: on enter show the white "Click to launch!" mask; on leave revert the button to its original look
     window.junigridJs.launchHover = function (sel) {
         var btn = sel ? document.querySelector(sel) : document.getElementById('launch-btn');
         if (!btn) return;
-        var mask;   // 缓存的第二态内容
+        var mask;   // cached second-state content
         var show = false;
         function buildMask() {
             var m = document.createElement('div');
             m.className = 'px-launch-mask';
             var txt = document.createElement('span');
             txt.className = 'px-launch-txt';
-            txt.textContent = '点击启动！';
+            txt.textContent = 'Click to launch!';
             m.appendChild(txt);
             return m;
         }
-        // 启动中/运行中（disabled 或 .running/.launching）时，不做像素溶解
+        // While launching/running (disabled or .running/.launching), skip the pixel dissolve
         function busy() {
             return btn.disabled || !!btn.closest('.jg-launch-row.running') || !!btn.closest('.jg-launch-row.launching');
         }
@@ -209,7 +211,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
                 if (grid.parentNode) grid.parentNode.removeChild(grid);
             });
         }
-        // 宽度过渡（关游戏/取消启动时 320ms 展回全宽）是否进行中
+        // Whether the width transition (320ms back to full width when stopping the game/canceling a launch) is in progress
         function widthTransitioning() {
             var anims;
             try { anims = btn.getAnimations(); } catch (e) { return false; }
@@ -222,15 +224,15 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
         }
         btn.addEventListener('mouseenter', function () {
             if (busy()) {
-                // 非空闲（启动中/运行中）：即使此前残留了蒙版也一并清掉，保证显示原始按钮文案
+                // Non-idle (launching/running): clear any leftover mask too, so the original button text always shows
                 clearGrids();
                 show = false;
                 return;
             }
             if (show) return;
-            show = true;   // 先占位，防快速 enter/leave 竞态重复铺
-            // 拖一帧再铺：宽度过渡可能恰在本帧才开始（running/launching class 刚切换），
-            // 当场量宽会缺一块；且宽度动画进行中 hover 完全无效果（产品要求）
+            show = true;   // claim first to prevent rapid enter/leave races from building the mask twice
+            // Wait one frame before building: a width transition may have started this very frame (running/launching class
+            // just toggled), so measuring now would miss a chunk; hover also has no effect while a width animation runs (by design)
             requestAnimationFrame(function () {
                 if (!show || busy() || widthTransitioning() || !btn.matches(':hover')) { show = false; return; }
                 if (!mask) mask = buildMask();
@@ -238,7 +240,8 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
             });
         });
         btn.addEventListener('mouseleave', function () {
-            // 启动中/运行中：不做像素「收回」动画，直接复位并清掉残留，避免移开鼠标时闪出反转动效
+            // While launching/running: skip the pixel "collapse" animation; reset and clear leftovers directly, avoiding a
+            // flash of reversed motion when the mouse moves away
             if (busy()) {
                 show = false;
                 clearGrids();
@@ -246,7 +249,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
             }
             if (!show) return;
             show = false;
-            // rAF 前就移开的话网格还没铺，无需收回动画
+            // If the mouse left before the rAF, the grid was never built and no collapse animation is needed
             if (!btn.querySelector('.px-grid')) return;
             if (mask) window.junigridJs.pixelSwap(btn, mask, false);
         });
@@ -259,7 +262,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
     window.junigridJs.scrollSpy = function (selector, key, restore) {
         var el = document.querySelector(selector);
         if (!el) return;
-        // 先恢复上次位置（详情页返回时回到原滚动高度）。双 rAF 等内容渲染稳定。
+        // Restore the previous position first (returning to the detail page goes back to the original scroll height). Double rAF waits for content to render steadily.
         if (restore !== false) try {
             var saved = sessionStorage.getItem('jg-scroll:' + key);
             if (saved !== null) {
@@ -271,11 +274,11 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
                 }
             }
         } catch (e) { }
-        if (tracked === el && trackedKey === key) return;   // 已挂载不重复监听
+        if (tracked === el && trackedKey === key) return;   // already bound; do not attach twice
         tracked = el; trackedKey = key;
-        // v1.06.8：双重门控 —— 监听挂在跨页共享的 .jg-main 上，组件销毁后监听仍在：
-        // ① 只在绑定时的页面 URL 上才写（否则在下载页滚动会把下载页的位置写进 modslist，
-        //    返回列表就回不到原位）；② 页面切换过渡期（__jgScrollLock）不写。
+        // v1.06.8: Double gating - the listener sits on the cross-page shared .jg-main and outlives component disposal:
+        // (1) only write while still on the page URL bound at attach time (otherwise scrolling the downloads page would write
+        //     the downloads position into modslist and the list could not return to its spot); (2) do not write during page transitions (__jgScrollLock).
         var pagePath = location.pathname + location.search;
         el.addEventListener('scroll', function () {
             if (ticking) return;
@@ -291,7 +294,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
 })();
 
 
-// ------------------ 存档下拉（GSAP easeReverse UI interactions 同款弹性开合） ------------------
+// ------------------ Profile dropdown (same elastic open/close as the GSAP easeReverse UI interactions demo) ------------------
 (function () {
     window.junigridJs = window.junigridJs || {};
 
@@ -303,8 +306,8 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
         var items = wrap.querySelectorAll('.jg-profile-item');
         if (!menu || !window.gsap) { wrap.classList.toggle('open', open); return; }
 
-        // v1.1.2：存档下拉同步外部遮罩（按 data-dd 键配对，见 dropdownToggle 内注释）——
-        // 此前遮罩永远没有 .open，点外部收不掉（既有 bug）
+        // v1.1.2: The profile dropdown now syncs the external overlay (paired by data-dd key, see the comment inside dropdownToggle) -
+        // previously the overlay never got .open, so clicking outside could not close it (pre-existing bug)
         document.querySelectorAll('.jg-dd-overlay').forEach(function (o) {
             o.classList.toggle('open', !!open && o.dataset.dd === wrap.dataset.dd);
         });
@@ -319,7 +322,7 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
                   { autoAlpha: 1, yPercent: 0, scale: 1, duration: 0.7, ease: 'elastic.out(1.2, 0.32)' }, 0)
               .from(items, { opacity: 0, x: -16, duration: 0.32, ease: 'back.out(2.6)', stagger: 0.05 }, 0.08);
         } else {
-            // 退出用 timeScale 加速 + 平滑缓出（demo 里 easeReverse/timeScale 的用意）
+            // Exit uses a timeScale speedup + smooth ease-out (the intent of easeReverse/timeScale in the demo)
             var tl2 = gsap.timeline({
                 onComplete: function () {
                     wrap.classList.remove('open');
@@ -332,14 +335,14 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
     };
 })();
 
-// ------------------ 问号帮助按钮的 GSAP 弹性 tooltip ------------------
+// ------------------ GSAP elastic tooltip for the "?" help button ------------------
 (function () {
     window.junigridJs = window.junigridJs || {};
     var bound = {};
 })();
 
 
-// ------------------ data-tip 跟随鼠标胶囊提示（与导航栏一致） ------------------
+// ------------------ data-tip mouse-following pill tooltip (matches the nav bar) ------------------
 (function () {
     window.junigridJs = window.junigridJs || {};
     var tip = null, curTarget = null;
@@ -382,8 +385,8 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
     document.addEventListener('mousedown', hide, true);
 })();
 
-// ------------------ v1.x：设置页「?」帮助问号的 GSAP 弹性 tooltip ------------------
-// hover 弹入（elastic），移开立即消失（不走反向动画）；事件委托，Blazor 重渲染无需重新绑定
+// ------------------ v1.x: GSAP elastic tooltip for the settings page "?" help mark ------------------
+// Springs in on hover (elastic), vanishes instantly on leave (no reverse animation); event delegation means Blazor re-renders need no rebinding
 (function () {
     function bubbleOf(wrap) { return wrap.querySelector('.jg-help-tip-bubble'); }
     function btnOf(wrap) { return wrap.querySelector('.jg-help-tip-btn'); }
@@ -413,19 +416,21 @@ window.junigridJs.tiltPerspective = function (selector, opts) {
     document.addEventListener('mouseout', function (e) {
         var wrap = e.target.closest ? e.target.closest('.jg-help-tip') : null;
         if (!wrap) return;
-        // 仍在问号/气泡内部移动时不关闭
+        // Do not close while still moving inside the "?" mark/bubble
         if (e.relatedTarget && wrap.contains(e.relatedTarget)) return;
-        close(wrap);   // 要求：移开直接关闭，不要 GSAP 反向动画
+        close(wrap);   // requirement: close immediately on leave, no GSAP reverse animation
     });
 })();
 
 
 
-// v0.70.1：用户头像卡片 —— easeReverse 源码同款：头像 elastic 放大 + 气泡弹出
-// v1.08.0：hover 自动开关废除 —— 移向气泡途中鼠标会扫过下方 mod 卡，离开头像即开始关闭倒计时，
-// 开启动画期间气泡命中区域又小（scale 0.4 起步），「卡片开着却自己关了」且概率性复现。
-// 改纯手动：点击头像开启、再点头像关闭；点击卡片外任意处收回；卡片内（查看主页/退出登录）不关。
-// v1.08.1：头像 hover 动画保留 —— 悬停弹性放大 / 移开还原，仅作反馈，不带动卡片开关。
+// v0.70.1: User avatar card - mirrors the easeReverse source: avatar elastic scale-up + bubble pop-out
+// v1.08.0: Hover auto open/close removed - on the way to the bubble the mouse sweeps over mod cards below, and the close
+// countdown starts the moment the avatar is left; while the open animation runs the bubble's hit area is still tiny
+// (it starts at scale 0.4), so "the card was open yet closed by itself" happened intermittently.
+// Now fully manual: click the avatar to open, click again to close; click anywhere outside the card to collapse;
+// clicks inside the card (view profile/log out) do not close it.
+// v1.08.1: Avatar hover animation kept - elastic scale-up on hover / restore on leave, feedback only; it never toggles the card.
 window.junigridJs.userTipInit = function (wrapId, bubbleId) {
     var wrap = document.getElementById(wrapId);
     var bubble = document.getElementById(bubbleId);
@@ -435,13 +440,13 @@ window.junigridJs.userTipInit = function (wrapId, bubbleId) {
     if (typeof gsap === "undefined") { wrap.classList.add("jg-user-tip-nogsap"); return; }
     gsap.set(bubble, { autoAlpha: 0, y: 14, scale: 0.4, transformOrigin: "top right" });
     gsap.set(avatar, { scale: 1, transformOrigin: "center center" });
-    // v1.08.1：开卡时间线只管气泡 —— 头像缩放独立出来给 hover 用，两边不再互相打架
+    // v1.08.1: The open timeline only drives the bubble - avatar scaling is split out for hover, so the two no longer fight each other
     var tl = gsap.timeline({ paused: true })
         .to(bubble, { autoAlpha: 1, y: 0, scale: 1, duration: 1.0, ease: "elastic.out(1.2, 0.3)" }, 0);
 
-    // hover 动画保留：悬停头像 elastic 放大，移开快速还原（纯反馈，不带动卡片开关）
-    // v1.08.2：每次现查当前头像元素 —— 头像数据到位后 Blazor 会把首字母兜底 div 换成 img，
-    // 绑定时抓到的旧元素已脱离 DOM（这就是「Y 头像有动画、真头像没动画」的原因）
+    // Hover animation kept: elastic scale-up on avatar hover, quick restore on leave (feedback only, never toggles the card)
+    // v1.08.2: Look up the current avatar element each time - once avatar data arrives, Blazor swaps the initial-letter fallback
+    // div for an img, so the element captured at bind time is detached from the DOM (why "the Y avatar animated but the real one did not")
     function avatarEl() { return wrap.querySelector(".jg-user-tip-avatar"); }
     function avatarScale(v, quick) {
         var el = avatarEl();
@@ -457,16 +462,17 @@ window.junigridJs.userTipInit = function (wrapId, bubbleId) {
     function setOpen(v) {
         if (v === isOpen) return;
         isOpen = v;
-        // 气泡默认 pointer-events:none（.open 时才放开，见 app.css）—— 点击开合必须同步，否则卡片开着点不了按钮
+        // The bubble is pointer-events:none by default (only released with .open, see app.css) - the click toggle must stay in
+        // sync, otherwise buttons in an open card cannot be clicked
         wrap.classList.toggle("open", v);
         if (v) { avatarScale(1.15); tl.timeScale(1).play(); return; }
-        // 收回沿用既有约定：不做反向动画，瞬间归位
+        // Collapse keeps the existing convention: no reverse animation, snap back instantly
         tl.pause(0);
         gsap.set(bubble, { autoAlpha: 0, y: 14, scale: 0.4 });
         var el = avatarEl();
         if (el) { gsap.killTweensOf(el); gsap.set(el, { scale: 1, transformOrigin: "center center" }); }
     }
-    // 绑在 wrap 上而非 avatar 元素本身：头像数据到位后 img/fallback 兄弟互换，绑 wrap 不丢监听
+    // Bound to wrap instead of the avatar element itself: once avatar data arrives the img/fallback siblings are swapped, so binding wrap keeps the listener
     wrap.addEventListener("click", function (e) {
         if (bubble.contains(e.target)) return;
         e.stopPropagation();
@@ -477,16 +483,16 @@ window.junigridJs.userTipInit = function (wrapId, bubbleId) {
     });
 };
 
-// v1.0.17：标题栏自更新按钮悬浮气泡 —— easeReverse demo 问号气泡同款：
-// elastic 弹入；移开不做反向动画，瞬间归位（约定同 userTipInit 的收回）。
-// 入参接受 ElementReference（元素对象）或 id 字符串。
+// v1.0.17: Titlebar self-update button hover bubble - same as the easeReverse demo "?" bubble:
+// elastic spring-in; no reverse animation on leave, snaps back instantly (same convention as userTipInit's collapse).
+// Accepts an ElementReference (element object) or an id string.
 window.junigridJs.updTipInit = function (wrap, bubble) {
     if (typeof wrap === "string") wrap = document.getElementById(wrap);
     if (typeof bubble === "string") bubble = document.getElementById(bubble);
     if (!wrap || !bubble || wrap.__updTipBound) return;
     wrap.__updTipBound = true;
     if (typeof gsap === "undefined") { wrap.classList.add("jg-upd-tip-nogsap"); return; }
-    // 居中用 xPercent:-50 交给 GSAP 托管 —— CSS translateX(-50%) 会被 GSAP 的 transform 覆盖
+    // Centering uses xPercent:-50 managed by GSAP - CSS translateX(-50%) would be overridden by GSAP's transform
     gsap.set(bubble, { autoAlpha: 0, xPercent: -50, y: -14, scale: 0.4, transformOrigin: "top center" });
     var tl = gsap.timeline({ paused: true })
         .to(bubble, { autoAlpha: 1, y: 0, scale: 1, duration: 1.0, ease: "elastic.out(1.2, 0.3)" }, 0);
@@ -497,14 +503,14 @@ window.junigridJs.updTipInit = function (wrap, bubble) {
     });
 };
 
-// v1.04.0：聚焦任意元素（搜索框叉号清空内容后重新获得焦点用）
+// v1.04.0: Focus any element (used to refocus the search box after its X button clears the text)
 window.junigridJs.focusElement = function (sel) {
     var el = typeof sel === "string" ? document.querySelector(sel) : sel;
     if (el) { try { el.focus(); } catch (e) { } }
 };
 
-// v1.04.0：详情页 by 作者名 —— blur 高光（深色 #3d3d3d / 浅色 #ffffff 扫入）+ hover 头像预览气泡。
-// easeReverse demo 同款：elastic 弹入 + 反向快速退场（exit timeScale 2.5x）。
+// v1.04.0: Detail page "by <author>" - blur highlight (dark #3d3d3d / light #ffffff sweep) + hover avatar preview bubble.
+// Same as the easeReverse demo: elastic spring-in + fast reverse exit (exit timeScale 2.5x).
 window.junigridJs.authorTipInit = function (wrapId, bubbleId) {
     var wrap = document.getElementById(wrapId);
     var bubble = document.getElementById(bubbleId);
@@ -512,19 +518,19 @@ window.junigridJs.authorTipInit = function (wrapId, bubbleId) {
     var nameBtn = wrap.querySelector(".jg-author-name");
     var hl = wrap.querySelector(".jg-author-hl");
     if (typeof gsap === "undefined") { wrap.classList.add("jg-author-nogsap"); return; }
-    if (wrap.__authorBound) return;   // 已绑定：不重复绑定，也不打断进行中的 hover 动画
+    if (wrap.__authorBound) return;   // already bound: do not rebind, and do not interrupt a running hover animation
     wrap.__authorBound = true;
 
     gsap.set(hl, { scaleX: 0, transformOrigin: "left center" });
-    // v1.05.0：xPercent:-50 让气泡水平居中在作者名正上方（箭头才指向名字，不再偏到封面上去）
+    // v1.05.0: xPercent:-50 centers the bubble horizontally right above the author name (the arrow points at the name instead of drifting onto the cover)
     gsap.set(bubble, { autoAlpha: 0, y: 10, scale: 0.5, xPercent: -50, transformOrigin: "bottom center" });
 
-    // hover 时间线：高光扫过 + 气泡 elastic 弹出
+    // Hover timeline: highlight sweep + bubble elastic pop-out
     var tl = gsap.timeline({ paused: true })
         .to(hl, { scaleX: 1, duration: 0.55, ease: "back.out(1.7)", easeReverse: "power2.out" }, 0)
         .to(bubble, { autoAlpha: 1, y: 0, scale: 1, duration: 0.9, ease: "elastic.out(1.2, 0.3)", easeReverse: "power3.in" }, 0.08);
 
-    // 首次渲染高光自动扫入一次（blur-highlight 加载动效），随后回零等 hover
+    // On first render the highlight auto-sweeps once (blur-highlight load effect), then resets to zero and waits for hover
     gsap.timeline({ delay: 0.35 })
         .to(hl, { scaleX: 1, duration: 0.6, ease: "back.out(1.7)" })
         .to(hl, {
@@ -537,8 +543,8 @@ window.junigridJs.authorTipInit = function (wrapId, bubbleId) {
     function closeTl() {
         if (closeTimer) clearTimeout(closeTimer);
         closeTimer = setTimeout(function () {
-            // v1.06.3：取消关闭动画 —— pause(0) 把时间线瞬间拨回起点（气泡/高光直接回到初始态）；
-            // 打开时的 elastic 弹出动画不受影响
+            // v1.06.3: Cancel the closing animation - pause(0) rewinds the timeline to its start instantly (bubble/highlight
+            // return to their initial state); the elastic pop-out animation used when opening is unaffected
             tl.pause(0);
         }, 160);
     }

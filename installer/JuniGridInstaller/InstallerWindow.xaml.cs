@@ -32,9 +32,10 @@ public partial class InstallerWindow : Window
         App.Log("InstallerWindow..ctor done");
     }
 
-    // v1.0.17：安装进行中（_busy）关窗先弹确认 —— 半途强退会留下半新半旧的文件。
-    // 「继续退出」置 _forceClose 再 Close 放行；Closed 里既有的 _cts?.Cancel()
-    // 会让引擎在下一个文件边界停下（无害，重跑安装包即可修复）。
+    // v1.0.17: closing the window while installing (_busy) shows a confirmation first —
+    // force-quitting midway leaves a mix of old and new files.
+    // "Exit anyway" sets _forceClose and calls Close to let it through; the existing _cts?.Cancel()
+    // in Closed makes the engine stop at the next file boundary (harmless, rerunning the setup package fixes it).
     private bool _forceClose;
 
     private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -67,7 +68,7 @@ public partial class InstallerWindow : Window
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "选择 JuniGrid 的安装位置",
+            Title = "Select the JuniGrid install location",
         };
         if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.FolderName))
             PathBox.Text = dlg.FolderName;
@@ -123,7 +124,7 @@ public partial class InstallerWindow : Window
         try
         {
             if (dir.Length < 4 || !Path.IsPathRooted(dir)) return false;
-            if (string.Equals(Path.GetPathRoot(dir), dir, StringComparison.OrdinalIgnoreCase)) return false; // Installing to a drive root is not allowed
+            if (string.Equals(Path.GetPathRoot(dir), dir, StringComparison.OrdinalIgnoreCase)) return false; // do not allow installing to a drive root
             Path.GetFullPath(dir);
             return true;
         }
@@ -153,7 +154,7 @@ public partial class InstallerWindow : Window
         ProgressFill.Visibility = Visibility.Visible;
         DonePanel.Visibility = Visibility.Collapsed;
         StatusText.Foreground = Brushes.White;
-        StatusText.Text = "准备中…";
+        StatusText.Text = "Preparing…";
         PercentText.Text = "";
         ErrorPanel.Visibility = Visibility.Collapsed;
         UpdateBar(0);
@@ -171,7 +172,7 @@ public partial class InstallerWindow : Window
         try
         {
             await _engine.InstallAsync(dir, DeskShortcut.IsChecked == true, progress, _cts.Token);
-            // 不自动启动：隐藏进度元素，只留「启动 JuniGrid」复选框 + 完成按钮
+            // no auto-launch: hide the progress elements, leaving only the "Launch JuniGrid" checkbox + finish button
             SizeText.Visibility = Visibility.Collapsed;
             PercentText.Visibility = Visibility.Collapsed;
             StatusText.Visibility = Visibility.Collapsed;

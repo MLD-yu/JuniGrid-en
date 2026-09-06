@@ -9,7 +9,7 @@ internal static class NativeMethods
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
-    /// <summary>Win11 上给无边框窗口加系统圆角；Win10 不支持则静默忽略。</summary>
+    /// <summary>Adds system rounded corners to the borderless window on Win11; silently ignored on systems without support (Win10).</summary>
     public static void TryRoundCorners(Window window)
     {
         try
@@ -20,7 +20,7 @@ internal static class NativeMethods
         }
         catch
         {
-            // 旧系统没有该 API，直角即可
+            // Older systems lack this API; square corners are fine
         }
     }
 }

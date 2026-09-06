@@ -8,13 +8,13 @@
 <div class="jg-page jg-tasks-page">
     <div class="jg-tasks-inner" style="display:flex;gap:16px;">
         <aside style="flex:0 0 200px;">
-            @* ─── 透明底黑箭头返回（悬浮白底黑字胶囊提示跟随鼠标）─── *@
+            @* ─── Back arrow, black on transparent (floating white-on-black pill tooltip follows the mouse) ─── *@
             <button class="jg-tasks-back" @onclick="GoBack" data-tip="Back" aria-label="Back">
                 <svg width="20" height="20" viewBox="0 0 1024 1024" fill="none">
                     <path d="M532.526499 904.817574L139.506311 511.797385 532.526499 118.777197c12.258185-12.258185 12.432147-32.892131-0.187265-45.51052-12.707416-12.707416-32.995485-12.703323-45.511543-0.187265L75.166957 484.739123c-7.120165 7.120165-10.163477 17.065677-8.990768 26.624381-1.500167 9.755178 1.5104 20.010753 8.990768 27.491121l411.660734 411.660734c12.258185 12.258185 32.892131 12.432147 45.511543-0.187265 12.707416-12.707416 12.7023-32.995485 0.187265-45.51052z" fill="currentColor"/>
                 </svg>
             </button>
-            <div style="margin-top:24px;font-size:13px;opacity:.7;">Overall progress</div>
+            <div style="margin-top:24px;font-size:13px;opacity:.7;">Total progress</div>
             <div style="font-size:26px;font-weight:600;color:var(--jg-text)">@Center.TotalPercent.ToString("F2") %</div>
             <div style="margin-top:16px;font-size:13px;opacity:.7;">Download speed</div>
             <div style="font-size:22px;font-weight:600;color:var(--jg-text)">@Center.TotalSpeedMBps.ToString("F2") M/s</div>
@@ -22,17 +22,17 @@
             <div style="font-size:22px;font-weight:600;color:var(--jg-text)">@Center.RunningCount</div>
             <div style="margin-top:24px;">
                 <button class="jg-tasks-clear" @onclick="AskClear" data-tip="Clear all tasks matching the current filter"
-                        disabled="@(!VisibleItems().Any())">Clear all</button>
+                        disabled="@(_visible.Count == 0)">Clear all</button>
             </div>
         </aside>
         <section style="flex:1;min-width:0;">
             <h1 style="margin-top:0;">Task Manager</h1>
-            @* ─── 筛选导航：第一个胶囊 = 任务类型（点本体一键回「全部」，点小箭头才弹下拉）
-                   + 状态胶囊 进行中/成功/失败 ─── *@
+            @* ─── Filter nav: the first pill = task kind (clicking the pill itself jumps back to "All" in one click,
+                   only the small arrow opens the dropdown) + status pills Running/Succeeded/Failed ─── *@
             <div class="jg-tfilters">
                 <div class="jg-sort-dd jg-tf-kind @(_filter == "all" ? "active" : "")" id="jgKindFilter">
-                    <span class="jg-tf-label" @onclick="KindPillClick" title="Back to all tasks of this type">@KindLabel(_kind)</span>
-                    <span class="jg-tf-caret" @onclick="ToggleKindMenu" title="Choose a task type">
+                    <span class="jg-tf-label" @onclick="KindPillClick" title="Click to show all tasks of this kind">@KindLabel(_kind)</span>
+                    <span class="jg-tf-caret" @onclick="ToggleKindMenu" title="Select task kind">
                         <svg class="jg-sort-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
                             <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
@@ -51,13 +51,13 @@
                     <button class="jg-tfilter @(_filter == key ? "active" : "")" @onclick="() => SetFilter(key)">@f.Label</button>
                 }
             </div>
-            @if (VisibleItems().Count == 0)
+            @if (_visible.Count == 0)
             {
                 <div class="jg-note">No tasks match the current filter.</div>
             }
             else
             {
-                @foreach (var t in VisibleItems())
+                @foreach (var (t, log) in _visible)
                 {
                     var dropId = "jgDrop-" + t.Id.ToString("N");
                     var arrowId = "jgArr-" + t.Id.ToString("N");
@@ -67,10 +67,10 @@
                             <button class="jg-rowbtn" @onclick="() => Remove(t)" title="Remove">×</button>
                         </div>
                         <div style="margin-top:6px;font-size:12px;display:flex;align-items:center;gap:6px;">
-                            <span style="opacity:.7;">@(t.Status == "running" ? "Running" : t.Status == "done" ? "Done" : "Failed") · @t.Percent.ToString("F0")% @(t.SpeedMBps > 0 ? $" · {t.SpeedMBps:F2} M/s" : "")</span>
-                            @if (t.Log.Count > 0)
+                            <span style="opacity:.7;">@(t.Status == "running" ? "Running" : t.Status == "done" ? "Completed" : "Failed") · @t.Percent.ToString("F0")% @(t.SpeedMBps > 0 ? $" · {t.SpeedMBps:F2} M/s" : "")</span>
+                            @if (log.Count > 0)
                             {
-                                @* ─── 数字进度后边的下拉按钮：展开该任务的下载信息 ─── *@
+                                @* ─── Dropdown button after the numeric progress: expands this task's download details ─── *@
                                 <button class="jg-taskdrop-trigger" @onclick="() => ToggleDrop(t)" aria-label="Expand download details">
                                     <svg id="@arrowId" width="12" height="12" viewBox="0 0 12 12" fill="none">
                                         <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -82,36 +82,37 @@
                             <div style="height:100%;border-radius:3px;background:@(t.Status=="failed"?"#e11d48":"var(--jg-ink)");width:@(t.Percent)%"></div>
                         </div>
 
-                        @* ─── 下载信息下拉面板（GSAP easeReverse 弹性展开；进度噪声行不进入）───
-                           v1.07：展开态由 class（_openDrops）驱动 —— 下载中频繁重渲染也不会丢展开状态；
-                           gsap 只负责动画过程，动画结束清除内联样式，稳态归 CSS 管
-                           v1.08.1：面板渲染条件与触发按钮对齐（Log.Count > 0）—— 旧版只在
-                           UsefulLines 有内容时才渲染面板，日志全是进度噪声时点按钮会
-                           因 #jgDrop-* 不存在而在 JS 里静默 return，表现为「点了没反应」；
-                           现在按钮在面板必在，无有效日志时显示占位行 *@
-                        @if (t.Log.Count > 0)
+                        @* ─── Download details dropdown panel (GSAP easeReverse elastic expansion; progress-noise lines never enter) ───
+                           v1.07: the expanded state is driven by class (_openDrops) — frequent re-renders during a download no longer lose it;
+                           gsap only plays the animation, inline styles are cleared when it ends, the steady state belongs to CSS
+                           v1.08.1: the panel's render condition now matches the trigger button (Log.Count > 0) — the old version
+                           rendered the panel only when UsefulLines had content, so when the log was all progress noise clicking
+                           the button silently returned in JS because #jgDrop-* did not exist, looking like "clicking does nothing";
+                           now the button implies the panel is there, and a placeholder row shows when there is no useful log *@
+                        @if (log.Count > 0)
                         {
                             <div class="jg-taskdrop-menu @(_openDrops.Contains(t.Id) ? "open" : "")" id="@dropId">
                                 <div class="jg-tl">
                                 @{
-                                    var lines = UsefulLines(t).ToList();
-                                    int[] ringOrder = { 0, 1, 2, 5, 8, 7, 6, 3 };   // 3x3 环绕顺时针（0 左上起）
+                                    var lines = UsefulLines(log).ToList();
+                                    int[] ringOrder = { 0, 1, 2, 5, 8, 7, 6, 3 };   // 3x3 ring, clockwise (0 starts at top-left)
                                 }
                                 @if (lines.Count == 0)
                                 {
-                                    <div class="jg-tl-empty">No details yet (working in the background…)</div>
+                                    <div class="jg-tl-empty">No detailed log yet (processing in the background, please wait...)</div>
                                 }
                                 @for (var i = 0; i < lines.Count; i++)
                                 {
                                     var line = lines[i];
                                     var isLast = i == lines.Count - 1;
-                                    // 运行中任务的最后一行 = 进行中（像素方块）；已完成任务的末行 = 实心绿勾；失败任务末行 = 红叉
+                                    // last line of a running task = in progress (pixel square); last line of a finished task = solid check; last line of a failed task = red cross
+                                    // v1.2.2: success rows' text/icon adapt to the theme (white on dark / black on light); failures stay red
                                     var status = t.Status == "running" && isLast ? "running"
                                                : t.Status == "failed" && isLast ? "error"
                                                : t.Status == "done" && isLast ? "final"
                                                : "done";
-                                    var phase = PhaseOf(line);   // backup=蓝 / connect=红 / 其它=黑
-                                    var iconColor = status == "done" || status == "final" ? "var(--tl-green)"
+                                    var phase = PhaseOf(line);   // backup=blue / connect=red / others=black
+                                    var iconColor = status == "done" || status == "final" ? "var(--tl-black)"
                                                   : status == "error" ? "var(--tl-red)"
                                                   : phase == "backup" ? "var(--tl-blue)"
                                                   : phase == "connect" ? "var(--tl-red)"
@@ -140,12 +141,12 @@
                                             }
                                             else if (status == "final")
                                             {
-                                                @* 末行 Success：实心绿底白勾（不变）*@
+                                                @* Last row Success: solid green with white check (unchanged) *@
                                                 <svg class="jg-tl-check jg-tl-mark" viewBox="0 0 26 26"><circle cx="13" cy="13" r="12"/><path d="M7 13.5l4 4 8-9"/></svg>
                                             }
                                             else
                                             {
-                                                @* 弧线开口对勾：缺口在右上 1 点半方向，勾尾伸向缺口（同视频样式）*@
+                                                @* Arc check with an opening: the gap sits toward the top right at 1:30, the check's tail reaches into the gap (same as the video style) *@
                                                 <svg class="jg-tl-check jg-tl-mark" viewBox="0 0 26 26"><path d="M21.49 4.51A12 12 0 1 1 13 1"/><path d="M7 13.5l4 4 8.5-9.5"/></svg>
                                             }
                                         </div>
@@ -153,7 +154,7 @@
                                     </div>
                                     @if (i < lines.Count - 1 || t.Status == "running")
                                     {
-                                        @* ── v1.1.3：步骤间虚线连接（运行中末行后面也带一节，表示后续还有）── *@
+                                        @* ── v1.1.3: dashed connector between steps (the running task's last line also gets one, meaning more to come) ── *@
                                         <div class="jg-tl-connector"><i></i></div>
                                     }
                                 }
@@ -166,7 +167,7 @@
         </section>
     </div>
 
-    @* ─── 清理确认弹窗 ─── *@
+    @* ─── Clear confirmation dialog ─── *@
     @if (_confirmClear)
     {
         <div class="jg-tasks-confirm-mask" @onclick="() => _confirmClear = false">
@@ -183,22 +184,48 @@
 </div>
 
 @code {
-    protected override void OnInitialized() => Center.OnChanged += Refresh;
-    public void Dispose() => Center.OnChanged -= Refresh;
-    private void Refresh() => InvokeAsync(StateHasChanged);
+    // v1.1.6: rendering now uses a thread-safe snapshot — it used to enumerate Center.Items directly (background
+    // download threads Insert/Remove at any time), and hitting "collection was modified" mid-render crashed the
+    // whole page; the t.Log enumeration likewise switched to a copy.
+    private List<(TaskItem Item, List<string> Log)> _visible = new();
 
-    // ─── 筛选导航：状态胶囊 × 任务类型下拉 ───
-    // 类型胶囊本体点击 = 一键回「全部」；只有小箭头才弹下拉 —— 保证任何时候一下就能回全部
+    protected override void OnInitialized()
+    {
+        RebuildVisible();
+        Center.OnChanged += Refresh;
+    }
+    public void Dispose() => Center.OnChanged -= Refresh;
+    private void Refresh() => InvokeAsync(() => { RebuildVisible(); StateHasChanged(); });
+
+    private void RebuildVisible()
+    {
+        IEnumerable<TaskItem> q = Center.Snapshot();
+        // Kind dimension: mod download = download/install/update; cache cleanup = cleanup
+        if (_kind == "mod") q = q.Where(t => t.Kind != "cleanup");
+        else if (_kind == "cleanup") q = q.Where(t => t.Kind == "cleanup");
+        // Status dimension
+        q = _filter switch
+        {
+            "running" => q.Where(t => t.Status == "running"),
+            "done"    => q.Where(t => t.Status == "done"),
+            "failed"  => q.Where(t => t.Status == "failed"),
+            _         => q
+        };
+        _visible = q.Select(t => (t, Center.CopyLog(t))).ToList();
+    }
+
+    // ─── Filter nav: status pills x task kind dropdown ───
+    // Clicking the kind pill itself = one click back to "All"; only the small arrow opens the dropdown — so one click always returns to all
     private static readonly (string Key, string Label)[] Filters =
     {
-        ("running", "Running"), ("done", "Done"), ("failed", "Failed")
+        ("running", "Running"), ("done", "Succeeded"), ("failed", "Failed")
     };
     private static readonly (string Key, string Label)[] Kinds =
     {
-        ("all", "All"), ("mod", "Mod downloads"), ("cleanup", "Cache cleanup")
+        ("all", "All"), ("mod", "Mod download"), ("cleanup", "Cache cleanup")
     };
-    private string _filter = "all";   // 状态维度：all / running / done / failed
-    private string _kind = "all";     // 类型维度：all / mod / cleanup
+    private string _filter = "all";   // status dimension: all / running / done / failed
+    private string _kind = "all";     // kind dimension: all / mod / cleanup
 
     private string KindLabel(string key) =>
         Kinds.FirstOrDefault(k => k.Key == key).Label ?? "All";
@@ -206,14 +233,16 @@
     private void SetFilter(string key)
     {
         _filter = key;
+        RebuildVisible();
         StateHasChanged();
     }
 
-    /// <summary>点类型胶囊本体：只把状态筛选拉回「全部」，类型保持胶囊上显示的那个 ——
-    /// 显示「Mod 下载」就回 Mod 下载视图；要清掉类型选择用下拉菜单里的「全部」。</summary>
+    /// <summary>Clicking the kind pill itself: only resets the status filter to "All", keeping the kind shown on the pill —
+    /// if it shows "Mod download" you return to the Mod download view; to clear the kind selection use "All" in the dropdown menu.</summary>
     private void KindPillClick()
     {
         _filter = "all";
+        RebuildVisible();
         StateHasChanged();
     }
 
@@ -225,78 +254,80 @@
     private async Task SelectKind(string key)
     {
         _kind = key;
+        RebuildVisible();
         StateHasChanged();
         try { await JS.InvokeVoidAsync("junigridJs.logsFilterClose", "#jgKindFilter"); } catch { }
-    }
-
-    private List<TaskItem> VisibleItems()
-    {
-        IEnumerable<TaskItem> q = Center.Items;
-        // 类型维度：Mod 下载 = 下载/安装/更新；缓存清理 = cleanup
-        if (_kind == "mod") q = q.Where(t => t.Kind != "cleanup");
-        else if (_kind == "cleanup") q = q.Where(t => t.Kind == "cleanup");
-        // 状态维度
-        q = _filter switch
-        {
-            "running" => q.Where(t => t.Status == "running"),
-            "done"    => q.Where(t => t.Status == "done"),
-            "failed"  => q.Where(t => t.Status == "failed"),
-            _         => q
-        };
-        return q.ToList();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // 下拉外点关闭 + 箭头动画绑定（复用日志页同款组件）
+            // Close on outside click + arrow animation binding (reuses the same component as the logs page)
             try { await JS.InvokeVoidAsync("junigridJs.logsFilterInit", "#jgKindFilter"); } catch { }
         }
-        // v1.1.3：给展开着的任务时间线挂观察器 —— 检测「像素方块→对勾」的切换并播放变形动画
+        // v1.1.3: attach observers to expanded task timelines — detect the "pixel square → check" switch and play the morph animation
         foreach (var id in _openDrops)
         {
             try { await JS.InvokeVoidAsync("junigridJs.taskTimelineWatch", "#jgDrop-" + id.ToString("N")); } catch { }
         }
     }
 
-    // ─── 日志清洗：进度噪声不显示 ───
-    // 噪声 = 中间进度回报行（带 %、KB/MB 每秒、已下载/正在下载 X KB|MB / Y KB|MB 等）——
-    // 进度条和步骤列表已实时呈现；这些行曾把日志刷到两百多行。
+    // ─── Log cleaning: progress noise is not shown ───
+    // Noise = intermediate progress report lines (with %, KB/MB per second, downloaded / downloading X KB|MB / Y KB|MB, etc.) —
+    // the progress bar and step list already show this live; these lines once flooded the log past two hundred lines.
     private static readonly System.Text.RegularExpressions.Regex TsPrefix =
         new(@"^\[\d{2}:\d{2}:\d{2}\]\s*", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex ProgressNoise =
-        new(@"(\d+\s*%|\d+(\.\d+)?\s*(KB|MB)/s|已下载\s*[\d.]+\s*(KB|MB)|[\d.]+\s*(KB|MB)\s*/\s*[\d.]+\s*(KB|MB))",
+        new(@"(\d+\s*%|\d+(\.\d+)?\s*(KB|MB)/s|[Dd]ownloaded\s*[\d.]+\s*(KB|MB)|[\d.]+\s*(KB|MB)\s*/\s*[\d.]+\s*(KB|MB))",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private static IEnumerable<string> UsefulLines(TaskItem t)
+    private static IEnumerable<string> UsefulLines(List<string> log)
     {
-        foreach (var raw in t.Log)
+        // v1.1.2: download heartbeat lines ("Downloading… x MB / y MB") used to be hidden entirely by ProgressNoise,
+        // leaving the download phase invisible in the step list — the percent climbed alone while the label stayed
+        // stuck on "Getting download URL…", then jumped straight to "Install complete" at 100%. Consecutive heartbeats
+        // are now folded into a single numberless "Downloading…" line shown as a visible step.
+        // v1.1.6: the parameter is now a log copy (CopyLog); TaskItem.Log is no longer enumerated directly.
+        var lastWasDl = false;
+        foreach (var raw in log)
         {
             var line = TsPrefix.Replace(raw, "").Trim();
-            if (line.Length == 0 || ProgressNoise.IsMatch(line)) continue;
+            if (line.Length == 0) continue;
+            if (line.StartsWith("Downloading"))
+            {
+                if (lastWasDl) continue;   // consecutive heartbeats keep only one line
+                yield return "Downloading…";
+                lastWasDl = true;
+                continue;
+            }
+            lastWasDl = false;
+            if (ProgressNoise.IsMatch(line)) continue;
             yield return line;
         }
     }
 
-    // ─── v1.1.3：日志行 → 阶段（关键词自动匹配）───
-    // 备份/恢复 → 蓝；连接/服务器 → 红；下载/安装/解压/其它 → 黑。
-    // 完成勾统一绿、失败统一红，在标记渲染处决定，与这里的阶段色无关。
+    // ─── v1.1.3: log line → phase (keyword auto-match) ───
+    // backup/restore → blue; connect/server → red; download/install/extract/others → black.
+    // The completion check is always green and failures always red, decided at the marker rendering site — unrelated to the phase color here.
     private static string PhaseOf(string line)
     {
-        if (line.Contains("备份") || line.Contains("恢复")) return "backup";
-        if (line.Contains("连接") || line.Contains("服务器")) return "connect";
+        // Keyword keys must match the English log lines the services emit
+        // ("Back"/"back" = Backing up/backed up/back up; "estor" = Restoring/restored;
+        //  "onnect" = Connecting/Connection; "erver" = server/Server)
+        if (line.Contains("Back") || line.Contains("back") || line.Contains("estor")) return "backup";
+        if (line.Contains("onnect") || line.Contains("erver")) return "connect";
         return "work";
     }
 
-    // ─── 下载信息下拉：每任务一个展开状态，GSAP 动画在 JS 里 ───
+    // ─── Download details dropdown: one expanded state per task; the GSAP animation lives in JS ───
     private readonly HashSet<Guid> _openDrops = new();
     private async Task ToggleDrop(TaskItem t)
     {
         var open = !_openDrops.Contains(t.Id);
         if (open) _openDrops.Add(t.Id); else _openDrops.Remove(t.Id);
         try { await JS.InvokeVoidAsync("junigridJs.taskDrop", "#jgDrop-" + t.Id.ToString("N"), "#jgArr-" + t.Id.ToString("N"), open); } catch { }
-        // v1.07：渲染同步 class（open 态的稳态显示由 CSS .open 保证，重渲染不丢）
+        // v1.07: the class is synced on render (CSS .open guarantees the steady state, so re-renders do not lose it)
         StateHasChanged();
     }
 
@@ -306,7 +337,7 @@
         _openDrops.Remove(t.Id);
     }
 
-    // ─── 清理全部（当前筛选）：确认弹窗 → 按筛选条件清空 ───
+    // ─── Clear all (current filter): confirmation dialog → clear by the filter condition ───
     private bool _confirmClear;
     private void AskClear() => _confirmClear = true;
     private void DoClear()
@@ -322,7 +353,7 @@
     }
 
     private void Clear() => Center.ClearFinished();
-    // v1.06.6：返回 = history.back 回到进入前的页面
+    // v1.06.6: back = history.back to the page you came from
     private void GoBack() => _ = JS.InvokeVoidAsync("junigridJs.goBack");
     private void OpenSmapiInstallerFolder()
     {

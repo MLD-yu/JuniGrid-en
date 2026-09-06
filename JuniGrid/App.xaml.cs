@@ -15,13 +15,13 @@ public partial class App : Application
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "JuniGrid", "crash.log");
 
-    // ---- 单实例 + nxm:// 转发 ----
-    // 用户在 Nexus 网页点「Mod Manager Download」时，Windows 会用
-    // nxm:// 链接拉起 JuniGrid.exe。如果已有实例在跑，第二实例通过
-    // 命名管道把链接递给主实例，然后自己退出。
+    // ---- Single instance + nxm:// forwarding ----
+    // When the user clicks "Mod Manager Download" on the Nexus website, Windows launches
+    // JuniGrid.exe with an nxm:// link. If an instance is already running, the second
+    // instance hands the link to the main instance over a named pipe and then exits.
     private const string MutexName = "JuniGrid.SingleInstance";
     private const string PipeName = "JuniGrid.NxmPipe";
-    /// <summary>二次启动经管道发给主实例的激活指令。</summary>
+    /// <summary>Activation command sent to the main instance over the pipe on a second launch.</summary>
     private const string ActivateCommand = "jg:activate";
     private static Mutex? _mutex;
 
@@ -35,9 +35,10 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // 卸载模式（JuniGrid.exe --uninstall 或安装目录里的独立 Uninstall.exe）：
-        // 跳过单实例/管道/splash，只显示卸载向导。
-        // 必须在 mutex 之前分流——主实例在跑时控制面板也要能拉起卸载器。
+        // Uninstall mode (JuniGrid.exe --uninstall or the standalone Uninstall.exe in the
+        // install directory): skip single-instance/pipe/splash and show only the uninstall wizard.
+        // Must branch before the mutex — the uninstaller must be launchable from Control Panel
+        // even while the main instance is running.
         var exeName = Path.GetFileName(Environment.ProcessPath) ?? "";
         _uninstallMode = e.Args.Any(a => a.Equals("--uninstall", StringComparison.OrdinalIgnoreCase))
                          || exeName.Equals("Uninstall.exe", StringComparison.OrdinalIgnoreCase);
@@ -68,10 +69,12 @@ public partial class App : Application
                 return;
             }
 
-            // 不带 nxm 链接的二次启动 = 用户又点了一次快捷方式。标准做法是把
-            // 已有实例的窗口激活置前（任务栏高亮、可立即操作），本实例直接退出。
-            // 只有联系不上主实例（如升级装完后旧实例占锁、管道无响应）才走旧的
-            // 「结束其它实例后接管」兜底，避免「点了没反应、开出来的还是旧版」。
+            // A second launch without an nxm link = the user clicked the shortcut again. The
+            // standard approach is to activate/foreground the existing instance's window (taskbar
+            // highlight, immediately usable) and let this instance exit. Only if the main instance
+            // cannot be reached (e.g. after an upgrade the old instance still holds the lock, or
+            // the pipe is unresponsive) do we fall back to the old "kill the other instances and
+            // take over" path, avoiding "clicked with no response, and the old version opens".
             if (TryActivateExistingInstance())
             {
                 Shutdown();
@@ -95,10 +98,12 @@ public partial class App : Application
         base.OnStartup(e);
     }
 
-    /// <summary>单实例锁被占时（无 nxm 转发场景）：结束其它 JuniGrid 实例并等锁释放。
-    /// 注意只按进程名 "JuniGrid" 匹配 —— 安装器是 JuniGridSetup、卸载向导是
-    /// Uninstall.exe，进程名都不同，不会误伤。返回 false = 5 秒内仍拿不到锁
-    /// （如旧实例提权运行无法终止），调用方放弃启动。</summary>
+    /// <summary>When the single-instance lock is held (no nxm forwarding scenario): kill the other
+    /// JuniGrid instances and wait for the lock to be released. Note we only match the process
+    /// name "JuniGrid" — the installer is JuniGridSetup and the uninstall wizard is
+    /// Uninstall.exe, both different process names, so they are never hit. Returns false =
+    /// the lock still could not be acquired within 5 seconds (e.g. an old instance running
+    /// elevated that cannot be killed); the caller gives up starting.</summary>
     private static bool TryTakeOverSingleInstance()
     {
         try
@@ -113,7 +118,7 @@ public partial class App : Application
         }
         catch { }
 
-        // 持有者被杀后锁被废弃，WaitOne 抛 AbandonedMutexException 时其实已拿到所有权
+        // Once the holder is killed the mutex is abandoned; when WaitOne throws AbandonedMutexException we already own it
         for (var i = 0; i < 20; i++)
         {
             try
@@ -128,26 +133,27 @@ public partial class App : Application
         return false;
     }
 
-    /// <summary>Startup 事件占位 —— 真正的 splash → main 编排放在这里。</summary>
+    /// <summary>Startup event placeholder — the real splash -> main orchestration lives here.</summary>
     private void OnAppStartup(object sender, StartupEventArgs e)
     {
-        // v1.1.2：WebView2 运行时前置检测 —— 正常 Win10/11 预装，但 Windows 沙盒、
-        // LTSC/精简系统可能没有。缺失时裸异常是一屏英文堆栈（界面永远出不来），
-        // 这里弹中文提示告诉用户装一下再启动。
+        // v1.1.2: WebView2 runtime pre-check — preinstalled on normal Win10/11, but Windows
+        // Sandbox and LTSC/stripped-down systems may not have it. When missing, the raw
+        // exception is a full screen of English stack trace (the UI never appears), so show
+        // a friendly dialog telling the user to install it and start again.
         try
         {
             _ = Microsoft.Web.WebView2.Core.CoreWebView2Environment.GetAvailableBrowserVersionString();
         }
         catch (Exception ex)
         {
-            LogInfo("WebView2 运行时缺失: " + ex.Message);
+            LogInfo("WebView2 runtime missing: " + ex.Message);
             System.Windows.MessageBox.Show(
-                "检测到系统缺少 Microsoft WebView2 运行时，JuniGrid 的界面依赖它。\n\n" +
-                "请下载并安装一次（装完重新启动本程序）：\n" +
+                "Microsoft WebView2 Runtime is missing from this system, and JuniGrid's UI depends on it.\n\n" +
+                "Please download and install it once (then restart this app):\n" +
                 "https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n" +
-                "提示：Windows 沙盒是一次性系统，每次新开沙盒都需要重新安装。\n" +
-                $"技术信息：{ex.Message}",
-                "JuniGrid 无法启动：缺少 WebView2 运行时",
+                "Note: Windows Sandbox is a disposable system; the runtime must be reinstalled in every new sandbox.\n" +
+                $"Technical details: {ex.Message}",
+                "JuniGrid cannot start: WebView2 Runtime is missing",
                 System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             Shutdown();
             return;
@@ -159,54 +165,35 @@ public partial class App : Application
             return;
         }
 
-        // 1) 先弹透明 splash 窗口（logo 停 0.5s → 淡入 1.2s）
+        // 1) Show the transparent splash window first (logo holds 0.5s, then fades in over 1.2s)
         var splash = new SplashWindow();
         splash.Show();
 
-        // 2) 后台构造 MainWindow（Visibility=Hidden + 位置预设到屏幕下方）
+        // 2) Construct MainWindow (mounted off-screen; reveal position is centered on its monitor by MainWindow)
         MainWindow? main = null;
         bool uiReady = false;
         bool introDone = false;
         bool revealed = false;
-        double targetTop = 0;
-        double targetLeft = 0;
 
         void RevealMain()
         {
             if (revealed) return;
             revealed = true;
-            LogInfo("RevealMain: 显示主窗口");
-            // v1.1.7：启动即最大化。不能在 XAML 里写 WindowState="Maximized" ——
-            // 主窗口以 ShowActivated=false 屏外挂载，WPF 禁止该状态与 Maximized 组合 Show
-            // （直接抛 InvalidOperationException，启动即崩）。
-            // v1.1.2：先移回屏内再最大化 —— 窗口还挂在 (-32000,-32000) 时 Windows
-            // 算不出最大化几何，Maximized 会被吞掉、窗口停留在屏外小窗（实测）。
-            // v1.1.2：非前台揭示时 Maximized 偶发被吞 → 300ms 后复查补一次，确保一定最大化。
-            main!.Left = targetLeft;
-            main!.Top = targetTop;
-            main.WindowState = WindowState.Maximized;
+            LogInfo("RevealMain: showing main window");
+            // v1.1.5: start windowed by default — the window is revealed windowed and centered,
+            // no longer forced maximized. The old logic (v1.1.2/v1.1.7) maximized on startup
+            // plus re-checked three times, which would completely overwrite the responsive
+            // window size (77.1%×72.7%) computed in OnSourceInitialized from the monitor ratio;
+            // maximizing is left to the user's title bar button.
+            // v1.1.8: centering is delegated to MainWindow.RevealAtStartupPosition — it reveals
+            // using coordinates derived from the same monitor and the same DPI math as the
+            // OnSourceInitialized size calculation, so size and position always match the same
+            // screen (SystemParameters.WorkArea only describes the primary monitor, and which
+            // screen the off-screen-mounted window lands on is not deterministic; with two
+            // different screens that produced "size computed for screen A, centered on screen B"
+            // misplacement).
+            main!.RevealAtStartupPosition();
             main.Activate();
-            _ = Task.Run(async () =>
-            {
-                // 非前台揭示时 Maximized 偶发被 Windows 前台锁吞掉 → 分三次复查补投
-                foreach (var delay in new[] { 300, 800, 1500 })
-                {
-                    await Task.Delay(delay);
-                    var ok = await main.Dispatcher.InvokeAsync(() =>
-                    {
-                        try
-                        {
-                            if (main.WindowState == WindowState.Maximized) return true;
-                            LogInfo($"RevealMain: 复查补最大化 (state={main.WindowState})");
-                            main.WindowState = WindowState.Maximized;
-                            main.Activate();
-                            return main.WindowState == WindowState.Maximized;
-                        }
-                        catch (Exception __ex) { LogInfo("RevealMain: 复查失败 " + __ex.Message); return true; }
-                    });
-                    if (ok) break;
-                }
-            });
         }
 
         void TryReveal()
@@ -214,8 +201,9 @@ public partial class App : Application
             LogInfo($"TryReveal: introDone={introDone} uiReady={uiReady} mainNull={main is null}");
             if (!(introDone && uiReady) || main is null) return;
 
-            // 分段转场：先淡出整个 Splash（含文字）。MainWindow 要等 Splash
-            // 完全关闭后再 SW_SHOW 现身 —— 避免“动画没演完、界面就从背后顶出来”。
+            // Staged transition: first fade out the entire Splash (text included). MainWindow
+            // must wait until the Splash is fully closed before SW_SHOW reveals it — avoiding
+            // "the UI popping up from behind before the animation has finished".
             if (!revealed && splash.Visibility == System.Windows.Visibility.Visible)
             {
                 splash.Closed += (_, _) => RevealMain();
@@ -234,8 +222,8 @@ public partial class App : Application
             Dispatcher.Invoke(TryReveal);
         };
 
-        // 用 Loaded → BlazorWebView 首次 UI Ready 作为 uiReady 信号：
-        // MainLayout.OnAfterRenderAsync 会通过 JS interop 调 App.NotifyUiReady()。
+        // Use Loaded -> BlazorWebView's first UI-ready moment as the uiReady signal:
+        // MainLayout.OnAfterRenderAsync calls App.NotifyUiReady() via JS interop.
         UiReadyCallback = () =>
         {
             LogInfo("UiReadyCallback fired");
@@ -243,30 +231,33 @@ public partial class App : Application
             Dispatcher.Invoke(TryReveal);
         };
 
-        // Dispatcher 空闲时创建主窗口 —— 让 splash 先渲染出来
+        // Create the main window when the Dispatcher is idle — lets the splash render first
         Dispatcher.BeginInvoke(new Action(() =>
         {
             main = new MainWindow();
             MainWindow = main;
-            // 预算目标位置（居中）
-            var screenW = SystemParameters.WorkArea.Width;
-            var screenH2 = SystemParameters.WorkArea.Height;
-            main.Left = (screenW - main.Width) / 2 + SystemParameters.WorkArea.Left;
-            targetLeft = main.Left;
-            targetTop = (screenH2 - main.Height) / 2 + SystemParameters.WorkArea.Top;
+            // v1.1.8: no longer pre-computes the centered position — the window still has the
+            // XAML fallback size (1600×1000) at this point; the responsive size is only known
+            // once Show triggers OnSourceInitialized, so any position computed now is stale.
+            // Reveal coordinates are computed per-monitor in OnSourceInitialized and applied
+            // by RevealAtStartupPosition.
             main.WindowStartupLocation = WindowStartupLocation.Manual;
-            // v0.23.0：屏外挂载 —— WebView2 是独立子 HWND，DirectComposition 直写屏幕，
-            // 父窗口任何透明手段（Opacity/layered）都拦不住它的黑底。
-            // DWM 不合成屏外窗口，放 (-32000,-32000) 启动，动画播完再挪回滑入。
+            // v0.23.0: off-screen mounting — WebView2 is an independent child HWND whose
+            // DirectComposition output goes straight to the screen; no parent-window
+            // transparency trick (Opacity/layered) can hide its black background.
+            // DWM does not composite off-screen windows, so start at (-32000,-32000) and move
+            // it back to slide in once the animation finishes.
             main.ShowActivated = false;
             main.Left = -32000;
             main.Top = -32000;
             main.Show();
 
-            // 竞态兜底：无论前端「ui-ready」握手或 Splash.IntroCompleted 有没有按时
-            // 到位，主窗口都必须在有限时间内滑入，绝不出现“淡出后空窗、进程还活着”。
-            // 每 300ms 复查一次；主窗一旦可见就停。动画全程约 5s，兜底放宽到 6s，
-            // 保证动画真正播完（IntroCompleted）后才切页，避免抢切。
+            // Race fallback: whether or not the frontend "ui-ready" handshake or
+            // Splash.IntroCompleted arrives in time, the main window must slide in within a
+            // bounded time — never "faded out to an empty screen with the process still alive".
+            // Re-check every 300ms; stop as soon as the main window is visible. The animation
+            // runs about 5s in total and the fallback is relaxed to 6s, so the page switch only
+            // happens after the animation truly completes (IntroCompleted), avoiding a premature switch.
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             long elapsedMs = 0;
             timer.Tick += (_, _) =>
@@ -280,21 +271,22 @@ public partial class App : Application
         }), System.Windows.Threading.DispatcherPriority.Background);
     }
 
-    /// <summary>由 MainLayout.OnAfterRenderAsync → JS → C# 触发。</summary>
+    /// <summary>Triggered by MainLayout.OnAfterRenderAsync → JS → C#.</summary>
     public static Action? UiReadyCallback { get; set; }
 
     public static void NotifyUiReady()
     {
         UiReadyCallback?.Invoke();
-        // v0.2.1：UI 就绪数秒后把启动峰值的工作集换出 —— 只换页不 GC（无暂停感），
-        // GC 才几 MB，工作集大头是运行时/框架映像；系统要内存时会自动换回。
+        // v0.2.1: a few seconds after the UI is ready, trim the startup-peak working set —
+        // page out only, no GC (no perceptible pause). GC only reclaims a few MB; most of the
+        // working set is runtime/framework images. The system pages them back when it needs memory.
         _ = Task.Delay(5000).ContinueWith(_ =>
         {
             try { JuniGrid.Services.MemoryService.TrimWorkingSet(); } catch { }
         });
     }
 
-    /// <summary>启动阶段隐形挂载标志：MainWindow.OnSourceInitialized 检查它决定是否 alpha=0。</summary>
+    /// <summary>Flag for the invisible mount during startup: MainWindow.OnSourceInitialized checks it to decide whether alpha=0.</summary>
 
     private static void LogInfo(string line)
     {
@@ -338,8 +330,9 @@ public partial class App : Application
             PendingNxmLink = link;
     }
 
-    /// <summary>二次启动时通知主实例激活窗口。管道连不上（主实例不存在/假死）返回 false，
-    /// 调用方再走接管兜底。</summary>
+    /// <summary>Asks the main instance to activate its window on a second launch. Returns false
+    /// if the pipe cannot be connected (main instance missing/hung); the caller then falls back
+    /// to the take-over path.</summary>
     private static bool TryActivateExistingInstance()
     {
         try
@@ -353,8 +346,9 @@ public partial class App : Application
         catch { return false; }
     }
 
-    /// <summary>把主窗口还原/置前并交给用户操作（= 用户说的「选中状态」：任务栏高亮、
-    /// 窗口获得前台焦点）。后台进程无权直接抢焦点，需借 Win32 allow foreground 链路。</summary>
+    /// <summary>Restores/foregrounds the main window and hands it to the user (= the "selected
+    /// state" the user described: taskbar highlighted, window has foreground focus). A background
+    /// process has no right to steal focus directly; it must go through the Win32 allow-foreground chain.</summary>
     private static void ActivateExistingWindow()
     {
         try
@@ -379,17 +373,18 @@ public partial class App : Application
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        // v0.60.0：吞掉 "no browser renderer with ID" —— WebView2 在页面切换/最小化恢复时，
-        // 残留的 JS 调用打到已销毁的 renderer 会从这里抛到 UI 线程，之前只吞了 TaskScheduler
-        // 那条路，WpfDispatcher 这条路漏了导致反复炸日志。
+        // v0.60.0: swallow "no browser renderer with ID" — when WebView2 switches pages or
+        // restores from minimize, leftover JS calls hitting a destroyed renderer get thrown onto
+        // the UI thread from here; previously only the TaskScheduler path was swallowed and the
+        // WpfDispatcher path kept blowing up the log repeatedly.
         if (e.Exception?.ToString().Contains("no browser renderer") == true)
         {
             e.Handled = true;
             return;
         }
         Log("UI", e.Exception);
-        MessageBox.Show($"JuniGrid 启动失败\n\n{e.Exception?.Message}\n\n完整日志已写入：\n{LogPath}",
-                        "启动错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        MessageBox.Show($"JuniGrid failed to start\n\n{e.Exception?.Message}\n\nFull log written to:\n{LogPath}",
+                        "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
         Shutdown(1);
     }

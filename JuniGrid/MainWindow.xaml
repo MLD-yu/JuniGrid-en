@@ -1,3 +1,10 @@
+<!--
+  The startup flow (App.OnAppStartup) requires the window to be mounted off-screen first and
+  revealed only after the Splash finishes; system-level CenterScreen centers at Show time,
+  which would reveal the main window early, so this must stay Manual.
+  The real "center on the current monitor" is computed at reveal time by
+  MainWindow.RevealAtStartupPosition.
+-->
 <Window x:Class="JuniGrid.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -5,8 +12,8 @@
         xmlns:blazor="clr-namespace:Microsoft.AspNetCore.Components.WebView.Wpf;assembly=Microsoft.AspNetCore.Components.WebView.Wpf"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="JuniGrid — Your Junimo helper"
-        Height="1110" Width="1974"
-        MinHeight="864" MinWidth="1536"
+        Height="1000" Width="1600"
+        MinHeight="650" MinWidth="1100"
         WindowStartupLocation="Manual"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -21,10 +28,10 @@
       Rounded corners come from DWM (see OnSourceInitialized).
     -->
     <!--
-      CaptionHeight="0" 是关键：标题栏完全由 Blazor 自己画（jg-titlebar），
-      拖动用 JS 回调调 DragMove（见 TitleBar.razor + junigridJs.enableWindowDrag）。
-      之前 CaptionHeight="40" 会把顶部 40px 当作系统标题栏拦截，
-      直接吃掉所有 Blazor 按钮（最小化/关闭）和内置浏览器工具栏的点击。
+      CaptionHeight="0" is key: the title bar is drawn entirely by Blazor itself (jg-titlebar);
+      dragging calls DragMove via a JS callback (see TitleBar.razor + junigridJs.enableWindowDrag).
+      The earlier CaptionHeight="40" treated the top 40px as the system title bar and intercepted
+      clicks, swallowing all Blazor buttons (minimize/close) and the built-in browser toolbar.
     -->
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0"
@@ -44,21 +51,24 @@
             </blazor:BlazorWebView.RootComponents>
         </blazor:BlazorWebView>
 
-        <!-- ===== v1.1.2：主题切换圆形揭示覆盖层 =====
-             切换主题时把旧主题页面截图铺在这里（盖在 WebView 上面），
-             再用 OpacityMask 从开关位置挖一个不断变大的圆洞露出新主题。
-             纯 WPF 绘制路径，完全绕开 WebView2 的 View Transitions 合成器缺陷。 -->
+        <!-- ===== v1.1.2: theme-switch circular reveal overlay =====
+             When switching themes, a screenshot of the old-theme page is laid here
+             (on top of the WebView), then an OpacityMask carves a constantly growing
+             circular hole from the toggle position to reveal the new theme.
+             Pure WPF drawing path, completely bypassing the WebView2 View Transitions
+             compositor defect. -->
         <Image x:Name="ThemeRevealOverlay"
                Stretch="Fill"
                IsHitTestVisible="False"
                Visibility="Collapsed"/>
 
-        <!-- ===== 内置 Nexus 浏览器：主窗口内的覆盖层 =====
-             免费用户在这里点 Mod Manager Download，nxm:// 被拦截后自动安装。
-             用独立的 WebView2 环境（自己的用户数据目录），避免和
-             Blazor WebView 的状态冲突（0x8007139F）。 -->
-        <!-- 嵌入内容区（而非全窗口覆盖）：让出标题栏40px + 侧栏232px + 顶导航46px，
-             四周留页面内边距，看起来就是嵌在「Mod 管理」内容区里的浏览器面板。 -->
-        <!-- 内置 Nexus 浏览器覆盖层已移除：统一改用系统浏览器跳转 -->
+        <!-- ===== Built-in Nexus browser: overlay inside the main window =====
+             Free users click Mod Manager Download here; nxm:// links are intercepted and
+             installed automatically. Uses a separate WebView2 environment (its own user data
+             folder) to avoid state conflicts with the Blazor WebView (0x8007139F). -->
+        <!-- Embedded content area (not a full-window overlay): leaves room for the 40px title
+             bar + 232px sidebar + 46px top nav, with page padding around it, so it looks like a
+             browser panel embedded in the "Mod Management" content area. -->
+        <!-- The built-in Nexus browser overlay has been removed: links now open in the system browser -->
     </Grid>
 </Window>

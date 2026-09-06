@@ -13,7 +13,7 @@
 <div class="jg-page">
     <h1 style="margin-top:0">Settings</h1>
     <div class="jg-card" style="margin-top:12px">
-        <div style="font-weight:600">Account</div>
+        <div style="font-weight:600">Accounts</div>
         <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;">
             <div style="display:flex;align-items:center;gap:10px;">
                 @if (_steam.Found && _steam.AvatarDataUri is not null)
@@ -22,12 +22,12 @@
                 }
                 else
                 {
-                    @* 未登录 / 拿不到头像 → 用项目内置 Steam 圆标兜底（与 Nexus 兜底图标同款式） *@
+                    @* Not signed in / avatar unavailable → fall back to the built-in Steam round icon (same style as the Nexus fallback icon) *@
                     <img src="assets/steam.svg" alt="steam" style="width:36px;height:36px;border-radius:50%;object-fit:cover;" />
                 }
                 <div style="flex:1">
                     <div style="font-weight:600">Steam · @(_steam.Found ? (_steam.PersonaName ?? _steam.AccountName ?? "Signed in") : "Not signed in")</div>
-                    <div style="font-size:12px;opacity:.65">Steam-level login — switch accounts in Steam</div>
+                    <div style="font-size:12px;opacity:.65">Sign-in is handled at the Steam client level; switch accounts in Steam</div>
                 </div>
             </div>
             <div style="display:flex;align-items:center;gap:10px;">
@@ -41,15 +41,15 @@
                 }
                 <div style="flex:1">
                     <div style="font-weight:600;display:flex;align-items:center;gap:6px;">Nexus · @(string.IsNullOrEmpty(_nexusName) ? "Not signed in" : _nexusName) @if (_nexusPremium) { <span class="jg-premium-badge">Premium</span> }</div>
-                    <div style="font-size:12px;opacity:.65">@(string.IsNullOrEmpty(_nexusName) ? "Log in to enable Nexus downloads & install" : "Nexus Mods account connected")</div>
+                    <div style="font-size:12px;opacity:.65">@(string.IsNullOrEmpty(_nexusName) ? "Sign in to use Nexus downloads and installs" : "Nexus Mods account signed in")</div>
                 </div>
                 @if (!string.IsNullOrEmpty(_nexusName))
                 {
-                    <button class="jg-nexus-logout-btn" @onclick="NexusLogout">Log out</button>
+                    <button class="jg-nexus-logout-btn" @onclick="NexusLogout">Sign out of Nexus</button>
                 }
                 else
                 {
-                    <button class="jg-nexus-login-btn" @onclick='() => Nav.NavigateTo("/nexus?login=1")'>Log in</button>
+                    <button class="jg-nexus-login-btn" @onclick='() => Nav.NavigateTo("/nexus?login=1")'>Sign in</button>
                 }
             </div>
         </div>
@@ -57,7 +57,7 @@
 
 
     <div class="jg-card" style="margin-top:12px">
-        <div style="font-weight:600">Game folder</div>
+        <div style="font-weight:600">Game directory</div>
         <FluentTextField @bind-Value="_gamePath"
                          Placeholder="e.g. C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley"
                          style="width:100%;margin-top:6px" />
@@ -80,13 +80,13 @@
             </div>
             <div class="jg-switch-row @(_autoInstall ? "on" : "") @(!_nexusPremium ? "disabled" : "")" @onclick="ToggleAutoInstall">
                 <span style="display:flex;align-items:center;gap:8px">
-                    <span>Auto-update mods</span>
+                    <span>Auto-install updates</span>
                     @if (!_nexusPremium)
                     {
-                        @* v1.x：GSAP 弹性 tooltip 问号（仅非 Premium 显示），hover 弹出、移开立即消失 *@
+                        @* v1.x: GSAP elastic tooltip question mark (shown only for non-Premium); pops on hover, disappears as soon as the pointer leaves *@
                         <span class="jg-help-tip">
                             <span class="jg-help-tip-btn">?</span>
-                            <span class="jg-help-tip-bubble">Nexus Mods Premium only.<br />When mods need an update on the Mod Manager page, they are updated automatically.</span>
+                            <span class="jg-help-tip-bubble">This feature is available to Nexus Mods Premium users only<br />When mods on the mod management page need updates, they are updated automatically</span>
                         </span>
                     }
                 </span>
@@ -111,13 +111,13 @@
 
     <div class="jg-card" style="margin-top:12px">
         <div style="display:inline-flex;align-items:center;gap:6px;cursor:pointer" @onclick='() => Nav.NavigateTo("/tasks")'>
-            <div style="font-weight:600">Tasks</div>
-            <img src="assets/task-arrow.svg" alt="Open task manager" style="width:14px;height:14px;opacity:.75" />
+            <div style="font-weight:600">Task manager</div>
+            <img src="assets/task-arrow.svg" alt="Go to task manager" style="width:14px;height:14px;opacity:.75" />
         </div>
         <div class="jg-switch-col">
             <div class="jg-switch-row @(_showTaskDock ? "on" : "")" @onclick="ToggleTaskDock">
                 <span style="display:flex;align-items:center;gap:8px">
-                    <span>Show task manager dock</span>
+                    <span>Show task manager floating window</span>
                 </span>
                 <span class="jg-switch"><span class="jg-switch-knob"></span></span>
             </div>
@@ -125,11 +125,11 @@
     </div>
 
     <div class="jg-card" style="margin-top:12px">
-        <div style="font-weight:600">Memory</div>
-        <div style="font-size:12px;opacity:.65;margin-top:2px">Self-compression, scheduled & threshold auto-free</div>
+        <div style="font-weight:600">Memory management</div>
+        <div style="font-size:12px;opacity:.65;margin-top:2px">Compress the app itself, plus scheduled and threshold-based automatic release</div>
 
         <div class="jg-mem-line" style="margin-top:8px">
-            系统 @FmtMb(_mem?.SysTotalBytes)，可用 @FmtMb(_mem?.SysAvailBytes)（@Pct()%）· 自身 @FmtMb(_mem?.AppWorkingSet)
+            System @FmtMb(_mem?.SysTotalBytes), available @FmtMb(_mem?.SysAvailBytes) (@Pct()%) · app @FmtMb(_mem?.AppWorkingSet)
         </div>
 
         <div class="jg-kv-grid" style="margin-top:10px">
@@ -138,15 +138,15 @@
                 <div class="v">@FmtMb(_mem?.AppWorkingSet)<span class="jg-kv-sub">GC @FmtMb(_mem?.AppGcBytes)</span></div>
             </div>
             <div class="jg-kv">
-                <div class="k">WebView2 children</div>
-                <div class="v">@FmtMb(_mem?.WebViewWorkingSet)<span class="jg-kv-sub">@(_mem?.WebViewProcCount ?? 0)  process(es)</span></div>
+                <div class="k">WebView2 subprocess</div>
+                <div class="v">@FmtMb(_mem?.WebViewWorkingSet)<span class="jg-kv-sub">@(_mem?.WebViewProcCount ?? 0) process(es)</span></div>
             </div>
             <div class="jg-kv">
                 <div class="k">Game process</div>
                 <div class="v">@(_mem is { GameRunning: true } ? FmtMb(_mem.GameWorkingSet) : "Not running")</div>
             </div>
             <div class="jg-kv">
-                <div class="k">System memory</div>
+                <div class="k">System memory usage</div>
                 <div class="v">@Pct()%</div>
             </div>
         </div>
@@ -156,10 +156,10 @@
                 <span>Scheduled auto-compress</span>
                 <span class="jg-switch"><span class="jg-switch-knob"></span></span>
             </div>
-            @* 滑杆面板：初始隐藏由 Blazor 的 style 决定（不依赖 JS 时序），开合动画由 JS 弹性播放 *@
+            @* Slider panel: initial hiding is decided by Blazor's style (no dependency on JS timing); the open/close animation is played elastically by JS *@
             <div class="jg-slider-panel" style="@(_memTimer ? null : "display:none")" @ref="_timerPanel">
                 <div class="jg-slider-row">
-                    <span class="jg-slider-label">Interval</span>
+                    <span class="jg-slider-label">Scheduled release</span>
                     <div class="e-slider" data-min="5" data-max="240" data-step="5" data-suffix=" min" @ref="_timerSlider">
                         <div class="es-track-wrap"><div class="es-track"><div class="es-fill"></div></div></div>
                         <span class="es-value"></span>
@@ -167,12 +167,12 @@
                 </div>
             </div>
             <div class="jg-switch-row @(_memThreshold ? "on" : "")" @onclick="ToggleMemThreshold">
-                <span>Compress at usage threshold</span>
+                <span>Auto-compress at usage threshold</span>
                 <span class="jg-switch"><span class="jg-switch-knob"></span></span>
             </div>
             <div class="jg-slider-panel" style="@(_memThreshold ? null : "display:none")" @ref="_thresholdPanel">
                 <div class="jg-slider-row">
-                    <span class="jg-slider-label">Threshold</span>
+                    <span class="jg-slider-label">Usage threshold</span>
                     <div class="e-slider" data-min="50" data-max="95" data-step="1" data-suffix="%" @ref="_thresholdSlider">
                         <div class="es-track-wrap"><div class="es-track"><div class="es-fill"></div></div></div>
                         <span class="es-value"></span>
@@ -183,16 +183,16 @@
 
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
             <button type="button" class="jg-path-btn" @onclick="CompressNow">Compress now</button>
-            <button type="button" class="jg-path-btn" @onclick="TrimGameNow">Trim game memory</button>
+            <button type="button" class="jg-path-btn" @onclick="TrimGameNow">Clean game memory</button>
         </div>
     </div>
 
     <div class="jg-card" style="margin-top:12px">
         <div style="font-weight:600">Cache &amp; storage</div>
-        <div style="font-size:12px;opacity:.65;margin-top:2px">Cache usage stats, cleanup and the unified cache folder</div>
+        <div style="font-size:12px;opacity:.65;margin-top:2px">Usage stats, cleanup, and a unified cache directory for each cache type</div>
 
         <div class="jg-mem-line" style="margin-top:8px;display:flex;align-items:center;gap:8px">
-            <span>Cleanable cache: @FmtMb(Storage.TotalKnownBytes)</span>
+            <span>Total cleanable cache: @FmtMb(Storage.TotalKnownBytes)</span>
         </div>
 
         <div style="margin-top:4px">
@@ -218,7 +218,7 @@
         </div>
 
         <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
-            <button type="button" class="jg-path-btn" @onclick="ChangeCacheRoot">Change cache folder…</button>
+            <button type="button" class="jg-path-btn" @onclick="ChangeCacheRoot">Change cache directory...</button>
             @if (!string.IsNullOrWhiteSpace(Cfg.Current.CacheRoot))
             {
                 <button type="button" class="jg-path-btn" @onclick="ResetCacheRoot">Restore default location</button>
@@ -226,7 +226,7 @@
             <button type="button" class="jg-path-btn" @onclick='() => RefreshStats()'>Refresh usage</button>
             <button type="button" class="jg-path-btn primary" @onclick="AskCleanAll">Clean all</button>
         </div>
-        <div class="jg-note" style="margin-top:6px">Movable items live under the cache folder and migrate automatically (WebView2 needs an app restart). The game recycle bin follows the game folder. Settings data cannot move.</div>
+        <div class="jg-note" style="margin-top:6px">Movable items are stored in the unified cache directory and migrate automatically on change. WebView2 takes effect after restarting the app. The game recycle bin depends on the game directory. Settings data is fixed and cannot be moved.</div>
     </div>
 
     <div class="jg-card jg-cursor-grid" style="margin-top:12px">
@@ -282,11 +282,11 @@
 {
     <div class="jg-modal-overlay" @onclick="CancelChangeRoot">
         <div class="jg-modal" @onclick:stopPropagation>
-            <div class="jg-modal-title">Change cache folder</div>
+            <div class="jg-modal-title">Change cache directory</div>
             <div class="jg-modal-body">
-                Download/install temp, SMAPI installer and Mods backup will move to:<br />
+                Download/install temp files, SMAPI installers, and Mods backups will be migrated immediately to:<br />
                 <b>@_pendingRoot</b><br /><br />
-                WebView2 data migrates after an app restart (in-use files stay put for later cleanup).
+                WebView2 data migrates automatically after the app restarts (except files currently in use, which stay in place and can be cleaned up later).
             </div>
             <div class="jg-modal-actions">
                 <button class="jg-path-btn" @onclick="CancelChangeRoot">Cancel</button>
@@ -300,11 +300,11 @@
 {
     <div class="jg-modal-overlay" @onclick="CancelClean">
         <div class="jg-modal" @onclick:stopPropagation>
-            <div class="jg-modal-title">@(_confirmCleanAll ? "Clean all caches" : "Clean cache")</div>
+            <div class="jg-modal-title">@(_confirmCleanAll ? "Clean all cache" : "Clean cache")</div>
             <div class="jg-modal-body">@CleanConfirmText</div>
             <div class="jg-modal-actions">
                 <button class="jg-path-btn" @onclick="CancelClean">Cancel</button>
-                <button class="jg-path-btn primary" @onclick="DoClean">Confirm</button>
+                <button class="jg-path-btn primary" @onclick="DoClean">Confirm clean</button>
             </div>
         </div>
     </div>
@@ -315,7 +315,6 @@
     private string _nexusName = "";
     private string? _nexusAvatar;
     private bool   _nexusPremium;
-    private bool   _sponsorWechat = true;
 
     private void NexusLogout()
     {
@@ -328,22 +327,22 @@
         cfg.NexusAvatarDataUri = "";
         Cfg.Save(cfg);
         _nexusName = ""; _nexusAvatar = null; _nexusPremium = false;
-        _ = JS.InvokeVoidAsync("junigridJs.toast", "Logged out of Nexus");
+        _ = JS.InvokeVoidAsync("junigridJs.toast", "Signed out of Nexus");
         StateHasChanged();
     }
 
     private async Task LoadAccountsAsync()
-    {        // Q4: 全部从 config 缓存瞬读，不再进设置页就拉网
+    {        // Q4: everything is read instantly from the config cache; no network fetch just from entering the settings page
         _steam = Steam.GetProfile();
         var cfg = Cfg.Current;
         _nexusName = cfg.NexusUserName;
         _nexusPremium = cfg.NexusIsPremium;
-        // v1.08.2：只信 image/* 的缓存 —— 旧版本曾把 profile_url（网页链接）的下载结果当头像缓存，
-        // data:text/html 之类坏数据每次进页都命中，头像自然「对不上」
+        // v1.08.2: only trust image/* cache entries — older versions cached the download result of profile_url (a web page link) as the avatar,
+        // so bad data like data:text/html hit the cache on every page visit and the avatar naturally "didn't match"
         var cached = cfg.NexusAvatarDataUri;
         _nexusAvatar = cached is not null && cached.StartsWith("data:image/", StringComparison.Ordinal) ? cached : null;
-        // v1.08.2：已登录则后台自愈刷新（validate 已按 user_id 构造真实头像直链），拉到不同才写回缓存；
-        // 不 await —— 设置页首屏不因网络等待延迟
+        // v1.08.2: when signed in, self-heal by refreshing in the background (validate already builds the real avatar direct link from user_id); write back to the cache only if it differs;
+        // not awaited — the settings page's first render is never delayed by network waits
         if (!string.IsNullOrEmpty(cfg.NexusApiKey)) _ = RefreshNexusAvatarAsync();
     }
 
@@ -358,8 +357,8 @@
             if (string.IsNullOrEmpty(fresh)) return;
             _nexusName = string.IsNullOrEmpty(u.Name) ? _nexusName : u.Name;
             _nexusPremium = u.IsPremium;
-            // 名字/Premium 也写回 config：老版本登录只落了 key + 头像缓存，
-            // 不写回的话每次进设置页都要闪 1s「未登录」等这次 validate 自愈
+            // Write name/Premium back to config as well: older sign-ins only persisted the key + avatar cache,
+            // and without writing back, every visit to the settings page would flash "Not signed in" for ~1s until this validate self-heal
             if (cfg.NexusUserName != _nexusName || cfg.NexusIsPremium != _nexusPremium)
             {
                 cfg.NexusUserName = _nexusName;
@@ -374,7 +373,7 @@
             }
             await InvokeAsync(StateHasChanged);
         }
-        catch { /* 网络失败保持缓存显示，静默 */ }
+        catch { /* keep showing the cached avatar on network failure; silent */ }
     }
 
 
@@ -382,7 +381,7 @@
     private bool _oneClickInstall;
     private bool _autoInstall;
 
-    // ─── 过滤成人内容 / 只显示成人内容：互斥开关（最多一个开，可同时关），默认过滤开启 ───
+    // ─── Filter adult content / Show adult content only: mutually exclusive switches (at most one on, both may be off); filtering on by default ───
     private bool _filterAdult = true;
     private bool _onlyAdult;
 
@@ -396,15 +395,15 @@
         Cfg.Save(cfg);
     }
 
-    // ─── v0.2.1：内存管理 ───
+    // ─── v0.2.1: memory management ───
     private MemoryService.MemorySnapshot? _mem;
     private bool _memTimer;
     private int _memTimerMinutes = 30;
     private bool _memThreshold;
     private int _memThresholdPercent = 80;
-    private ElementReference _timerPanel;      // v0.2.2：滑杆面板，随开关弹性开合
+    private ElementReference _timerPanel;      // v0.2.2: slider panel that elastically opens/closes with its switch
     private ElementReference _thresholdPanel;
-    private ElementReference _timerSlider;     // v0.2.2：弹性滑杆（React Bits ElasticSlider 风格）
+    private ElementReference _timerSlider;     // v0.2.2: elastic slider (React Bits ElasticSlider style)
     private ElementReference _thresholdSlider;
     private DotNetObjectReference<Settings>? _sliderCb;
 
@@ -416,8 +415,8 @@
     private void OnMemSnap(MemoryService.MemorySnapshot snap) =>
         _ = InvokeAsync(() => { _mem = snap; StateHasChanged(); });
 
-    /// <summary>开关切换：展开 = 先让 Blazor 摘掉 display:none 再播动画；
-    /// 收起 = 趁面板还可见先播收拢动画，播完才真正隐藏（保证两个方向的动画都能看见）。</summary>
+    /// <summary>Switch toggle: expanding = let Blazor remove display:none first, then play the animation;
+    /// collapsing = play the collapse animation while the panel is still visible, and hide it for real only after the animation ends (so the animation is visible in both directions).</summary>
     private async Task ToggleMemTimer()
     {
         if (_memTimer)
@@ -452,8 +451,8 @@
         StateHasChanged();
     }
 
-    /// <summary>滑杆面板随开关弹性开合（与下拉菜单同款 GSAP 曲线，见 interop.js collapseToggle）。
-    /// JS 万一不可用：上面的 try/catch 让开关仍然立即生效，只是没有动画。</summary>
+    /// <summary>The slider panel elastically opens/closes with its switch (same GSAP curve as the dropdown menu; see interop.js collapseToggle).
+    /// If JS happens to be unavailable: the try/catch above still makes the switch take effect immediately, just without animation.</summary>
     private async Task AnimatePanelAsync(ElementReference el, bool open)
     {
         try { await JS.InvokeVoidAsync("junigridJs.collapseToggle", el, open); } catch { }
@@ -468,7 +467,7 @@
         Cfg.Save(cfg);
     }
 
-    /// <summary>弹性滑杆拖动结束回调（JS → .NET）：落值 + 保存。</summary>
+    /// <summary>Elastic slider drag-end callback (JS → .NET): store the value + save.</summary>
     [JSInvokable]
     public void OnElasticValue(string id, double value)
     {
@@ -481,12 +480,12 @@
 
     private async Task CompressNow()
     {
-        // 一键全压：自身（GC + 工作集换出）+ WebView2 子进程（工作集换出）
+        // Compress everything at once: the app itself (GC + working set trim) + WebView2 subprocesses (working set trim)
         var (before, after) = await Task.Run(() => Mem.CompressSelf());
         var msg = $"App {ResumableDownload.FormatBytes(before)} → {ResumableDownload.FormatBytes(after)}";
         var wv = await Task.Run(() => Mem.TrimWebView2());
         if (wv.count > 0)
-            msg += $"; WebView2 ({wv.count} proc) {ResumableDownload.FormatBytes(wv.before)} → {ResumableDownload.FormatBytes(wv.after)}";
+            msg += $"; WebView2 ({wv.count} processes) {ResumableDownload.FormatBytes(wv.before)} → {ResumableDownload.FormatBytes(wv.after)}";
         _mem = Mem.GetSnapshot();
         StateHasChanged();
         await JS.InvokeVoidAsync("junigridJs.toast", "Compressed: " + msg);
@@ -496,15 +495,15 @@
     {
         var n = await Task.Run(() => Mem.TrimGameWorkingSet());
         await JS.InvokeVoidAsync("junigridJs.toast",
-            n > 0 ? $"Trimmed working set of {n} game process(es)" : "Game not running", n > 0 ? null : "err");
+            n > 0 ? $"Cleaned working set of {n} game process(es)" : "Game is not running", n > 0 ? null : "err");
     }
 
-    // ─── v0.2.1：缓存与存储 ───
+    // ─── v0.2.1: cache & storage ───
     private List<StorageCategory> _cats = new();
 
     private string FmtSize(string id)
     {
-        if (Storage.IsComputing(id)) return "Computing…";
+        if (Storage.IsComputing(id)) return "Calculating...";
         var b = Storage.GetSize(id);
         return b < 0 ? "—" : ResumableDownload.FormatBytes(b);
     }
@@ -518,7 +517,7 @@
         await JS.InvokeVoidAsync("junigridJs.toast", msg);
     }
 
-    // ─── 清理确认弹窗：单项与一键共用 ───
+    // ─── Clean confirmation dialog: shared by the single-item and clean-all flows ───
     private string? _pendingCleanId;
     private bool _confirmCleanAll;
 
@@ -529,12 +528,12 @@
             if (_confirmCleanAll)
             {
                 var n = _cats.Count(x => x.Cleanable);
-                return $"Will clean all {n} cleanable caches one by one.\n\n"
+                return $"All {n} cleanable cache items will be cleaned one by one.\n\n"
                      + "Files in use are skipped automatically; the game uninstall recycle bin cannot be restored once emptied.";
             }
             var c = _cats.FirstOrDefault(x => x.Id == _pendingCleanId);
-            if (c is null) return "Clean this now?";
-            return $"Clean \"{c.Name}\"?\n\n{c.Tip}\n\nFiles in use are skipped automatically.";
+            if (c is null) return "Are you sure you want to clean?";
+            return $"\"{c.Name}\" will be cleaned.\n\n{c.Tip}\n\nFiles in use are skipped automatically.";
         }
     }
 
@@ -551,7 +550,7 @@
         {
             foreach (var c in _cats.Where(x => x.Cleanable).ToList())
                 await Storage.CleanCategoryAsync(c.Id);
-            await JS.InvokeVoidAsync("junigridJs.toast", "All caches processed — see the task center for details");
+            await JS.InvokeVoidAsync("junigridJs.toast", "All caches have been processed; see the task log for details");
         }
         else if (id is not null)
         {
@@ -563,15 +562,15 @@
     {
         var ok = await Storage.RefreshAllAsync(force: true);
         await JS.InvokeVoidAsync("junigridJs.toast",
-            ok ? "Usage refreshed" : "Usage refresh failed - try again", ok ? null : "err");
+            ok ? "Usage refresh succeeded" : "Usage refresh failed, please retry", ok ? null : "err");
     }
 
-    // ─── 更改统一缓存目录：可迁移项（下载/SMAPI/WebView2/Mods 备份）一起跟着走 ───
+    // ─── Change the unified cache directory: movable items (downloads/SMAPI/WebView2/Mods backups) move along with it ───
     private string? _pendingRoot;
 
     private void ChangeCacheRoot()
     {
-        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Choose cache folder" };
+        var dlg = new Microsoft.Win32.OpenFolderDialog { Title = "Select cache directory" };
         if (dlg.ShowDialog() == true) _pendingRoot = dlg.FolderName;
     }
 
@@ -613,8 +612,8 @@
         _sliderCb?.Dispose();
     }
 
-    // v1.1.4：配置被其它入口改动（悬浮球右键隐藏等）时，把「打开任务管理悬浮窗」
-    // 开关的 UI 拉回配置真值 —— 只回读这一个字段，不碰用户正在编辑的其它控件
+    // v1.1.4: when the config is changed from another entry point (e.g. hiding via the floating ball's right-click menu),
+    // pull the "Show task manager floating window" switch UI back to the config truth — only this one field is re-read; other controls the user is editing are untouched
     private void OnCfgSaved() => InvokeAsync(() =>
     {
         _showTaskDock = Cfg.Current.ShowTaskDock;
@@ -627,17 +626,17 @@
         var cfg = Cfg.Current;
         cfg.FilterAdultContent = _filterAdult;
         cfg.OnlyAdultContent = _onlyAdult;
-        Cfg.Save(cfg);   // ConfigService.Save 内部同步 NexusService 的成人内容查询开关
+        Cfg.Save(cfg);   // ConfigService.Save internally syncs NexusService's adult content query switches
     }
 
     protected override async Task OnInitializedAsync()
     {
         await LoadAccountsAsync();
         _gamePath = Cfg.Current.GamePath;        _oneClickInstall = Cfg.Current.EnableOneClickInstall;
-        _autoInstall = Cfg.Current.EnableAutoInstall && _nexusPremium;   // 非会员一律默认关闭
+        _autoInstall = Cfg.Current.EnableAutoInstall && _nexusPremium;   // always off by default for non-Premium users
         if (!_nexusPremium && Cfg.Current.EnableAutoInstall)
         {
-            // 非会员时把残留的开启态落盘为关闭，避免其他页直接读 config 误触发自动安装
+            // For non-Premium users, persist any leftover enabled state as off so other pages reading the config directly don't accidentally trigger auto-install
             Cfg.Current.EnableAutoInstall = false;
             Cfg.Save(Cfg.Current);
         }
@@ -645,16 +644,16 @@
         _onlyAdult = Cfg.Current.OnlyAdultContent;
         _showTaskDock = Cfg.Current.ShowTaskDock;
 
-        // v0.2.1：内存管理 —— 订阅快照推送（5s 一次），离开页面时 Dispose 退订
+        // v0.2.1: memory management — subscribe to snapshot pushes (every 5s); Dispose unsubscribes when leaving the page
         Mem.OnSnapshot += OnMemSnap;
-        ConfigService.Saved += OnCfgSaved;   // v1.1.4：设置页停留时悬浮球被右键隐藏 → 开关 UI 同步
+        ConfigService.Saved += OnCfgSaved;   // v1.1.4: while on the settings page, hiding the floating ball via right-click → switch UI stays in sync
         _mem = Mem.GetSnapshot();
         _memTimer = Cfg.Current.MemTimerEnabled;
         _memTimerMinutes = Math.Clamp(Cfg.Current.MemTimerMinutes, 5, 240);
         _memThreshold = Cfg.Current.MemThresholdEnabled;
         _memThresholdPercent = Math.Clamp(Cfg.Current.MemThresholdPercent, 50, 95);
 
-        // v0.2.1：缓存与存储 —— 首次进入或过期后后台重算占用
+        // v0.2.1: cache & storage — recompute usage in the background on first entry or when stale
         Storage.OnStats += OnStorageStats;
         _cats = Storage.GetCategories();
         Storage.RefreshAll();
@@ -662,14 +661,16 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // GSAP 弹性按钮 hover + 问号 tooltip + 禁用行像素特效绑定（内部有防重复绑定标记）
-        await JS.InvokeVoidAsync("junigridJs.initGsapFx");
-        await JS.InvokeVoidAsync("junigridJs.initPixelHover");
-        await JS.InvokeVoidAsync("junigridJs.initCursorGrid", ".jg-cursor-grid");
-        await JS.InvokeVoidAsync("junigridJs.initLogoLoop", ".jg-logoloop");
+        // v1.1.6: effect bindings are wrapped in firstRender — memory snapshots are pushed every 5s and trigger re-renders;
+        // older versions sent 4 JS interop init calls on every render (relying on JS-side dedup markers as a safety net; pure wasted round trips)
         if (firstRender)
         {
-            // v0.2.2：弹性滑杆绑定（值变化经 OnElasticValue 回调落配置）
+            // GSAP elastic button hover + question-mark tooltip + disabled-row pixel effect bindings (dedup markers inside)
+            await JS.InvokeVoidAsync("junigridJs.initGsapFx");
+            await JS.InvokeVoidAsync("junigridJs.initPixelHover");
+            await JS.InvokeVoidAsync("junigridJs.initCursorGrid", ".jg-cursor-grid");
+            await JS.InvokeVoidAsync("junigridJs.initLogoLoop", ".jg-logoloop");
+            // v0.2.2: elastic slider bindings (value changes are persisted via the OnElasticValue callback)
             try
             {
                 _sliderCb = DotNetObjectReference.Create(this);
@@ -695,14 +696,14 @@
     private void ToggleFilterAdult()
     {
         _filterAdult = !_filterAdult;
-        if (_filterAdult) _onlyAdult = false;   // 互斥：开过滤就关「只显示」
+        if (_filterAdult) _onlyAdult = false;   // mutually exclusive: enabling filtering disables "show only"
         SaveFilterAdult();
     }
 
     private void ToggleOnlyAdult()
     {
         _onlyAdult = !_onlyAdult;
-        if (_onlyAdult) _filterAdult = false;   // 互斥：开「只显示」就关过滤
+        if (_onlyAdult) _filterAdult = false;   // mutually exclusive: enabling "show only" disables filtering
         SaveFilterAdult();
     }
 
@@ -716,7 +717,7 @@
     private void SaveAutoInstall()
     {
         var cfg = Cfg.Current;
-        // 双保险：非会员即使在 UI 外被置为 true 也不生效
+        // Double guard: even if set to true outside the UI, non-Premium users are unaffected
         cfg.EnableAutoInstall = _autoInstall && cfg.NexusIsPremium;
         Cfg.Save(cfg);
     }
@@ -738,16 +739,16 @@
                 var cfg = Cfg.Current;
                 cfg.GamePath = _gamePath;
                 Cfg.Save(cfg);
-                _ = JS.InvokeVoidAsync("junigridJs.toast", "Game folder auto-detected and saved");
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Game directory auto-detected and saved");
             }
             else
             {
-                _ = JS.InvokeVoidAsync("junigridJs.toast", "Folder found, but StardewModdingAPI.exe or Mods is missing", "err");
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Directory detected, but StardewModdingAPI.exe or the Mods folder is missing", "err");
             }
         }
         else
         {
-            _ = JS.InvokeVoidAsync("junigridJs.toast", "Game folder not auto-detected - use Browse... to pick it manually", "err");
+            _ = JS.InvokeVoidAsync("junigridJs.toast", "Game directory not auto-detected; click \"Browse...\" to select it manually", "err");
         }
     }
 
@@ -755,7 +756,7 @@
     {
         var dlg = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "Choose the Stardew Valley game folder"
+            Title = "Select Stardew Valley game directory"
         };
         if (dlg.ShowDialog() == true)
         {
@@ -765,11 +766,11 @@
                 var cfg = Cfg.Current;
                 cfg.GamePath = _gamePath;
                 Cfg.Save(cfg);
-                _ = JS.InvokeVoidAsync("junigridJs.toast", "Game folder saved");
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Game directory selected and saved");
             }
             else
             {
-                _ = JS.InvokeVoidAsync("junigridJs.toast", "Please pick a valid game folder", "err");
+                _ = JS.InvokeVoidAsync("junigridJs.toast", "Please select a valid game directory", "err");
             }
         }
     }
@@ -778,12 +779,12 @@
     {
         if (!IsValidGamePath(_gamePath))
         {
-            _ = JS.InvokeVoidAsync("junigridJs.toast", "Please pick a valid game folder", "err");
+            _ = JS.InvokeVoidAsync("junigridJs.toast", "Please select a valid game directory", "err");
             return;
         }
         var cfg = Cfg.Current;
         cfg.GamePath = _gamePath;
         Cfg.Save(cfg);
-        _ = JS.InvokeVoidAsync("junigridJs.toast", "Game folder saved");
+        _ = JS.InvokeVoidAsync("junigridJs.toast", "Game directory saved");
     }
 }

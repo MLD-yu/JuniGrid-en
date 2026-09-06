@@ -8,11 +8,11 @@ using System.Threading.Tasks;
 namespace JuniGrid.Services;
 
 /// <summary>
-/// v1.08：Nexus 图片本地缓存 —— 图片 CDN（staticdelivery.nexusmods.com）国内直连极慢，
-/// WebView2 直接加载远程 URL 会导致列表/Nexus 页图片长时间空白。
-/// 这里把封面图后台下载一份落盘（LocalAppData/JuniGrid/covers/&lt;sha1&gt;.img），
-/// 之后 <see cref="Get"/> 返回本地 data URI，图片展示彻底摆脱 Nexus 网络。
-/// 下载失败只放弃本次会话（不再反复重试拖慢渲染），下次启动会重试。
+/// v1.08: local cache for Nexus images — the image CDN (staticdelivery.nexusmods.com) can be very slow to
+/// reach directly, and WebView2 loading remote URLs directly leaves list/Nexus page images blank for a long time.
+/// This downloads each cover once in the background to disk (LocalAppData/JuniGrid/covers/&lt;sha1&gt;.img),
+/// after which <see cref="Get"/> returns a local data URI and image display no longer depends on the Nexus network.
+/// A failed download is only abandoned for the current session (no repeated retries slowing rendering); it retries on the next launch.
 /// </summary>
 public sealed class CoverCacheService
 {
@@ -27,15 +27,20 @@ public sealed class CoverCacheService
 
     private static string CacheDir => Path.Combine(StoragePaths.LocalAppDataDir, "covers");
 
-    /// <summary>url → data URI（null = 本次会话下载失败，不再重试）。</summary>
+    /// <summary>url → data URI (null = download failed for this session, no more retries).
+    /// v1.1.6: capped the memory cache entry count — it used to be unbounded, and after browsing a few dozen
+    /// detail pages the base64 large images (33% bigger than the originals) could permanently occupy hundreds of MB;
+    /// disk copies already exist, so eviction costs nothing.</summary>
+    private const int MemoryCap = 256;
     private readonly ConcurrentDictionary<string, string?> _memory = new();
+    private readonly ConcurrentQueue<string> _memoryOrder = new();
     private readonly ConcurrentDictionary<string, byte> _downloading = new();
-    /// <summary>并发闸：Nexus CDN 国内链路脆弱，图片下载最多 8 路并发。</summary>
+    /// <summary>Concurrency gate: the link to the Nexus CDN is fragile, so image downloads are capped at 8 concurrent requests.</summary>
     private static readonly SemaphoreSlim DownloadGate = new(8, 8);
 
-    /// <summary>有新图片下载完成时触发（UI 订阅后刷新渲染）。
-    /// v1.08：500ms 防抖合并 —— 首次进页面几十张图并行下载，每张都触发一次
-    /// 整页重渲染会把页面卡死；合并成每 500ms 最多刷新一次。</summary>
+    /// <summary>Raised whenever a new image finishes downloading (the UI subscribes to refresh rendering).
+    /// v1.08: debounced into 500ms batches — on first page load dozens of images download in parallel, and
+    /// re-rendering the whole page for each one would lock it up; merged to at most one refresh per 500ms.</summary>
     public event Action? Changed;
     private int _notifyPending;
 
@@ -51,8 +56,9 @@ public sealed class CoverCacheService
     }
 
     /// <summary>
-    /// 渲染时调用（列表小图标）：返回 240px 缩略图 data URI；未缓存 → 触发后台下载并返回 null。
-    /// 非 http URL（本地路径/data URI）原样返回。大图场景用 <see cref="GetFull"/>。
+    /// Called during rendering (small list icons): returns a 240px thumbnail data URI; when not cached →
+    /// triggers a background download and returns null.
+    /// Non-http URLs (local paths/data URIs) are returned as-is. For large images use <see cref="GetFull"/>.
     /// </summary>
     public string? Get(string? url)
     {
@@ -63,8 +69,8 @@ public sealed class CoverCacheService
         return null;
     }
 
-    /// <summary>v1.08.2：大图场景（Nexus 页横幅、mod 详情封面）—— 返回原图 data URI，
-    /// 与缩略图分开缓存（<原始sha>.img vs w240-<sha>.img）。失败时回退缩略图。</summary>
+    /// <summary>v1.08.2: large-image scenarios (Nexus page banner, mod detail cover) — returns the original image
+    /// as a data URI, cached separately from thumbnails (<orig-sha>.img vs w240-<sha>.img). Falls back to the thumbnail on failure.</summary>
     public string? GetFull(string? url)
     {
         if (string.IsNullOrWhiteSpace(url)) return null;
@@ -74,9 +80,21 @@ public sealed class CoverCacheService
         return null;
     }
 
-    /// <summary>url → 原图 data URI。</summary>
+    /// <summary>url → original-image data URI.</summary>
     private readonly ConcurrentDictionary<string, string?> _fullMemory = new();
+    private readonly ConcurrentQueue<string> _fullMemoryOrder = new();
     private readonly ConcurrentDictionary<string, byte> _downloadingFull = new();
+
+    /// <summary>Writes to the memory cache with FIFO eviction (drops the earliest entry once over the cap).</summary>
+    private static void Remember(
+        ConcurrentDictionary<string, string?> store, ConcurrentQueue<string> order,
+        string url, string? value)
+    {
+        store[url] = value;
+        order.Enqueue(url);
+        while (store.Count > MemoryCap && order.TryDequeue(out var oldest))
+            store.TryRemove(oldest, out _);
+    }
 
     private async Task DownloadFullAsync(string url)
     {
@@ -92,25 +110,25 @@ public sealed class CoverCacheService
                 await DownloadGate.WaitAsync();
                 try { bytes = await Http.GetByteArrayAsync(url); }
                 finally { DownloadGate.Release(); }
-                if (bytes.Length == 0) throw new InvalidOperationException("空图片");
+                if (bytes.Length == 0) throw new InvalidOperationException("Empty image");
                 await File.WriteAllBytesAsync(file, bytes);
             }
-            _fullMemory[url] = ToDataUri(bytes);
+            Remember(_fullMemory, _fullMemoryOrder, url, ToDataUri(bytes));
             NotifyChanged();
         }
         catch
         {
-            // 原图失败 → 用缩略图兜底（有总比糊掉/空白强）
+            // Original failed → fall back to the thumbnail (something is better than blurry/blank)
             _ = await Task.Run(async () => { await DownloadAsync(url); return true; });
-            _fullMemory[url] = _memory.TryGetValue(url, out var t) ? t : null;
+            Remember(_fullMemory, _fullMemoryOrder, url, _memory.TryGetValue(url, out var t) ? t : null);
         }
         finally { _downloadingFull.TryRemove(url, out _); }
     }
 
     /// <summary>
-    /// v1.08：批量预取 —— 进页后立即后台并发下载已知封面，用户滚动到时
-    /// 本地已就绪（首次加载的体感优化：抢跑 + 只下一次）。
-    /// 已缓存的 url 会直接短路返回，不会重复发请求。
+    /// v1.08: batch prewarm — starts downloading known covers in the background as soon as a page opens, so
+    /// they are ready locally by the time the user scrolls to them (first-load responsiveness: a head start + download only once).
+    /// Already-cached URLs short-circuit immediately; no duplicate requests are sent.
     /// </summary>
     public void Prewarm(IEnumerable<string?> urls)
     {
@@ -125,13 +143,13 @@ public sealed class CoverCacheService
 
     private async Task DownloadAsync(string url)
     {
-        if (!_downloading.TryAdd(url, 0)) return;   // 已在下载中
+        if (!_downloading.TryAdd(url, 0)) return;   // already downloading
         try
         {
             Directory.CreateDirectory(CacheDir);
 
-            // v1.08：下载即缩略 —— 优先走 weserv 代理压到 240px 小图（十几 KB，
-            // 列表渲染/解码开销降一个数量级）；代理失败回退直连原图。
+            // v1.08: thumbnail on download — prefer the weserv proxy to squeeze images down to 240px (~10 KB,
+            // an order of magnitude less rendering/decode cost for lists); fall back to the direct original when the proxy fails.
             var file = Path.Combine(CacheDir, "w240-" + Sha1(url) + ".img");
             byte[] bytes;
             if (File.Exists(file))
@@ -146,19 +164,19 @@ public sealed class CoverCacheService
                     var thumbUrl = "https://images.weserv.nl/?url=" +
                                    Uri.EscapeDataString(url) + "&w=240&output=jpg";
                     try { bytes = await Http.GetByteArrayAsync(thumbUrl); }
-                    catch { bytes = await Http.GetByteArrayAsync(url); }   // 回退原图
+                    catch { bytes = await Http.GetByteArrayAsync(url); }   // fall back to the original image
                 }
                 finally { DownloadGate.Release(); }
-                if (bytes.Length == 0) throw new InvalidOperationException("空图片");
+                if (bytes.Length == 0) throw new InvalidOperationException("Empty image");
                 await File.WriteAllBytesAsync(file, bytes);
             }
 
-            _memory[url] = ToDataUri(bytes);
+            Remember(_memory, _memoryOrder, url, ToDataUri(bytes));
             NotifyChanged();
         }
         catch
         {
-            _memory[url] = null;   // 本会话放弃，占位块兜底
+            Remember(_memory, _memoryOrder, url, null);   // give up for this session; the placeholder block covers it
         }
         finally
         {
@@ -172,7 +190,7 @@ public sealed class CoverCacheService
         return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(s)));
     }
 
-    /// <summary>按文件头识别图片类型（Nexus 封面多为 webp/jpeg/png/gif）。</summary>
+    /// <summary>Detects the image type from the file header (Nexus covers are mostly webp/jpeg/png/gif).</summary>
     private static string ToDataUri(byte[] b)
     {
         string type = "image/jpeg";

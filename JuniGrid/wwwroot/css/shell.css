@@ -1,11 +1,11 @@
 /* ============================================================
-   shell：左侧账户面板 / 弹窗 / 顶栏导航 / 更新按钮 / tooltip
+   shell: left account panel / dialogs / top nav / update button / tooltip
    ============================================================ */
 /* -------- Account panel (left, PCL-style) -------- */
 .jg-account {
-    width: 20%;                            /* 启动模块占整个程序界面 1/5 */
-    flex: 0 0 20%;                        /* flex 锁定，不被压缩/拉伸 */
-    min-width: 220px;                    /* 容限：窗口极窄时保持可用，不挤爆 */
+    width: 20%;                            /* the launch module takes 1/5 of the whole app UI */
+    flex: 0 0 20%;                        /* flex locked, can't shrink/grow */
+    min-width: 220px;                    /* tolerance: stay usable on very narrow windows without being crushed */
     padding: clamp(12px, 1.2vw, 22px) clamp(10px, 1vw, 18px);
     display: flex;
     flex-direction: column;
@@ -16,11 +16,11 @@
     backdrop-filter: saturate(180%) blur(20px);
     border-bottom-left-radius: 10px;
     overflow-y: auto;
-    scrollbar-width: none;                       /* 隐藏侧栏滚动条（仍可滚动） */
+    scrollbar-width: none;                       /* hide the sidebar scrollbar (still scrollable) */
 }
 .jg-account::-webkit-scrollbar { display: none; }
 
-/* Steam 用户信息垂直居中，启动按钮+版本贴底 */
+/* Steam user info vertically centered, launch button + version pinned to the bottom */
 .jg-account-mid {
     display: flex;
     flex-direction: column;
@@ -31,7 +31,7 @@
     margin: auto 0;
 }
 
-/* v1.0.7：侧边栏官方/SMAPI 切换行 —— pills 占满剩余宽度，右侧留给自更新按钮 */
+/* v1.0.7: sidebar Official/SMAPI switch row - pills fill the remaining width, the right side is left for the self-update button */
 .jg-mode-row {
     display: flex;
     align-items: center;
@@ -46,14 +46,14 @@
     border-radius: 50%;
 }
 .jg-mode-pills {
-    position: relative;              /* 滑块定位锚点 */
+    position: relative;              /* anchor for the slider thumb */
     display: flex;
     flex-direction: row;
     gap: 8px;
     width: 100%;
     padding: 4px;
     border-radius: 999px;
-    background: var(--jg-well);   /* 浅色轨道 */}
+    background: var(--jg-well);   /* light track */}
 .jg-mode-pills .jg-pill {
     position: relative;
     z-index: 1;
@@ -62,7 +62,7 @@
     font-size: 12.5px;
     text-align: center;
 }
-/* 选中滑块：黑色，在两个选项间左右滑动 */
+/* Selected thumb: black, slides left/right between the two options */
 .jg-pill-thumb {
     position: absolute;
     top: 4px;
@@ -84,7 +84,7 @@
     width: 100%;
     padding: 8px 6px;
     border-radius: 999px;
-    border: 0;                        /* 选中由滑块承担 */
+    border: 0;                        /* selection is indicated by the thumb */
     background: transparent;
     color: inherit;
     font-size: 13px;
@@ -163,7 +163,7 @@
 }
 .jg-launch-ver .jg-upd-arrow { color: #ffd54d; font-weight: 700; }
 
-/* 失败 toast：屏幕上方居中，红色浮条 */
+/* Failure toast: centered at the top of the screen, red floating bar */
 .jg-toast {
     position: fixed;
     top: 20px;
@@ -189,7 +189,7 @@
 }
 .jg-launch-big.update:hover { box-shadow: 0 8px 24px rgba(194,57,179,0.45); }
 
-/* 启动区：主按钮默认占满整行；运行时主按钮宽度丝滑收窄，右侧叉号浮现 */
+/* Launch area: the main button fills the whole row by default; while running it smoothly narrows and the X appears on the right */
 .jg-launch-row {
     position: relative;
     margin-top: 6px;
@@ -200,20 +200,21 @@
     margin-top: 0;
     width: 100%;
     min-width: 0;
-    /* width 是两个 calc() 之间过渡，可被浏览器平滑插值 → 真正的丝滑收窄 */
+    /* width transitions between two calc() values, which the browser interpolates smoothly → genuinely silky narrowing */
     transition: width 320ms cubic-bezier(.45,0,.25,1), filter 240ms ease, transform 120ms ease, box-shadow 120ms ease;
 }
-/* 运行中：主按钮收窄让出（50px = 42 叉号 + 8 间距），仍在左侧 100% 基线上 */
+/* Running: the main button narrows to make room (50px = 42 X button + 8 gap), still on the left 100% baseline */
 .jg-launch-row.running .jg-launch-big {
     width: calc(100% - 50px);
-    /* 保留绿色渐变，用 filter 蒙灰 —— 用户要"变灰蒙蒙"而不是"换成灰色" */
+    /* Keep the green gradient and dim it with a filter: the user wants "grayed out", not "recolored gray" */
     filter: saturate(0.2) brightness(0.82);
     cursor: not-allowed;
     transform: none;
     box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
-/* v1.1.2c：启动等待中同样收窄让出 ✕（点击可取消），复用同一条 320ms 宽度过渡
-   —— 进入「启动中」由长变短，取消/超时/成功恢复时由短变长，丝滑动画自动发生 */
+/* v1.1.2c: while waiting to launch, likewise narrow to make room for the ✕ (click to cancel),
+   reusing the same 320ms width transition - entering "launching" goes long→short, and
+   cancel/timeout/success restore goes short→long, so the silky animation happens automatically */
 .jg-launch-row.launching .jg-launch-big {
     width: calc(100% - 50px);
     cursor: not-allowed;
@@ -233,7 +234,7 @@
     letter-spacing: 0.5px;
 }
 
-/* 关闭游戏 ✕ 按钮：绝对定位占最右，不参与布局；默认隐没，运行时丝滑浮现（opacity/transform 皆可插值） */
+/* Close-game ✕ button: absolutely positioned at the far right, out of flow; hidden by default, smoothly appearing while running (both opacity/transform are interpolatable) */
 .jg-close-btn {
     position: absolute;
     top: 0;
@@ -265,9 +266,9 @@
     box-shadow: 0 6px 18px rgba(229,72,77,0.5);
     transform: translateY(-1px);
 }
-/* 关闭游戏 ✕ 的 Cursor-Following Tooltip（鼠标跟随胶囊）：
-   position:fixed 挂 body 上，屏幕坐标系，脱离容器裁剪；spring 平滑跟随由 JS 驱动 */
-/* 关闭游戏确认对话框 */
+/* Cursor-following tooltip for the close-game ✕ (mouse-following pill):
+   position:fixed attached to body, screen coordinate system, escapes container clipping; the springy smooth follow is JS-driven */
+/* Close-game confirm dialog */
 .jg-dlg-overlay {
     position: fixed;
     inset: 0;
@@ -279,7 +280,7 @@
     z-index: 999998;
 }
 .jg-dialog {
-    background: var(--jg-card);                        /* 白底 */
+    background: var(--jg-card);                        /* white background */
     border: 1px solid var(--jg-line);
     border-radius: 16px;
     padding: 22px 24px 20px;
@@ -313,7 +314,7 @@
     font-family: inherit;
     cursor: pointer;
     transition: transform 100ms ease, box-shadow 100ms ease;
-    background: var(--jg-well);                     /* 取消：浅灰底 */
+    background: var(--jg-well);                     /* cancel: light gray background */
     color: var(--jg-text-2);
 }
 .jg-dialog-actions .jg-btn:hover { background: var(--jg-hover-strong); transform: translateY(-1px); }
@@ -324,7 +325,7 @@
 }
 .jg-dialog-actions .jg-btn.danger:hover { box-shadow: 0 6px 18px rgba(229, 72, 77, 0.45); }
 
-/* ── 备注/重命名弹窗 ── */
+/* ── Remark/rename dialog ── */
 .jg-dialog-actions .jg-btn.primary {
     background: linear-gradient(135deg, #4465c4, #2f4bb0);
     color: #fff;
@@ -341,6 +342,19 @@
     font-size: 13.5px; font-family: inherit; outline: none;
 }
 .jg-remark-input:focus { border-color: #4c6fce; box-shadow: 0 0 0 3px rgba(76, 111, 206, 0.18); }
+/* v1.1.4: the remark dialog accent color follows the theme - white in dark / black in light, no longer blue */
+.jg-remark-input:focus { border-color: var(--jg-text); box-shadow: 0 0 0 3px rgba(128, 128, 128, 0.15); }
+.jg-remark-dialog .jg-btn.primary {
+    background: #17181c; color: #fff;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+.jg-remark-dialog .jg-btn.primary:hover { background: #2b2d34; }
+html[data-theme="dark"] .jg-remark-input:focus { border-color: #f2f3f5; box-shadow: 0 0 0 3px rgba(242, 243, 245, 0.12); }
+html[data-theme="dark"] .jg-remark-dialog .jg-btn.primary {
+    background: #f2f3f5; color: #17181c;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+html[data-theme="dark"] .jg-remark-dialog .jg-btn.primary:hover { background: #ffffff; }
 .jg-remark-count { font-size: 11.5px; color: var(--jg-text-3); text-align: right; margin: 6px 0 14px; }
 
 .jg-version { font-size: 11.5px; opacity: 0.65; text-align: center; }
@@ -376,16 +390,17 @@
     position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-around;   /* v0.25.0：5 个图标均分整条顶栏 */
+    justify-content: space-around;   /* v0.25.0: 5 icons evenly spread across the whole top bar */
     gap: 6px;
-    padding: 8px 16px 0;               /* 底部 0，让选中滑块能延伸到底沿并入内容区 */
+    padding: 8px 16px 0;               /* bottom 0 so the selected thumb can extend to the bottom edge and merge into the content area */
     background: var(--jg-topnav-bg);
     backdrop-filter: saturate(180%) blur(20px);
-    /* 不裁剪：让选中块（.jg-topnav-thumb）向下漏进内容区，与内容同色无缝接通，
-       否则会被裁在顶栏底边，勾出一道分界线，看着不像“从内容区自己突出来” */
+    /* No clipping: let the selected block (.jg-topnav-thumb) bleed down into the content area, seamlessly
+       joined in the same color; otherwise it gets clipped at the top bar's bottom edge, drawing a dividing
+       line so it no longer looks like it "protrudes from the content area itself" */
 }
 
-/* 选中高亮滑块：纯色素，向下延伸到内容区（同色无缝打通）；点其他项时左移/宽度由 JS 平移过去 */
+/* Selected highlight thumb: a solid color block extending down into the content area (same color, seamlessly joined); when another item is clicked, JS moves its left/width over */
 .jg-topnav-thumb {
     position: absolute;
     top: 4px;
@@ -396,12 +411,12 @@
     background: var(--jg-nav-thumb);
     box-shadow: 0 -2px 10px rgba(0,0,0,0.06);
     pointer-events: none;
-    /* v0.35.0：滑块位移/宽度走硬件合成 transform/width，实时跟随 */
+    /* v0.35.0: thumb offset/width use hardware-composited transform/width, following in real time */
     transition: left 260ms cubic-bezier(.45,0,.25,1), width 260ms cubic-bezier(.45,0,.25,1);
     will-change: left, width;
 }
 
-/* v0.25.0：纯图标顶栏项 —— flex:1 均分 + 悬浮胶囊 tooltip */
+/* v0.25.0: icon-only top nav items - flex:1 even split + hover pill tooltip */
 .jg-topnav-item {
     position: relative;
     z-index: 1;
@@ -425,8 +440,8 @@
     pointer-events: none;
     user-select: none;
 }
-/* v1.1.2：深浅双图标 —— 浅色显示原版，深色显示 -on-dark 亮色变体（见 theme.css）。
-   dark 图绝对定位叠在 light 图中心（.jg-topnav-item 是 relative），布局零抖动 */
+/* v1.1.2: dual light/dark icons - light theme shows the original, dark theme shows the -on-dark bright variant (see theme.css).
+   The dark icon is absolutely positioned over the center of the light icon (.jg-topnav-item is relative), zero layout jitter */
 .jg-topnav-icon-dark {
     display: none;
     position: absolute;
@@ -435,16 +450,16 @@
     transform: translate(-50%, -50%);
 }
 .jg-topnav-item:hover { background: var(--jg-track); transform: translateY(-1px); }
-/* 选中项：背景由 jg-topnav-thumb 滑块承担；图标保留原色，NEXUS/SMAPI 等彩色/浅色图标正常显示 */
+/* Active item: the background is handled by the jg-topnav-thumb slider; icons keep their original colors so colored/light icons like NEXUS/SMAPI display properly */
 .jg-topnav-item.active {
     background: transparent;
 }
 
-/* v1.0.2：标题栏自更新按钮 —— 无更新时完全不渲染 */
+/* v1.0.2: titlebar self-update button - not rendered at all when there is no update */
 .jg-upd-btn {
     display: inline-flex; align-items: center; gap: 4px;
     background: transparent; border: 0; cursor: pointer;
-    color: #19943C;  /* logo 绿 */
+    color: #19943C;  /* logo green */
     margin-left: 8px; padding: 3px; border-radius: 6px; line-height: 0;
 }
 .jg-upd-btn:hover { color: #21B04A; background: rgba(25, 148, 60, 0.12); }
@@ -452,8 +467,8 @@
 .jg-upd-btn svg { fill: currentColor; }
 .jg-upd-pct { font-size: 11px; font-weight: 600; line-height: 1; color: inherit; }
 
-/* 圆环更新按钮：环、绿盘、箭头在同一个 SVG 里（无 CSS 对齐问题）。
-   26x26 单体图标；环轨道淡绿，填充弧从 12 点方向顺时针闭合 = 下载完成。 */
+/* Ring update button: ring, green disc, and arrow live in one SVG (no CSS alignment issues).
+   26x26 single icon; the ring track is faint green, and the fill arc closes clockwise from 12 o'clock = download complete. */
 .jg-upd-btn { display: inline-flex; align-items: center; line-height: 0; }
 .jg-upd-btn svg { fill: none; }
 .jg-upd-ring-track { fill: none; stroke: currentColor; opacity: 0.2; stroke-width: 2.2; }
@@ -466,14 +481,14 @@
 .jg-upd-icon path { fill: #fff; }
 .jg-upd-running .jg-upd-ring-track { opacity: 0.12; }
 
-/* v1.0.17：更新按钮悬浮提示气泡 —— 奶油底 rgb(253,251,219)，GSAP elastic 弹入、
-   移开瞬间消失（动画与显隐由 interop.js updTipInit 接管，默认 hidden） */
+/* v1.0.17: update button hover tooltip bubble - cream background rgb(253,251,219), GSAP elastic pop-in,
+   vanishes the instant the pointer leaves (animation and show/hide are handled by interop.js updTipInit, hidden by default) */
 .jg-upd-wrap {
     position: relative;
     display: inline-flex;
     margin-left: 8px;
 }
-.jg-upd-wrap .jg-upd-btn { margin-left: 0; }   /* 外边距挪到 wrap，气泡以按钮为锚居中 */
+.jg-upd-wrap .jg-upd-btn { margin-left: 0; }   /* margin moved to the wrap so the bubble centers on the button */
 .jg-upd-tip {
     position: absolute;
     top: calc(100% + 10px);
@@ -482,7 +497,7 @@
     align-items: center;
     gap: 6px;
     background: rgb(253, 251, 219);
-    color: #0e100f;   /* 奶油气泡两种主题都成立，文字恒为深色 */
+    color: #0e100f;   /* the cream bubble works in both themes, text is always dark */
     font-size: 12px;
     font-weight: 600;
     line-height: 1;
@@ -496,7 +511,7 @@
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
     will-change: transform;
 }
-.jg-upd-tip::after {   /* 指向按钮的向上小箭头 */
+.jg-upd-tip::after {   /* small upward arrow pointing at the button */
     content: "";
     position: absolute;
     bottom: 100%;
@@ -505,14 +520,14 @@
     border: 6px solid transparent;
     border-bottom-color: rgb(253, 251, 219);
 }
-/* gsap 未就绪时的兜底：纯 CSS 悬停直显（无动画） */
+/* Fallback when gsap isn't ready: plain CSS hover shows it directly (no animation) */
 .jg-upd-tip-nogsap .jg-upd-tip {
     visibility: visible;
     opacity: 1;
     transform: translateX(-50%);
 }
 .jg-upd-tip-nogsap:hover .jg-upd-tip { visibility: visible; opacity: 1; }
-/* 下载中：转圈圆 */
+/* While downloading: spinning circle */
 .jg-upd-tip-spin {
     width: 12px;
     height: 12px;

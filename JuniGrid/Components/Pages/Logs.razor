@@ -27,7 +27,7 @@
         </div>
         <div class="jg-logs-actions">
             <button type="button" class="jg-pill-dark" @onclick="AskClear">Clear</button>
-            <button type="button" class="jg-pill-dark" @onclick="CopyAll">Copy all</button>
+            <button type="button" class="jg-pill-dark" @onclick="CopyAll">Copy All</button>
         </div>
     </div>
 
@@ -36,14 +36,13 @@
             @if (_lines.Count == 0)
             {
                 <div style="padding:20px;opacity:.5;font-size:13px">
-                    No logs yet. Click "▶ Launch game" on the left (SMAPI mode) and output will stream here live.
-                    In Steam mode the SMAPI log lives in %APPDATA%\StardewValley\ErrorLogs.
+                    No logs yet. Click "▶ Launch Game" on the left (SMAPI mode) and the output will appear here in real time.
                 </div>
             }
             else if (_visible.Count == 0)
             {
                 <div style="padding:20px;opacity:.5;font-size:13px">
-                    当前分类没有匹配的日志。
+                    No log lines match the current filter.
                 </div>
             }
             @foreach (var line in _visible)
@@ -68,22 +67,22 @@
                 <input type="text" value="@_command"
                        @oninput="e => _command = e.Value?.ToString() ?? string.Empty"
                        @onkeydown="HandleCommandKey"
-                       placeholder="@(Launcher.CanSendCommand ? "Type a SMAPI command and press Enter, e.g. help" : "Launch the game from here to type SMAPI commands")"
+                       placeholder="@(Launcher.CanSendCommand ? "Type a SMAPI command and press Enter to send, e.g. help" : "SMAPI commands can be typed here once the game is launched by this app")"
                        disabled="@(!Launcher.CanSendCommand)" />
                 <button type="button" class="jg-cmdsend" @onclick="SendCommand"
                         disabled="@(!Launcher.CanSendCommand)">Send</button>
             </div>
         </div>
-        <div class="jg-logfooter">Live output · @_visible.Count lines</div>
+        <div class="jg-logfooter">Live output · @_visible.Count lines total</div>
     </div>
 
-    @* ─── 清空日志确认弹窗 ─── *@
+    @* ─── Clear-logs confirmation dialog ─── *@
     @if (_confirmClear)
     {
         <div class="jg-modal-overlay" @onclick="() => _confirmClear = false">
             <div class="jg-modal" @onclick:stopPropagation>
-                <div class="jg-modal-title">Clear log</div>
-                <div class="jg-modal-body">Clear the entire log?</div>
+                <div class="jg-modal-title">Clear Logs</div>
+                <div class="jg-modal-body">Clear the entire log contents?</div>
                 <div class="jg-modal-actions">
                     <button type="button" class="jg-pill-ghost" @onclick="() => _confirmClear = false">Cancel</button>
                     <button type="button" class="jg-pill-dark" @onclick="DoClear">OK</button>
@@ -94,16 +93,17 @@
 </div>
 
 @code {
-    // 渲染源是 LauncherService 里的共享缓冲快照——页面组件随路由销毁重建，
-    // 本地存的行会在离开 /logs 后"清空"，所以历史行一律从服务取。
-    private IReadOnlyList<string> _lines = Array.Empty<string>();    // 服务缓冲快照（全量）
-    private IReadOnlyList<string> _visible = Array.Empty<string>();  // 视图：分类筛选
+    // The render source is the shared buffer snapshot in LauncherService — the page component
+    // is destroyed and rebuilt on every navigation, and locally stored lines "clear" after
+    // leaving /logs, so history lines are always taken from the service.
+    private IReadOnlyList<string> _lines = Array.Empty<string>();    // service buffer snapshot (full)
+    private IReadOnlyList<string> _visible = Array.Empty<string>();  // view: category filter
     private string _filter = "all"; // all | err | upd | loaded
     private bool _pendingScroll;
 
     private static readonly (string Key, string Label)[] Filters =
     {
-        ("all", "全部"), ("err", "错误"), ("upd", "可更新"), ("loaded", "已加载")
+        ("all", "All"), ("err", "Errors"), ("upd", "Updates"), ("loaded", "Loaded")
     };
     private string FilterLabel(string key) =>
         Array.Find(Filters, f => f.Key == key).Label;
@@ -118,14 +118,30 @@
 
     public void Dispose() => Launcher.OnLogLine -= HandleLog;
 
-    private void HandleLog(string _) =>
-        InvokeAsync(() =>
+    // v1.1.6: log lines are debounced and merged over 250ms — SMAPI emits dozens of lines per
+    // second during startup, and the old behavior did a full snapshot + full re-filter + full
+    // page re-render for every line (O(n²) during startup); merged, it refreshes at most once per 250ms.
+    private readonly object _flushGate = new();
+    private bool _flushPending;
+
+    private void HandleLog(string line)
+    {
+        lock (_flushGate)
         {
-            _lines = Launcher.GetLogSnapshot();
-            _visible = BuildVisible();
-            _pendingScroll = true;
-            StateHasChanged();
-        });
+            if (_flushPending) return;
+            _flushPending = true;
+        }
+        _ = Task.Delay(250).ContinueWith(_t => InvokeAsync(FlushNow));
+    }
+
+    private void FlushNow()
+    {
+        lock (_flushGate) _flushPending = false;
+        _lines = Launcher.GetLogSnapshot();
+        _visible = BuildVisible();
+        _pendingScroll = true;
+        StateHasChanged();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -150,9 +166,9 @@
         try { await JS.InvokeVoidAsync("junigridJs.logsFilterClose", "#jgLogFilter"); } catch { }
     }
 
-    // 视图 = 服务缓冲快照，先按 SMAPI 控制台行为隐藏 TRACE 组
-    // （verbose 关闭时整组隐藏），再按分类筛选。
-    // 分类判定复用 LogLineClassifier，和行着色永远同一套规则。
+    // View = service buffer snapshot. First hide TRACE groups the way the SMAPI console does
+    // (the whole group is hidden when verbose is off), then filter by category.
+    // Category matching reuses LogLineClassifier, so it always uses the same rules as line coloring.
     private IReadOnlyList<string> BuildVisible()
     {
         var traceFiltered = new List<string>(_lines.Count);
@@ -168,7 +184,7 @@
         return traceFiltered.Where(l => LogLineClassifier.MatchesFilter(l, _filter)).ToList();
     }
 
-    // ─── 清空 / 复制：清空走确认弹窗，复制成功弹 toast ───
+    // ─── Clear / copy: clearing goes through a confirm dialog, a toast pops on successful copy ───
     private bool _confirmClear;
     private void AskClear() => _confirmClear = true;
 
@@ -193,7 +209,7 @@
         }
     }
 
-    // ---- SMAPI 命令输入 ----
+    // ---- SMAPI command input ----
     private string _command = string.Empty;
 
     private void HandleCommandKey(KeyboardEventArgs e)
@@ -208,11 +224,11 @@
         if (Launcher.SendCommand(cmd)) _command = string.Empty;
     }
 
-    // ---- 日志行内链接：拆出 URL 渲染成 <a>，点击用系统浏览器打开 ----
-    // （Blazor WebView 里点链接会把整个应用导航走，所以 preventDefault 后走 Process.Start）
+    // ---- Inline links in log lines: extract URLs and render them as <a>; clicking opens the system browser ----
+    // (In the Blazor WebView, clicking a link would navigate the whole app away, so preventDefault and use Process.Start)
     private static readonly Regex UrlRegex = new(@"https?://\S+", RegexOptions.Compiled);
 
-    // 日志可能上千行且每来一行就整表重渲，按行内容缓存拆分结果
+    // The log can run to thousands of lines and every incoming line re-renders the whole list, so cache the segmentation results by line content
     private readonly Dictionary<string, (string Text, bool IsUrl)[]> _segmentCache = new();
 
     private (string Text, bool IsUrl)[] Segments(string line)
@@ -226,7 +242,7 @@
             var url = TrimUrlTail(m.Value);
             if (m.Index > pos) segs.Add((line[pos..m.Index], false));
             if (url.Length > 0) segs.Add((url, true));
-            if (m.Value.Length > url.Length) segs.Add((m.Value[url.Length..], false));  // 剥掉的句尾标点按普通文本渲染
+            if (m.Value.Length > url.Length) segs.Add((m.Value[url.Length..], false));  // stripped trailing punctuation is rendered as plain text
             pos = m.Index + m.Length;
         }
         if (pos < line.Length) segs.Add((line[pos..], false));
@@ -238,7 +254,7 @@
 
     private static string TrimUrlTail(string url)
     {
-        // 句尾标点不属于链接；右括号只在未配平时才算句读（链接本身可能含括号）
+        // Trailing sentence punctuation is not part of the link; a closing paren only counts as punctuation when unbalanced (links themselves may contain parens)
         while (url.Length > 0)
         {
             var last = url[^1];
@@ -258,7 +274,7 @@
         }
         catch
         {
-            _ = JS.InvokeVoidAsync("junigridJs.toast", "Could not open the link", "err");
+            _ = JS.InvokeVoidAsync("junigridJs.toast", "Could not open link", "err");
         }
     }
 }

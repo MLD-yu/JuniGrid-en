@@ -5,13 +5,14 @@ using System.Text.Json;
 namespace JuniGrid.Services;
 
 /// <summary>
-/// Nexus Mods 官方 SSO 登录（wss://sso.nexusmods.com，protocol 2）。
-/// 流程：连接 WebSocket → 发 {id:uuid} → 系统浏览器打开授权页 →
-/// 收到 connection_token 回发 → 收到 api_key 完成。
-/// v0.68.4：按官方协议补齐「每 30 秒一次 WebSocket ping 保活」——
-/// 官方要求从连接建立到关闭期间持续 ping，否则授权页停留稍久
-/// 服务端会判定闲置并断开（表现为用户授权完成却登录失败）。
-/// .NET 侧无需手写 ping 循环：KeepAliveInterval 会让底层自动发 ping 帧。
+/// Official Nexus Mods SSO login (wss://sso.nexusmods.com, protocol 2).
+/// Flow: connect the WebSocket → send {id:uuid} → the system browser opens the authorization page →
+/// receive connection_token and send it back → receive api_key to finish.
+/// v0.68.4: implemented the official protocol's "WebSocket ping every 30s" keep-alive —
+/// the official spec requires continuous pinging from connect to close; otherwise, if the user lingers
+/// a bit too long on the authorization page, the server deems the connection idle and drops it
+/// (symptom: the user completes authorization but login still fails).
+/// No hand-written ping loop is needed on the .NET side: KeepAliveInterval makes the underlying layer send ping frames automatically.
 /// </summary>
 public class NexusSsoService
 {
@@ -24,16 +25,16 @@ public class NexusSsoService
         try
         {
             using var ws = new ClientWebSocket();
-            // v0.68.4：官方 SSO 协议硬性要求「每 30 秒一次 ping」保活。
-            // KeepAliveInterval 由 .NET 底层按间隔自动发送 WebSocket ping 帧，
-            // 等效于官方 Node 示例里的 ws.ping() 定时器（.NET 6+ 生效）。
+            // v0.68.4: the official SSO protocol strictly requires a ping every 30s as keep-alive.
+            // KeepAliveInterval makes the .NET layer send WebSocket ping frames automatically at that interval,
+            // equivalent to the ws.ping() timer in the official Node example (effective on .NET 6+).
             ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30);
             await ws.ConnectAsync(new Uri("wss://sso.nexusmods.com"), ct);
 
             var hello = JsonSerializer.Serialize(new { id = uuid, token = (string?)null, protocol = 2 });
             await ws.SendAsync(Encoding.UTF8.GetBytes(hello), WebSocketMessageType.Text, true, ct);
 
-            AppLog.Warn("NSSO", "SSO 连接已建立（30s 心跳保活），等待用户授权: " + uuid);   // v0.69.0：AppLog 只有 Warn/Error，无 Info
+            AppLog.Warn("NSSO", "SSO connection established (30s keep-alive), waiting for user authorization: " + uuid);   // v0.69.0: AppLog only has Warn/Error, no Info
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
                 $"https://www.nexusmods.com/sso?id={uuid}&application={applicationSlug}")
             { UseShellExecute = true });
@@ -48,7 +49,7 @@ public class NexusSsoService
                 var result = await ws.ReceiveAsync(buffer, timeout.Token);
                 if (result.MessageType == WebSocketMessageType.Close) break;
                 sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
-                if (!result.EndOfMessage) continue;   // 分片消息：继续拼接直到完整
+                if (!result.EndOfMessage) continue;   // fragmented message: keep appending until complete
                 var msg = sb.ToString(); sb.Clear();
 
             try
@@ -69,13 +70,13 @@ public class NexusSsoService
                 else if (root.TryGetProperty("error", out var err))
                 {
                     LastError = err.GetString();
-                    AppLog.Warn("NSSO", "授权页返回错误: " + err.GetString());
+                    AppLog.Warn("NSSO", "Authorization page returned an error: " + err.GetString());
                 }
             }
             catch (JsonException)
             {
-                // 非 JSON（可能是心跳等）忽略，继续读。但若每次都失败太吵，仅记录一次
-                AppLog.Warn("NSSO", "收到无法解析的消息: " + msg[..Math.Min(msg.Length, 120)]);
+                // Non-JSON (possibly a heartbeat etc.) — ignore and keep reading; logging every failure would be too noisy
+                AppLog.Warn("NSSO", "Unparseable message received: " + msg[..Math.Min(msg.Length, 120)]);
             }
             }
         }

@@ -1,13 +1,13 @@
 # JuniGrid v0.52.0
 
-## 本版修复
-1. **.junigrid_trash 空文件夹修复**：删完 mod 后立刻删掉空的回收站目录；扫描时跳过回收站；每次扫描开头清掉上次残留的回收站（占用时留下的，能删就删）
-2. **存档串档根治**：真正根因是 ApplyProfile 里"状态一致跳过"的条件写反了（把该改的也跳过，切档实际什么都没执行）。修正后各存档真正独立
-3. **记住上次存档**：启动时若上次选择的不是"默认"档，自动恢复到该存档（延迟 300ms 等首屏渲染完再应用）
-4. **任务栏恢复黑屏缓解**：WebView2 恢复延迟 160ms → 60ms（完全消除需系统级接管，属 WPF + WebView2 固有限制）
-5. **CS4014 警告消除**：7 处 Task.Run 加 `_ =` 前缀
+## Fixes in this release
+1. **Empty .junigrid_trash folders fixed**: empty recycle-bin directories are deleted immediately after mods are removed; scans skip the recycle bin; each scan starts by clearing anything left over from the previous run (left behind while files were in use, deleted on a best-effort basis)
+2. **Save-profile cross-contamination fixed at the root**: the real cause was an inverted "state is consistent, skip it" condition in ApplyProfile (it also skipped the profiles that did need updating, so switching saves actually did nothing). After the fix, each save is genuinely independent
+3. **Remember the last save profile**: at startup, if the previously selected profile was not "Default", the app automatically restores that save (delayed 300 ms so the first render finishes before it is applied)
+4. **Taskbar-restore black screen mitigated**: the WebView2 restore delay was reduced from 160 ms to 60 ms (fully eliminating it would require taking over at the system level; it is an inherent limitation of WPF + WebView2)
+5. **CS4014 warnings eliminated**: 7 Task.Run calls prefixed with `_ =`
 
-## 变更文件
-- `Components/Pages/Mods.razor`（跳过条件修正 / 启动恢复存档 / `_ =` 前缀）
-- `Services/ModService.cs`（回收站即时清理 / 扫描跳过 / 开头清残留）
-- `MainWindow.xaml.cs`（恢复延迟 160→60ms）
+## Changed files
+- `Components/Pages/Mods.razor` (skip-condition fix / startup save restore / `_ =` prefixes)
+- `Services/ModService.cs` (immediate recycle-bin cleanup / skip during scans / clear leftovers at the start)
+- `MainWindow.xaml.cs` (restore delay 160→60 ms)

@@ -1,11 +1,12 @@
 // ============================================================
-// 通用控件：日志筛选下拉、GSAP 按钮 hover、PixelCard 像素 hover、
-// 折叠面板、弹性滑杆、CursorGrid、LogoLoop
+// General widgets: logs filter dropdown, GSAP button hover, PixelCard pixel hover,
+// collapse panel, elastic slider, CursorGrid, LogoLoop
 // ============================================================
-// ------------------ v1.07.0：日志页筛选下拉（GSAP easeReverse demo「Dropdown」同款） ------------------
-// 展开：箭头 elastic 旋转 180° + 面板 elastic 弹出（yPercent -30→0 / scale .7→1）+ 菜单项 back.out(3) 交错入场；
-// 收起：demo 的 easeReverse/timeScale(2.5) 语义 —— ≈2.5× 速度的平滑 power 缓出（本地 gsap 3.12 无 easeReverse
-// 属性，用独立收场时间线等效），动画完全结束再移除 .open / 清 inline style，杜绝残留白块。
+// ------------------ v1.07.0: Logs page filter dropdown (same as the GSAP easeReverse demo "Dropdown") ------------------
+// Open: the arrow elastic-rotates 180° + the panel elastic pop-out (yPercent -30→0 / scale .7→1) + menu items enter staggered with back.out(3);
+// Close: the demo's easeReverse/timeScale(2.5) semantics - a smooth power ease-out at ~2.5x speed (local gsap 3.12 has no
+// easeReverse property, so an independent closing timeline is used as an equivalent); .open is removed / inline styles
+// cleared only after the animation fully ends, preventing leftover white blocks.
 (function () {
     function parts(wrapSel) {
         var wrap = document.querySelector(wrapSel);
@@ -51,7 +52,7 @@
         var p = parts(wrapSel);
         if (!p || !p.menu || p.wrap.__filterBound) return;
         p.wrap.__filterBound = true;
-        if (!window.gsap) return;   // 无 gsap：靠 .open + CSS 兜底开关
+        if (!window.gsap) return;   // no gsap: fall back to .open + CSS toggling
         document.addEventListener('click', function (e) {
             if (p.wrap.__ddOpen && !p.wrap.contains(e.target)) close(p);
         });
@@ -70,8 +71,8 @@
     };
 })();
 
-// ------------------ v0.2.2：GSAP 弹性按钮 hover（easeReverse 平滑退出） ------------------
-// 按钮加 class="jg-gsap-btn"
+// ------------------ v0.2.2: GSAP elastic button hover (easeReverse smooth exit) ------------------
+// Add class="jg-gsap-btn" to the button
 window.junigridJs.initGsapFx = function () {
     if (!window.gsap) return;
     const hasER = parseFloat(gsap.version) >= 3.13;
@@ -89,7 +90,7 @@ window.junigridJs.initGsapFx = function () {
     });
 };
 
-// ------------------ v0.2.2：禁用开关行的 PixelCard 像素 hover 特效（React Bits 移植） ------------------
+// ------------------ v0.2.2: PixelCard pixel hover effect for disabled switch rows (React Bits port) ------------------
 window.junigridJs.initPixelHover = function () {
     const COLORS = ['#fecdd3', '#fda4af', '#e11d48'];
     const GAP = 6;
@@ -175,8 +176,8 @@ window.junigridJs.initPixelHover = function () {
     });
 };
 
-// ------------------ v0.2.2：内存管理滑杆面板开合动画（与下拉菜单同款弹性曲线） ------------------
-// collapseSet：无动画直接定状态（页面首帧用）；collapseToggle：带 GSAP 弹性开合
+// ------------------ v0.2.2: Memory management slider panel open/close animation (same elastic curves as the dropdown menus) ------------------
+// collapseSet: set the state instantly without animation (used on the page's first frame); collapseToggle: GSAP elastic open/close
 (function () {
     window.junigridJs = window.junigridJs || {};
 
@@ -189,14 +190,14 @@ window.junigridJs.initPixelHover = function () {
         if (el) setInstant(el, open);
     };
 
-    // 返回 Promise：C# await 它可以等到动画真正播完再提交状态
-    // （v0.2.2 修复「收不回去」：原先 clearProps:'all' 会把 Blazor 写的 display:none 一并清掉，
-    //  面板在动画结束后又冒出来；现在只清 height/opacity/visibility，display 交给 Blazor 管）
+    // Returns a Promise: C# can await it so state is committed only after the animation truly finishes
+    // (v0.2.2 fixed "won't collapse back": clearProps:'all' used to also clear Blazor's display:none,
+    //  so the panel popped back out after the animation; now only height/opacity/visibility are cleared and display is left to Blazor)
     window.junigridJs.collapseToggle = function (el, open) {
         return new Promise(function (resolve) {
             if (!el) { resolve(); return; }
             if (!window.gsap) { el.style.display = open ? '' : 'none'; resolve(); return; }
-            gsap.killTweensOf(el);   // 快速连点开关时，掐掉上一次未完成的开合动画防状态打架
+            gsap.killTweensOf(el);   // when toggling rapidly, kill the previous unfinished open/close animation to prevent state conflicts
             if (open) {
                 gsap.set(el, { display: '' });
                 gsap.fromTo(el, { height: 0, autoAlpha: 0 },
@@ -214,10 +215,10 @@ window.junigridJs.initPixelHover = function () {
     };
 })();
 
-// ------------------ v0.2.2：弹性滑杆（React Bits ElasticSlider 的 GSAP 复刻） ------------------
-// 胶囊轨道 hover 增高；拖到两端轨道橡皮筋拉伸、图标跟随位移；松手弹性弹回。
-// markup 约定：.e-slider[data-min,data-max,data-step,data-suffix] > .es-track-wrap > .es-track > .es-fill，右侧 .es-value 显示数值
-// 数值变化经 dotNetRef.OnElasticValue(id, value) 回调 Blazor 落配置。
+// ------------------ v0.2.2: Elastic slider (GSAP recreation of React Bits ElasticSlider) ------------------
+// The pill track grows taller on hover; dragging past either end stretches the track like a rubber band with the thumb following; release springs back elastically.
+// Markup convention: .e-slider[data-min,data-max,data-step,data-suffix] > .es-track-wrap > .es-track > .es-fill, with .es-value on the right showing the value
+// Value changes are reported back to Blazor via dotNetRef.OnElasticValue(id, value) to persist the setting.
 (function () {
     window.junigridJs = window.junigridJs || {};
 
@@ -314,7 +315,7 @@ window.junigridJs.initPixelHover = function () {
 })();
 
 
-// ── 关于卡片：CursorGrid 光标网格（React Bits 移植，canvas 铺底）──
+// -- About card: CursorGrid cursor grid (React Bits port, canvas underlay) --
 junigridJs.initCursorGrid = function (selector) {
     var CFG = { cellSize: 17.5, color: '#d3d3d3', radius: 140, falloff: 'smooth',
         holdTime: 400, fadeDuration: 800, lineWidth: 1.2, maxOpacity: 1,
@@ -434,7 +435,7 @@ junigridJs.initCursorGrid = function (selector) {
     });
 };
 
-// ── 关于卡片：LogoLoop 图标跑马灯（React Bits 移植）──
+// -- About card: LogoLoop icon marquee (React Bits port) --
 junigridJs.initLogoLoop = function (selector) {
     var SPEED = 35, TAU = 0.25;
     document.querySelectorAll(selector || '.jg-logoloop').forEach(function (container) {
@@ -484,7 +485,7 @@ junigridJs.initLogoLoop = function (selector) {
                     t.className = 'jg-copy-toast';
                     document.body.appendChild(t);
                 }
-                t.textContent = '邮箱已复制';
+                t.textContent = 'Email copied';
                 t.classList.add('show');
                 clearTimeout(t._timer);
                 t._timer = setTimeout(function () { t.classList.remove('show'); }, 1800);
@@ -500,7 +501,7 @@ junigridJs.initLogoLoop = function (selector) {
             }
         });
         if (window.ResizeObserver) new ResizeObserver(measure).observe(container);
-        measure(); // 立即量一次；图片加载完成后再校准
+        measure(); // measure once right away; recalibrate after images finish loading
         var imgs = seq.querySelectorAll('img');
         imgs.forEach(function (im) {
             if (!im.complete) {
@@ -508,7 +509,7 @@ junigridJs.initLogoLoop = function (selector) {
                 im.addEventListener('error', measure, { once: true });
             }
         });
-        setTimeout(measure, 500); // 兜底
+        setTimeout(measure, 500); // fallback
         raf = requestAnimationFrame(frame);
     });
 };

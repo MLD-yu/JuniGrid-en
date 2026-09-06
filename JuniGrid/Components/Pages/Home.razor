@@ -12,7 +12,7 @@
 <div class="jg-page">
     <div class="jg-grid-4">
         <div class="jg-card">
-            <div class="jg-stat-label">Mods installed</div>
+            <div class="jg-stat-label">Installed Mods</div>
             <div class="jg-stat-num">@_totalModCount</div>
             <div class="jg-stat-sub">@_activeModCount enabled · @(_totalModCount - _activeModCount) disabled</div>
         </div>
@@ -21,13 +21,13 @@
             <div class="jg-stat-label">SMAPI</div>
             <div class="jg-stat-num">@(_smapiVersion is null ? "Not installed" : _smapiVersion)</div>
             <div class="jg-stat-sub">
-                @(_smapiVersion is null ? "Steam launch only" : "Mod loader ready")
+                @(_smapiVersion is null ? "Official Steam launch only" : "Mod loader ready")
             </div>
         </div>
 
         <div class="jg-card">
             <div class="jg-stat-label">Game version</div>
-            <div class="jg-stat-num">@(_gameVersion ?? "Not found")</div>
+            <div class="jg-stat-num">@(_gameVersion ?? "Not detected")</div>
             <div class="jg-stat-sub">Stardew Valley</div>
         </div>
 
@@ -36,19 +36,20 @@
             <div class="jg-stat-num" style="font-size:18px;line-height:1.3;">
                 @(_cfg.LastLaunchTime is null ? "Never launched" : FormatTime(_cfg.LastLaunchTime))
             </div>
+            @* v1.1.2: total time now uses the heatmap's accounting (sum of PlayTimeService seconds across all years) *@
             <div class="jg-stat-sub">
-                @_cfg.TotalLaunchCount launches · @FormatPlay(_cfg.TotalPlayMinutes) total
+                @_cfg.TotalLaunchCount launches · @FormatHours(PlayTime.TotalSeconds) total
             </div>
         </div>
     </div>
 
-    @* ── v1.1.5：游玩时长热力图（GitHub contributions 风格）──
-       数据只来自 PlayTimeService 的系统统计（游戏进程每 30s 自动累计），不做手动修改入口 *@
+    @* ── v1.1.5: playtime heatmap (GitHub contributions style) ──
+       Data comes only from PlayTimeService's system tracking (auto-accumulated every 30s while the game process runs); no manual editing entry *@
     <div class="jg-card jg-heat-card">
         <div class="jg-heat-head">
-            <div class="jg-heat-title"> Played @FormatHours(_yearTotalSeconds) in @_heatYear (@_yearDays days)</div>
-            @* v1.1.6：年份选择改通用下拉（复用 dropdownToggle 的 GSAP 弹性动画 + 遮罩点外收回）；
-               jg-dd-right 让菜单右对齐（贴标题行右缘不超出卡片） *@
+            <div class="jg-heat-title">@FormatHours(_yearTotalSeconds) played in @_heatYear (@_yearDays days)</div>
+            @* v1.1.6: year picker switched to the generic dropdown (reuses dropdownToggle's GSAP spring animation + outside-click dismiss);
+               jg-dd-right right-aligns the menu (flush against the title row's right edge without overflowing the card) *@
             <div class="jg-sort-dd jg-dd-right jg-heat-yeardd @(_heatDdOpen ? "open" : "")" data-dd="heatyear">
                 <button class="jg-sort-trigger" @onclick="ToggleYearDd">
                     @_heatYear
@@ -72,8 +73,8 @@
                     <th class="jg-heat-wday"></th>
                     @foreach (var m in _monthLabels)
                     {
-                        @* 月份标签绝对定位浮在列上方，不占表格列宽（占宽会周期性撑宽月份列，
-                           小屏顶出横向滚动、大屏在 10/11/12 月处留大空隙）*@
+                        @* Month labels are absolutely positioned floating above the columns and take no table column width (taking width would periodically widen the month column,
+                           pushing out horizontal scroll on small screens and leaving large gaps at Oct/Nov/Dec on large ones) *@
                         <th class="jg-heat-month"><span>@m</span></th>
                     }
                 </tr>
@@ -86,29 +87,32 @@
                         {
                             var cell = _weeks[c][row];
                             <td>
-                                @if (cell.InYear && !cell.Future)
-                                {
-                                    <span class="jg-heat-cell l@(cell.Level)" data-tip="@Tip(cell)"></span>
-                                }
-                                else
-                                {
-                                    <span class="jg-heat-cell @(cell.Future ? "future" : "empty")"></span>
-                                }
+                            @if (cell.InYear && !cell.Future)
+                            {
+                                <span class="jg-heat-cell l@(cell.Level)" data-tip="@Tip(cell)"></span>
+                            }
+                            else if (cell.InYear && cell.Future)
+                            {
+                                <span class="jg-heat-cell future"></span>
+                            }
+                            @* Out-of-year overflow cells (previous year in the first column / next year in the last) render no element — same whitespace as GitHub *@
                             </td>
                         }
                     </tr>
                 }
             </table>
         </div>
+        @* v1.1.6: bottom-left caption removed (color meanings are carried by the legend data-tips) *@
         <div class="jg-heat-foot">
-            <span>Darker = played longer that day · tracked automatically while the game runs</span>
+            @* v1.1.6: legend swatches scale up on hover + data-tip pill shows the time range for that color
+               (data-tip works automatically via global delegation; text maps one-to-one with HeatCell.Level thresholds) *@
             <div class="jg-heat-legend">
                 Less
-                <span class="jg-heat-cell l0"></span>
-                <span class="jg-heat-cell l1"></span>
-                <span class="jg-heat-cell l2"></span>
-                <span class="jg-heat-cell l3"></span>
-                <span class="jg-heat-cell l4"></span>
+                <span class="jg-heat-cell l0" data-tip="No playtime"></span>
+                <span class="jg-heat-cell l1" data-tip="Less than 1 hour"></span>
+                <span class="jg-heat-cell l2" data-tip="1–2 hours"></span>
+                <span class="jg-heat-cell l3" data-tip="2–4 hours"></span>
+                <span class="jg-heat-cell l4" data-tip="Over 4 hours"></span>
                 More
             </div>
         </div>
@@ -122,20 +126,20 @@
     private int _totalModCount;
     private int _activeModCount;
 
-    // ─── v1.1.5：热力图 ───
+    // ─── v1.1.5: heatmap ───
     private sealed record HeatCell(string Key, bool InYear, bool Future, long Seconds)
     {
         public int Level => Seconds <= 0 ? 0
-            : Seconds < 3600 ? 1        // <1 小时
-            : Seconds < 7200 ? 2        // 1–2 小时
-            : Seconds < 14400 ? 3       // 2–4 小时
-            : 4;                        // ≥4 小时
+            : Seconds < 3600 ? 1        // <1 hour
+            : Seconds < 7200 ? 2        // 1–2 hours
+            : Seconds < 14400 ? 3       // 2–4 hours
+            : 4;                        // ≥4 hours
     }
 
     private int _heatYear = DateTime.Now.Year;
     private List<int> _years = new();
-    private List<List<HeatCell>> _weeks = new();   // 每列一周（周日→周六），7 行
-    private List<string> _monthLabels = new();     // 与周列对齐的月份表头
+    private List<List<HeatCell>> _weeks = new();   // one week per column (Sunday→Saturday), 7 rows
+    private List<string> _monthLabels = new();     // month headers aligned with the week columns
     private long _yearTotalSeconds;
     private int _yearDays;
 
@@ -156,11 +160,17 @@
         _smapiVersion = Game.ProbeSmapiVersion(_cfg.GamePath);
         _gameVersion = Updater.GetGameVersion(_cfg.GamePath);
 
-        var mods = Mods.Scan(_cfg.GamePath);
-        _totalModCount = mods.Count;
-        _activeModCount = mods.Count(m => !m.Disabled);
+        // v1.1.6: moved the full scan off the UI thread — the home page only needs two counts, and the old synchronous Scan
+        // of hundreds of mod manifests made page switches visibly janky; refresh one frame once the counts are in.
+        _ = Task.Run(() =>
+        {
+            var mods = Mods.Scan(_cfg.GamePath);
+            _totalModCount = mods.Count;
+            _activeModCount = mods.Count(m => !m.Disabled);
+            return InvokeAsync(StateHasChanged);
+        });
 
-        // v1.1.5：时长数据每 30s 可能被后台累计，订阅变化实时刷新热力图
+        // v1.1.5: playtime data can be accumulated in the background every 30s; subscribe to changes to refresh the heatmap in real time
         PlayTime.OnChanged += OnPlayChanged;
         RebuildHeat();
     }
@@ -173,7 +183,7 @@
     {
         var data = PlayTime.Snapshot;
 
-        // 年份列表：首次使用 JuniGrid 的年份 → 今年 ∪ 有游玩记录的年份
+        // Year list: first year of JuniGrid use → current year ∪ years with play records
         var firstYear = DateTime.TryParse(_cfg.FirstRunDate, out var fr) ? fr.Year : DateTime.Now.Year;
         var ys = new HashSet<int>();
         for (var y = firstYear; y <= DateTime.Now.Year; y++) ys.Add(y);
@@ -181,9 +191,9 @@
             if (k.Length >= 4 && int.TryParse(k.AsSpan(0, 4), out var y)) ys.Add(y);
         _years = ys.OrderByDescending(x => x).ToList();
 
-        // 列从「1 月 1 日所在周的周日」开始，铺到 12 月 31 日（GitHub 同款布局）
+        // Columns start at the Sunday of the week containing Jan 1 and run through Dec 31 (GitHub-style layout)
         var start = new DateTime(_heatYear, 1, 1);
-        var d = start.AddDays(-((int)start.DayOfWeek));   // 回退到周日
+        var d = start.AddDays(-((int)start.DayOfWeek));   // step back to Sunday
         var end = new DateTime(_heatYear, 12, 31);
         var today = DateTime.Today;
 
@@ -197,7 +207,7 @@
         while (d <= end)
         {
             var col = new List<HeatCell>(7);
-            int colMonth = -1;   // 本列第一个「年内」日期的月份（列头月份标签用）
+            int colMonth = -1;   // month of the first in-year date in this column (used for the column header month label)
             for (var i = 0; i < 7; i++)
             {
                 if (d.Year == _heatYear) { if (colMonth < 0) colMonth = d.Month; }
@@ -207,7 +217,7 @@
             }
             _weeks.Add(col);
 
-            // 月份标签：本月第一次出现的列才标，与 demo 同规则
+            // Month labels: only mark the column where a month first appears, same rule as the demo
             if (colMonth > 0 && colMonth != lastMonth)
             {
                 _monthLabels.Add(monthNames[colMonth]);
@@ -224,7 +234,7 @@
         _yearDays = days;
     }
 
-    // ─── v1.1.6：年份下拉（通用 dropdownToggle GSAP 动画，遮罩点外收回）───
+    // ─── v1.1.6: year dropdown (generic dropdownToggle GSAP animation, dismissed by clicking the overlay) ───
     private bool _heatDdOpen;
 
     private async Task ToggleYearDd()
@@ -252,21 +262,15 @@
         1 => "Mon", 3 => "Wed", 5 => "Fri", _ => ""
     };
 
-    // 悬停胶囊提示（data-tip 全局委托，动态格子也能用）
+    // Hover pill tooltip (data-tip global delegation, works for dynamically rendered cells too)
     private static string Tip(HeatCell cell) =>
         cell.Seconds > 0
-            ? $"{Math.Round(cell.Seconds / 3600.0, 1)} h · {cell.Key}"
-            : $"No play · {cell.Key}";
+            ? $"{Math.Round(cell.Seconds / 3600.0, 1)} hours · {cell.Key}"
+            : $"No playtime · {cell.Key}";
 
     private static string FormatHours(long seconds) =>
-        seconds <= 0 ? "0 小时" : (seconds / 3600.0).ToString("0.0") + " 小时";
+        seconds <= 0 ? "0 hours" : (seconds / 3600.0).ToString("0.0") + " hours";
 
     private static string FormatTime(string iso) =>
         DateTime.TryParse(iso, out var t) ? t.ToString("MM-dd HH:mm") : iso;
-
-    private static string FormatPlay(long minutes)
-    {
-        if (minutes <= 0) return "0 小时";
-        return (minutes / 60.0).ToString("0.0") + " 小时";
-    }
 }

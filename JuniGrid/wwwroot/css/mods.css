@@ -1,5 +1,5 @@
 /* ============================================================
-   mods：Mod 管理页 —— 封面 / 单行列表 / 任务中心 / 筛选 / 工具条
+   mods: Mod management page - covers / single-row list / task center / filters / toolbar
    ============================================================ */
 /* -------- Mod action buttons + chips (browse tabs) -------- */
 .jg-mod-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
@@ -57,7 +57,7 @@
     background: var(--jg-track);
 }
 
-/* -------- Mod 详情页多图画廊 -------- */
+/* -------- Mod detail page multi-image gallery -------- */
 .jg-modgallery {
     position: relative;
     display: block;
@@ -150,7 +150,7 @@
 .jg-moddetail-desc h4, .jg-moddetail-desc h5 { margin: 10px 0 4px; line-height: 1.4; }
 .jg-moddetail-desc hr { border: 0; border-top: 1px solid var(--jg-line-strong); margin: 10px 0; }
 
-/* -------- Nexus 浏览榜单（N 网浏览页风格卡片网格）-------- */
+/* -------- Nexus browse rankings (card grid in the style of the Nexus Mods browse page) -------- */
 .jg-browsegrid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -193,7 +193,7 @@
 }
 .jg-browsecard-actions { display: flex; gap: 6px; margin: 10px 10px 12px; margin-top: auto; }
 .jg-browsecard-actions .jg-browsecard-install { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 已安装：整钮变灰并去交互 */
+/* Installed: the whole button turns gray and loses interactivity */
 .jg-browsecard-install.installed {
     background: var(--jg-well);
     border-color: var(--jg-line-strong);
@@ -207,7 +207,7 @@
     .jg-browsegrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 }
 
-/* -------- Mod 单行列表（PCL 风格）------ */
+/* -------- Mod single-row list (PCL style) ------ */
 .jg-modrows { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .jg-modrow {
     display: flex;
@@ -279,7 +279,7 @@
     margin-top: 2px;
 }
 
-/* hover 浮现的操作按钮 */
+/* Action buttons that appear on hover */
 .jg-modrow-actions {
     display: flex;
     gap: 4px;
@@ -317,7 +317,7 @@
     font-weight: 600;
 }
 
-/* 批量操作悬浮条（跟着内容区走，居中于 mod 列表；left:20% ≈ 左侧账户栏宽度） */
+/* Batch action floating bar (follows the content area, centered over the mod list; left:20% ≈ the left account panel width) */
 .jg-batchbar-anchor {
     position: fixed;
     left: 20%;
@@ -346,45 +346,46 @@ body.jg-max .jg-batchbar-anchor { bottom: 28px; }
     flex-wrap: wrap;
 }
 
-/* 去更新按钮（紫色，跟 SMAPI 更新同色） */
+/* Update button (purple, same color as the SMAPI update) */
 .jg-rowbtn.upd { color: #b4009e; border-color: rgba(194,57,179,0.4); }
 .jg-rowbtn.upd:hover { background: rgba(194,57,179,0.12); }
 
-/* 已是最新版本：更新按钮变灰 */
+/* Already the latest version: the update button turns gray */
 .jg-rowbtn.latest { color: var(--jg-text-4); border-color: var(--jg-line-strong); cursor: default; }
 .jg-rowbtn.latest:hover { background: transparent; }
 
-/* ---- 最小化的缩小淡出过渡（接近原生窗口观感）---- */
+/* ---- Minimize scale/fade transition (close to a native window feel) ---- */
 #app { transition: transform .18s ease, opacity .18s ease; }
 body.jg-minimizing #app { transform: scale(0.96); opacity: 0; }
 
-/* 下载任务悬浮小图标（右下角） —— absolute 挂在 .jg-shell 里
-   原因：WPF 无边框最大化会把窗口伸出工作区约 8px，fixed 相对视口定位会跟着伸，
-   导致胶囊被任务栏遮挡。改成 absolute 相对 .jg-shell（真正的可视裁剪容器）后，
-   无论正常/最大化，胶囊始终稳稳落在可视区右下。 */
+/* Download task floating pill (bottom-right) - absolute, attached inside .jg-shell
+   Reason: WPF borderless maximized windows overhang the work area by about 8px, and fixed positioning
+   relative to the viewport stretches along with it, so the taskbar would cover the pill. After switching to
+   absolute relative to .jg-shell (the real visible clipping container), the pill always sits firmly in the
+   bottom-right of the visible area, normal or maximized. */
 .jg-taskdock {
     position: absolute; right: 20px; bottom: 20px; z-index: 9999;
-    max-width: calc(100% - 40px);       /* 相对 .jg-shell，绝不超出内部 */
-    width: auto; height: auto;          /* v1.06.7：贴合内容大小，胶囊形 */
-    min-width: 160px; min-height: 56px; /* v1.06.7：单行状态（全部完成/暂无任务）也要有两行状态的体量 */
+    max-width: calc(100% - 40px);       /* relative to .jg-shell, never exceeds the inside */
+    width: auto; height: auto;          /* v1.06.7: fit the content size, pill shape */
+    min-width: 160px; min-height: 56px; /* v1.06.7: single-line states (all done / no tasks) still get the visual weight of the two-line state */
     display: flex; align-items: center; justify-content: center;
-    background: var(--jg-ink); color: var(--jg-on-ink); border: none;    /* v1.06.4：常态纯黑胶囊 */
-    padding: 10px 22px; border-radius: 999px; cursor: pointer;   /* v1.06.6：内边距加大撑起胶囊，文字不变 */
+    background: var(--jg-ink); color: var(--jg-on-ink); border: none;    /* v1.06.4: pure black pill in the resting state */
+    padding: 10px 22px; border-radius: 999px; cursor: pointer;   /* v1.06.6: bigger padding to prop up the pill, text unchanged */
     box-shadow: 0 6px 20px rgba(0,0,0,0.25);
-    transition: box-shadow .15s, background .3s;   /* 不过渡 transform：GSAP 透视倾斜要逐帧写 inline transform */
-    overflow: hidden;                   /* 进度填充层不溢出圆角 */
+    transition: box-shadow .15s, background .3s;   /* don't transition transform: the GSAP perspective tilt writes inline transform per frame */
+    overflow: hidden;                   /* keep the progress fill layer inside the rounded corners */
 }
-/* 下载中：胶囊整体变灰；黑色填充层按下载进度从左往右覆盖，100% 时回到纯黑 */
+/* Downloading: the whole pill turns gray; the black fill layer sweeps left-to-right with download progress, returning to pure black at 100% */
 .jg-taskdock.running { background: #7d7d80; }
 .jg-taskdock-fill {
     position: absolute; left: 0; top: 0; bottom: 0; z-index: 0;
     width: 0%;
-    background: var(--jg-ink);                /* 与常态黑色一致 = 灰底被进度「填回」黑色 */
+    background: var(--jg-ink);                /* same as the resting black = the gray base gets "filled back" to black by progress */
     transition: width .35s ease;
     pointer-events: none;
 }
 .jg-taskdock-body { position: relative; z-index: 1; text-align: center; min-width: 0; }
-/* 最大化时窗口伸出工作区，再内收 20px 双保险 */
+/* When maximized the window overhangs the work area; pull in another 20px as double insurance */
 body.jg-max .jg-taskdock {
     right: 40px; bottom: 40px;
 }
@@ -394,21 +395,21 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
 .jg-taskdock-title { font-weight:600; font-size:13px; line-height:1.1; }
 .jg-taskdock-sub { font-size:11px; opacity:.85; margin-top:4px; }
 
-/* ─── v1.07：全部完成态 —— 胶囊 morph 成圆 + 白色对号（gsap taskDockMorph 驱动形变）─── */
+/* ─── v1.07: all-done state - the pill morphs into a circle + white checkmark (gsap taskDockMorph drives the morph) ─── */
 .jg-taskdock-check {
     position: absolute; left: 50%; top: 50%; z-index: 1;
     width: 26px; height: 26px;
     margin-left: -13px; margin-top: -13px;
-    opacity: 0; pointer-events: none; /* 常态隐藏，morph 完成态由 gsap 弹出 */
+    opacity: 0; pointer-events: none; /* hidden in the resting state; gsap pops it in for the morphed done state */
 }
-/* 无 gsap 兜底：直接呈现最终圆态（有 gsap 时内联样式接管，此规则不生效） */
+/* No-gsap fallback: show the final circle state directly (with gsap, inline styles take over and this rule has no effect) */
 .jg-taskdock.done {
     width: 56px; min-width: 56px; height: 56px; min-height: 56px; padding: 0;
 }
 .jg-taskdock.done .jg-taskdock-check { opacity: 1; }
 .jg-taskdock.done .jg-taskdock-body { opacity: 0; }
 
-/* ─── v1.06.6：筛选导航（全部/正在下载/成功/失败，选中黑底白字胶囊）─── */
+/* ─── v1.06.6: filter nav (All / Downloading / Success / Failed; selected = black pill with white text) ─── */
 .jg-tfilters { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
 .jg-tfilter {
     border: 1px solid var(--jg-line-strong); background: var(--jg-card); color: var(--jg-text-2);
@@ -416,7 +417,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
 }
 .jg-tfilter.active { background: var(--jg-ink); color: var(--jg-on-ink); border-color: var(--jg-outline); }
 
-/* v0.2.2：任务页「任务类型」下拉胶囊 —— 本体点击=回「全部」，只有小箭头才弹菜单 */
+/* v0.2.2: tasks page "task type" dropdown pill - clicking the body resets to "All"; only the little arrow opens the menu */
 .jg-tf-kind {
     display: inline-flex;
     align-items: center;
@@ -431,7 +432,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     user-select: none;
 }
 .jg-tf-kind.active { background: var(--jg-ink); color: var(--jg-on-ink); border-color: var(--jg-outline); }
-/* 菜单嵌在胶囊内，必须把文字色从胶囊的选中态（黑底白字）里夺回来，否则白字落白底 */
+/* The menu is nested inside the pill, so the text color must be reclaimed from the pill's active state (black background, white text), otherwise white text lands on a white background */
 .jg-tf-kind .jg-sort-menu { color: var(--jg-text-2); }
 .jg-tf-caret {
     display: inline-flex;
@@ -443,7 +444,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
 .jg-tf-caret:hover { background: var(--jg-hover); }
 .jg-tf-kind.active .jg-tf-caret:hover { background: rgba(255,255,255,0.2); }
 
-/* ─── v1.06.6：下载信息下拉（GSAP easeReverse 弹性展开）─── */
+/* ─── v1.06.6: download info dropdown (GSAP easeReverse elastic expansion) ─── */
 .jg-taskdrop-trigger {
     border: none; background: transparent; cursor: pointer; color: var(--jg-text-2);
     display: inline-flex; padding: 2px; border-radius: 4px;
@@ -454,36 +455,40 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     margin-top: 8px; background: var(--jg-glass-85);
     border: 1px solid var(--jg-line-strong); border-radius: 10px;
 }
-/* v1.07：展开稳态由 class 保证（gsap 动画结束后清内联样式，状态归 CSS 管，
-   下载中频繁重渲染也不会把已展开的面板打回隐藏） */
+/* v1.07: the expanded steady state is guaranteed by the class (inline styles are cleared after the gsap animation
+   ends and state belongs to CSS, so frequent re-renders during downloads won't snap an expanded panel back to hidden) */
 .jg-taskdrop-menu.open { visibility: visible; opacity: 1; height: auto; }
-/* ─── v1.1.3：任务详情时间线（像素方块→对勾）─── */
+/* ─── v1.1.3: task detail timeline (pixel squares → checkmark) ─── */
 .jg-tl { padding: 10px 14px 12px; }
 .jg-tl-empty { padding: 6px 2px; font-size: 12px; color: var(--jg-text-3); }
 .jg-tl-row {
     display: flex; align-items: center; gap: 12px;
     font-size: 12.5px; color: var(--jg-text); min-height: 30px; word-break: break-word;
-    animation: jg-tl-rowin .3s ease;   /* 只有新追加的行会入场，旧行不重播 */
+    animation: jg-tl-rowin .3s ease;   /* only newly appended rows animate in; old rows don't replay */
 }
 @keyframes jg-tl-rowin { from { opacity: 0; transform: translateY(6px); } }
 .jg-tl-row[data-status="running"] { font-weight: 500; }
-.jg-tl-row[data-status="done"]    { color: var(--tl-green); }
-.jg-tl-row[data-status="final"]   { color: var(--tl-green); font-weight: 600; }
+/* v1.2.3: clickable dependency rows in the dependency confirm dialog - hover feedback + rounded highlight */
+.jg-dep-row { border-radius: 8px; padding: 4px 6px; margin: -4px -6px; transition: background .12s ease; }
+.jg-dep-row[data-clickable="true"]:hover { background: var(--jg-well); }
+
+.jg-tl-row[data-status="done"]    { color: var(--tl-black); }
+.jg-tl-row[data-status="final"]   { color: var(--tl-black); font-weight: 600; }
 .jg-tl-row[data-status="error"]   { color: var(--tl-red); font-weight: 600; }
 .jg-tl-icon { width: 30px; height: 30px; display: grid; place-items: center; flex: none; position: relative; }
 .jg-tl-text { flex: 1; min-width: 0; }
-/* 步骤间虚线连接（替代旧的分割线） */
+/* Dotted connector between steps (replacing the old divider) */
 .jg-tl-connector { width: 30px; height: 15px; display: flex; justify-content: center; flex: none; }
 .jg-tl-connector i { border-left: 2px dotted #c4c4c4; height: 100%; }
-/* 对勾 / 叉标记：描边圈；final 和 error 为实心底+白线条 */
+/* Checkmark / X marks: stroked circle; final and error get a solid fill + white strokes */
 .jg-tl-mark { width: 22px; height: 22px; display: block; }
 .jg-tl-mark circle { fill: none; stroke: var(--c); stroke-width: 2; }
 .jg-tl-mark path   { fill: none; stroke: var(--c); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .jg-tl-row[data-status="final"] .jg-tl-mark circle,
 .jg-tl-row[data-status="error"] .jg-tl-mark circle { fill: var(--c); }
-.jg-tl-row[data-status="final"] .jg-tl-mark path,
+.jg-tl-row[data-status="final"] .jg-tl-mark path   { stroke: var(--tl-onblack); }
 .jg-tl-row[data-status="error"] .jg-tl-mark path   { stroke: #fff; }
-/* 3x3 像素方块：小·快速 + 每格发光（drop-shadow 跟随阶段色） */
+/* 3x3 pixel squares: small and fast + per-cell glow (drop-shadow follows the stage color) */
 .jg-pxgrid {
     --cell: 6px; --gap: 1.5px; --dur: 1.1s;
     display: grid; grid-template-columns: repeat(3, var(--cell)); gap: var(--gap);
@@ -503,10 +508,10 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     60%, 100% { opacity: .15; transform: scale(.5); }
 }
 @keyframes jg-px-breathe { 0%,100% { opacity: .25; transform: scale(.7); } 50% { opacity: .7; transform: scale(1); } }
-.jg-tl { --tl-green: #1a9c5b; --tl-red: #e5484d; --tl-blue: #3b82f6; --tl-black: #1a1a1a; }
+.jg-tl { --tl-green: #1a9c5b; --tl-red: #e5484d; --tl-blue: #3b82f6; --tl-black: #1a1a1a; --tl-onblack: #ffffff; }
 @media (prefers-reduced-motion: reduce) { .jg-pxgrid i { animation: none; opacity: .8; transform: none; } }
 
-/* ─── v1.06.6：下载页灰底改回白色；黑圆返回改透明底黑箭头；清理全部胶囊 ─── */
+/* ─── v1.06.6: downloads page gray background back to white; the black round back button becomes transparent with a black arrow; all pills removed ─── */
 .jg-tasks-back {
     width: 42px; height: 42px; border-radius: 50%;
     border: none; cursor: pointer;
@@ -547,10 +552,10 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     box-shadow: 0 18px 48px rgba(0,0,0,0.3);
 }
 
-/* ─── v1.06.4：任务卡片的 PCL2 风格步骤列表（✓ 完成 / 蓝色% 当前 / ✕ 失败）─── */
-/* v1.06.6：合并进上方的黑色版本（图二图三的蓝色全部改黑），此处不再重复定义 */
+/* ─── v1.06.4: PCL2-style step list on task cards (✓ done / blue % current / ✕ failed) ─── */
+/* v1.06.6: merged into the black version above (the blues in screenshots 2 and 3 all became black); no longer redefined here */
 
-/* Mod 行 —— 版本号后的紫色新版本小标签（极简提示） */
+/* Mod row - small purple new-version tag after the version number (minimal hint) */
 .jg-newver {
     display:inline-block; margin-left:6px; padding:1px 8px;
     font-size:11px; font-weight:600;
@@ -558,13 +563,13 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     border:1px solid rgba(180,0,158,0.25); border-radius:10px;
 }
 
-/* 有活跃任务时给右下角胶囊让出 96px */
-/* v1.1.2：hover 像素溶解「点击启动！」蒙版已移除，仅保留 tiltPerspective 随鼠标倾斜；
-   .jg-launch-big 的 overflow:hidden 一并撤掉（无内层蒙版需要裁剪） */
+/* When there are active tasks, make 96px of room for the bottom-right pill */
+/* v1.1.2: the hover pixel-dissolve "Click to launch!" mask was removed; only tiltPerspective mouse tilt remains;
+   .jg-launch-big's overflow:hidden was also removed (no inner mask needs clipping anymore) */
 
-/* ── Mod 管理页：检查/刷新期间 GSAP 弹性加载动画（v0.31.0：加大画布 + 柔和色 + 独占空间） ── */
+/* ── Mods page: GSAP elastic loading animation while checking/refreshing (v0.31.0: bigger canvas + softer colors + reserved space) ── */
 .jg-mods-loading {
-    /* 独占整块列表空间，与顶部搜索栏之间留 40px；下方留 60px，让四个方块的 keyframes（y +80/-10/+30）不撞边 */
+    /* Occupies the whole list space, 40px below the top search bar and 60px above what follows, so the four boxes' keyframes (y +80/-10/+30) don't hit the edges */
     margin: 40px auto 60px;
     padding: 80px 0 100px;
     min-height: 260px;
@@ -584,7 +589,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
 .jg-mods-loading .gradient-green {
     position: relative;
     overflow: hidden;
-    /* v0.31.0：对角线线性渐变：左上#9efd58 → 右下#00e359 + 叠加噪声微粒（磨砂质感） */
+    /* v0.31.0: diagonal linear gradient: top-left #9efd58 → bottom-right #00e359 + overlaid noise specks (frosted texture) */
     background: linear-gradient(135deg, #9efd58 0%, #00e359 100%);
 }
 .jg-mods-loading .gradient-green::before {
@@ -597,10 +602,10 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     pointer-events: none;
 }
 
-/* ── v0.31.0：PCL 式页面切换入场动画（.jg-main 每次切页触发） ── */
+/* ── v0.31.0: PCL-style page-switch enter animation (triggered on .jg-main each page change) ── */
 .jg-main {
-    /* v0.42.0：去掉常驻 will-change: transform —— 它会把 position:fixed 的后代
-       （批量栏）变成相对 .jg-main 定位，导致批量栏跟着页面滚动 */
+    /* v0.42.0: removed the permanent will-change: transform - it makes position:fixed descendants
+       (the batch bar) position relative to .jg-main, causing the batch bar to scroll with the page */
 }
 .jg-page-enter {
     animation: jg-page-in 380ms cubic-bezier(.22, 1, .36, 1) both;
@@ -617,7 +622,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
         filter: blur(0);
     }
 }
-/* 内部一级块 —— 用 stagger 让页面元素依次浮上来，PCL 那种"活起来"的感觉 */
+/* Top-level inner blocks - staggered so page elements float up one by one, that PCL "come alive" feel */
 .jg-page-enter > * {
     animation: jg-child-in 420ms cubic-bezier(.22, 1, .36, 1) both;
 }
@@ -632,7 +637,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── v0.32.0：Mod 管理工具条（chips + 排序下拉 + 展开式搜索） ── */
+/* ── v0.32.0: Mods toolbar (chips + sort dropdown + expandable search) ── */
 .jg-mods-toolbar {
     display: flex;
     align-items: center;
@@ -642,9 +647,9 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     min-width: 0;
 }
 .jg-mods-toolbar .jg-chips { flex-wrap: wrap; min-width: 0; }
-/* v0.34.0：DOM 已扁平化（排序/chips/搜索同级），右对齐由 .jg-search-x 自己承担 */
+/* v0.34.0: DOM flattened (sort/chips/search are siblings); right alignment is handled by .jg-search-x itself */
 
-/* 排序下拉 */
+/* Sort dropdown */
 .jg-sort-dd { position: relative; }
 .jg-sort-trigger {
     display: inline-flex;
@@ -686,11 +691,12 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     transform: translateY(0) scale(1);
     pointer-events: auto;
 }
-/* v1.07.0：触顶桥 —— trigger→菜单之间 8px 空隙划入命中区域，鼠标移向菜单不再中途滑出下拉 */
+/* v1.07.0: hover bridge - the 8px gap between trigger and menu becomes a hit area, so moving the mouse toward the menu no longer slides off the dropdown mid-way */
 .jg-sort-menu::before { content: ''; position: absolute; left: 0; right: 0; top: -14px; height: 14px; }
-/* v1.07.0：Nexus 页菜单拆两层 —— 弹性动画只作用在 .jg-sort-menu-in（视觉层），
-   外层盒子（含触顶桥）保持最终矩形不动，命中区域从打开第一帧起 = 最终位置，
-   动画期间不再「看着开了、其实命中在下方 mod 卡上」。皮肤值须与 .jg-sort-menu 保持一致。 */
+/* v1.07.0: the Nexus page menu is split into two layers - the elastic animation only applies to .jg-sort-menu-in
+   (visual layer), while the outer box (including the hover bridge) holds its final rectangle; the hit area equals
+   the final position from the first frame after opening, so during the animation it no longer "looks open but
+   clicks land on the mod card below". Skin values must stay in sync with .jg-sort-menu. */
 .jg-nexus-scope .jg-sort-menu {
     padding: 0; border: 0; background: transparent; box-shadow: none;
     backdrop-filter: none; opacity: 1; transform: none;
@@ -703,7 +709,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     backdrop-filter: saturate(180%) blur(20px);
     box-shadow: 0 12px 32px rgba(0,0,0,0.14);
 }
-/* v0.33.0：并入上方 .jg-sort-menu 主规则 */
+/* v0.33.0: merged into the main .jg-sort-menu rule above */
 .jg-sort-item {
     display: flex;
     align-items: center;
@@ -722,11 +728,11 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
 .jg-sort-item:hover { background: var(--jg-hover); }
 .jg-sort-item.active { background: var(--jg-hover-strong); color: var(--jg-text); font-weight: 600; }
 
-/* 展开式搜索 */
+/* Expandable search */
 .jg-search-x {
     display: flex;
     align-items: center;
-    margin-left: auto;          /* v0.34.0：贴最右；展开时向左延伸占据 chips 右侧剩余空间 */
+    margin-left: auto;          /* v0.34.0: pinned to the far right; when open it extends leftward into the remaining space beside the chips */
     width: 40px;
     height: 40px;
     border-radius: 999px;
@@ -785,7 +791,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
 }
 .jg-search-clear:hover { opacity: 1; background: var(--jg-track); }
 
-/* ── v0.36.0：AnimatedList 顶/底渐变遮罩 ── */
+/* ── v0.36.0: AnimatedList top/bottom gradient masks ── */
 .jg-al-gradient {
     position: sticky;
     left: 0;
@@ -797,7 +803,7 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
 }
 .jg-al-gradient-top {
     top: 0;
-    /* sticky 占位 0 高，用内部伪元素画出真实渐变，避免挤压内容 */
+    /* the sticky placeholder is 0-height; an inner pseudo-element paints the real gradient so content isn't squeezed */
     float: inline-start;
 }
 .jg-al-gradient-top::before,
@@ -815,8 +821,9 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
 }
 .jg-al-gradient-bottom {
     bottom: 0;
-    /* 用 sticky 相对 .jg-main 滚动视口，避免页面入场 animation 的 transform
-       把 fixed 变成相对滚动容器定位，导致遮罩跟着内容一起滚 */
+    /* Use sticky relative to the .jg-main scroll viewport, so the page-enter animation's transform
+       doesn't turn fixed into positioning relative to the scroll container and make the mask
+       scroll along with the content */
     height: 0;
 }
 .jg-al-gradient-bottom::before {
@@ -824,3 +831,16 @@ body.jg-max .jg-taskdock .jg-taskdock-sub { white-space: nowrap; overflow: hidde
     background: linear-gradient(to top, var(--jg-content), transparent);
 }
 
+
+/* ── v1.1.2: in dark theme, invert the task timeline's "black" stage color - the black pixel-square loading blocks are hard to see on a dark background ── */
+html[data-theme="dark"] .jg-tl { --tl-black: #e8eaee; --tl-onblack: #1a1a1a; }
+
+
+/* ─── v1.1.5: group header = click to select all / deselect all in that bundle ───
+   Pointer cursor + no text selection: without these two rules, a tiny mouse move while pressed starts a text
+   selection, the click event gets swallowed, and users see a text caret instead of a clickable pointer. */
+.jg-group-head {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}

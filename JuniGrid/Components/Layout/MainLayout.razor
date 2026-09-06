@@ -2,6 +2,7 @@
 @inherits LayoutComponentBase
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject ConfigService Cfg
 @implements IDisposable
 
 <div class="jg-shell">
@@ -15,8 +16,8 @@
             <main class="jg-main">
                 @Body
             </main>
-            @* ── v1.1.2：返回顶部（Mod 管理 / Mod 详情 / Nexus 显示；滚过一屏才出现）──
-               点击 GSAP 补间 scrollTop 丝滑滚回；放左边避开右下角任务中心悬浮球 ── *@
+            @* ── v1.1.2: back to top (shown on Mods / Mod details / Nexus; appears after scrolling one screen) ──
+               Click tweens scrollTop with GSAP for a smooth scroll back; placed on the left to avoid the task-center floating ball in the bottom-right ── *@
             <button id="jgBackTop" class="jg-backtop" data-tip="Back to top" aria-label="Back to top">
                 <img src="assets/back-top.svg" alt="" draggable="false" />
             </button>
@@ -33,13 +34,13 @@
 
     private void OnLocChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
-        // 切走「Mod 管理」相关页面时自动收起内置浏览器覆盖层 ——
-        // 它在语义上就是 Mod 管理页的内容区，路由离开就得跟着走。
+        // Automatically collapse the built-in browser overlay when navigating away from Mods-related pages —
+        // it is semantically the content area of the Mods page, so it must go when the route leaves.
         var rel = Nav.ToBaseRelativePath(e.Location).ToLowerInvariant().TrimEnd('/');
         var onModsPage = rel.StartsWith("mods") || rel.StartsWith("mod/");
         if (!onModsPage) JuniGrid.MainWindow.HideNexusOverlay();
 
-        // v0.31.0：每次切页给 <main.jg-main> 播入场动画（PCL 风格）
+        // v0.31.0: play the enter animation on <main.jg-main> on every page switch (PCL style)
         _ = InvokeAsync(async () =>
         {
             try { await JS.InvokeVoidAsync("junigridJs.playPageEnter"); } catch { }
@@ -52,15 +53,15 @@
     {
         if (firstRender)
         {
-            // v0.20.0：不要一挂载完就通知 —— 那时 shell DOM 有了但 CSS 还没铺完，
-            // WPF 层立刻淡入会看到深色兜底底色。让 JS 那边先等两帧 rAF + 一小段 stabilize，
-            // 直到浅色主题真正绘制稳定，再通知 WPF 主窗淡入。
-            // 兜底：调用失败（脚本未就绪）也不能变成未观察异常 —— App 侧另有 6s 强制揭示兜底。
+            // v0.20.0: don't notify right after mount — the shell DOM exists but the CSS hasn't finished applying,
+            // so an immediate WPF fade-in would show the dark fallback background. Let the JS side wait two rAF frames plus a short stabilize,
+            // until the light theme is truly painted, before telling the WPF main window to fade in.
+            // Guard: a failed call (script not ready) must not become an unobserved exception — the App side has its own 6s force-reveal fallback.
             try { await JS.InvokeVoidAsync("junigridJs.splashUiReadyWhenStable"); }
             catch { }
-            // v0.31.0：首次进入首页也播一次入场动画
+            // v0.31.0: also play the enter animation when first entering the home page
             try { await JS.InvokeVoidAsync("junigridJs.playPageEnter"); } catch { }
-            // v1.1.2：返回顶部按钮（滚动监听 + 路由显隐 + 点击丝滑回顶）
+            // v1.1.2: back-to-top button (scroll listener + route show/hide + smooth scroll back on click)
             try { await JS.InvokeVoidAsync("junigridJs.backTopInit"); } catch { }
         }
     }

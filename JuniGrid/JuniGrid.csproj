@@ -8,10 +8,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>JuniGrid</RootNamespace>
     <AssemblyName>JuniGrid</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\junigrid-logo.ico</ApplicationIcon>
-    <!-- 只保留中英文卫星资源：自包含发布里 40+ 语言的 WPF/FluentUI 资源 dll 占 8MB+，
-         中文应用用不到（cs/de/es/fr/... 每个语言一套 PresentationFramework.resources.dll） -->
-    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
+    <!-- Keep only Chinese/English satellite resources: in a self-contained publish, the WPF/FluentUI
+         resource DLLs for 40+ languages add up to 8MB+, which the app doesn't use
+         (cs/de/es/fr/... each language ships its own PresentationFramework.resources.dll) -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>

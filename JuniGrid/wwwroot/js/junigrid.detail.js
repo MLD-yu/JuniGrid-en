@@ -1,10 +1,12 @@
 // ============================================================
-// Mod 详情页：图片点击放大、手风琴动效、任务时间线变形、
-// 下拉「点外部收回」兜底、返回顶部
+// Mod detail page: image click-to-zoom, accordion animations,
+// task timeline morphing, dropdown "click outside to close"
+// fallback, back to top
 // ============================================================
-// ============ v0.59.0：mod 详情页图片点击放大（含原位置占位符防塌陷）============
-// 点击图片 → 原位置留一个同尺寸占位符（保住盒子）→ 图片移到 modal 正中简单放大；
-// 关闭 → 图片放回原位，移除占位符。
+// ============ v0.59.0: mod detail page image click-to-zoom (with an in-place placeholder to prevent collapse) ============
+// Click image → leave a same-size placeholder in the original spot (keeps the box) → move the
+// image to the center of the modal for a simple zoom;
+// Close → put the image back in place and remove the placeholder.
 (function () {
     if (!window.junigridJs) window.junigridJs = {};
 
@@ -20,7 +22,7 @@
             var el = openEl;
             modal.classList.remove('open');
             el.classList.remove('jg-zoom-open');
-            // 放回原位置（用占位符定位）
+            // put back in the original position (located via the placeholder)
             if (placeholder && placeholder.parentNode) {
                 placeholder.parentNode.insertBefore(el, placeholder);
                 placeholder.remove();
@@ -35,18 +37,18 @@
         function open(el) {
             openParent = el.parentNode;
             openNext = el.nextSibling;
-            // 建占位符：撑住原盒子尺寸，防塌陷
+            // create the placeholder: holds the original box size, prevents collapse
             var rect = el.getBoundingClientRect();
             placeholder = document.createElement('div');
             placeholder.className = 'jg-zoom-placeholder';
             placeholder.style.width = rect.width + 'px';
             placeholder.style.height = rect.height + 'px';
-            // 继承 margin，让上下间距一致
+            // inherit the margin so spacing above/below stays consistent
             var cs = window.getComputedStyle(el);
             placeholder.style.margin = cs.margin;
             placeholder.style.display = cs.display === 'inline' ? 'inline-block' : cs.display;
             openParent.insertBefore(placeholder, el);
-            // 移动图片到 modal 中央
+            // move the image to the center of the modal
             content.appendChild(el);
             el.classList.add('jg-zoom-open');
             openEl = el;
@@ -58,7 +60,7 @@
             el.__zoomBound = true;
             el.addEventListener('click', function () {
                 var car = el.closest && el.closest('.jg-carousel');
-                if (car && car.__justDragged) return;   // 拖拽松手不触发放大
+                if (car && car.__justDragged) return;   // releasing after a drag shouldn't trigger the zoom
                 if (openEl === el) close();
                 else if (!openEl) open(el);
             });
@@ -79,12 +81,12 @@
 })();
 
 
-// ============ v0.69.0：详情页视差图片轮播（滚轮横滚 + 拖拽；放大时暂停滚动）============
+// ============ v0.69.0: detail page parallax image carousel (wheel horizontal scroll + drag; scrolling pauses while zoomed) ============
 (function () {
     if (!window.junigridJs) window.junigridJs = {};
     })();
 
-// v0.69.9：手风琴按需滚动 —— 展开后测量真实内容高度，>360px 才给 .jg-acc 加 .jg-acc-scroll
+// v0.69.9: accordion on-demand scrolling — measure the real content height after expanding; add .jg-acc-scroll to .jg-acc only when it exceeds 360px
 window.junigridJs = window.junigridJs || {};
 window.junigridJs.accMeasureScroll = function () {
     var accs = document.querySelectorAll(".jg-acc.open");
@@ -92,7 +94,7 @@ window.junigridJs.accMeasureScroll = function () {
         var acc = accs[i];
         var inner = acc.querySelector(".jg-acc-inner");
         if (!inner) continue;
-        // 头部 + 内容真实高度（scrollHeight 忽略 max-height）
+        // header + real content height (scrollHeight ignores max-height)
         if (inner.scrollHeight > 360) acc.classList.add("jg-acc-scroll");
         else acc.classList.remove("jg-acc-scroll");
     }
@@ -100,9 +102,9 @@ window.junigridJs.accMeasureScroll = function () {
     for (var j = 0; j < closed.length; j++) closed[j].classList.remove("jg-acc-scroll");
 };
 
-// v0.70.0：手风琴 GSAP 弹性动效（参考 easeReverse demo）——
-// 展开：箭头 elastic 旋转 + 面板 elastic 展开 + 行 back.out 交错入场；
-// 收起：power 系快速回缩（≈2.5x 退出速度），完成后按需测量滚动条。
+// v0.70.0: accordion GSAP elastic animation (based on the easeReverse demo) —
+// expand: arrow elastic rotation + panel elastic expansion + rows entering staggered via back.out;
+// collapse: quick power-family retraction (≈2.5x exit speed), then measure the scrollbar on demand when done.
 window.junigridJs = window.junigridJs || {};
 window.junigridJs.accAnimate = function (id, opening) {
     var acc = document.getElementById(id);
@@ -110,7 +112,7 @@ window.junigridJs.accAnimate = function (id, opening) {
     var inner = acc.querySelector(".jg-acc-inner");
     var arrow = acc.querySelector(".jg-acc-arrow");
     if (!inner) return;
-    if (typeof gsap === "undefined") {           // 无 GSAP 时退化为直接显隐
+    if (typeof gsap === "undefined") {           // without GSAP, degrade to instant show/hide
         inner.style.height = opening ? "" : "52px";
         if (window.junigridJs.accMeasureScroll) window.junigridJs.accMeasureScroll();
         return;
@@ -139,15 +141,17 @@ window.junigridJs.accAnimate = function (id, opening) {
         .to(inner, { height: 52, duration: 0.45, ease: "power3.out" }, 0);
     }
 };
-// ============ v1.1.3：任务时间线 —— 像素方块 → 对勾 变形（smooth-morph 风格）============
-// Blazor 重渲染会把「上一行」的像素网格直接换成对勾 SVG；这里用 MutationObserver
-// 抓住这一瞬间：先用一幅 3x3 像素残影盖住图标（Blazor 换下来的瞬间它还在视觉上），
-// 让残影像素向中心聚拢消散，同时新对勾以 back.out 弹出 + 描边画入 —— 观感即平滑形变。
+// ============ v1.1.3: task timeline — pixel square → checkmark morph (smooth-morph style) ============
+// A Blazor re-render swaps the previous row's pixel grid straight for the checkmark SVG; a
+// MutationObserver catches that exact moment: first cover the icon with a 3x3 pixel ghost
+// (still visually present at the instant Blazor swaps it), converge the ghost pixels toward
+// the center and fade them out while the new checkmark pops in via back.out + stroke draw-in
+// — the net effect is a smooth morph.
 window.junigridJs.taskTimelineWatch = function (panelSel) {
     var panel = document.querySelector(panelSel);
     if (!panel || panel.__tlWatch) return;
     panel.__tlWatch = true;
-    var hadGrid = new WeakMap();   // icon 元素 → 上一帧是像素方块
+    var hadGrid = new WeakMap();   // icon element → previous frame was a pixel square
 
     function scan() {
         panel.querySelectorAll('.jg-tl-icon').forEach(function (ic) {
@@ -165,7 +169,7 @@ window.junigridJs.taskTimelineWatch = function (panelSel) {
         if (!window.gsap) return;
         var row = icon.closest('.jg-tl-row');
         var color = (row && getComputedStyle(row).getPropertyValue('--c')) || '#1a9c5b';
-        // ① 像素残影：盖在图标正上方的完整 3x3 方块，向中心聚拢消散
+        // 1) pixel ghost: a full 3x3 block covering the icon, converging toward the center and fading out
         var ghost = document.createElement('div');
         ghost.className = 'jg-pxgrid';
         ghost.style.cssText = 'position:absolute;left:50%;top:50%;width:max-content;transform:translate(-50%,-50%);pointer-events:none;filter:drop-shadow(0 0 4px ' + color + ');';
@@ -183,7 +187,7 @@ window.junigridJs.taskTimelineWatch = function (panelSel) {
                 scale: 0, opacity: 0, duration: .3, ease: 'power2.in'
             }, i * 0.018);
         });
-        // ② 对勾弹出 + 描边画入（弧线先画、勾后画）
+        // 2) checkmark pop-in + stroke draw-in (arc drawn first, check drawn last)
         gsap.fromTo(check, { scale: .2, opacity: 0, rotation: -30 },
             { scale: 1, opacity: 1, rotation: 0, duration: .45, ease: 'back.out(2.4)', clearProps: 'transform,opacity' });
         var shapes = check.querySelectorAll('path');
@@ -200,12 +204,14 @@ window.junigridJs.taskTimelineWatch = function (panelSel) {
 };
 
 
-// ============ v1.1.2：下拉"点外部收回"全局兜底 ============
-// 遮罩(.jg-dd-overlay)在某些场景可能拦不到真实点击（悬停元素提升层级、命中时序等），
-// 这里在 document 上兜底：有打开的遮罩且点击落在所有下拉容器之外 → 主动点一下
-// 打开着的遮罩，走它自己的 @onclick（CloseSort/CloseProfile/CloseAllDd）收回。
-// 两类点击不干预：落在下拉容器（触发器+菜单）内的、落在遮罩自身的（后者已由
-// 遮罩自己的 @onclick 处理；跳过还可避免合成点击再进本监听的递归）。
+// ============ v1.1.2: global fallback for dropdown "click outside to close" ============
+// The overlay (.jg-dd-overlay) may fail to catch real clicks in some scenarios (hovered elements
+// raising their stacking order, hit-testing timing, etc.), so this adds a fallback on document:
+// when an overlay is open and the click lands outside every dropdown container → click the open
+// overlay ourselves, going through its own @onclick (CloseSort/CloseProfile/CloseAllDd) to close.
+// Two kinds of clicks are left alone: clicks inside a dropdown container (trigger + menu), and
+// clicks on the overlay itself (already handled by the overlay's own @onclick; skipping them also
+// avoids the synthetic click re-entering this listener recursively).
 (function () {
     if (window.__ddOutsideBound) return;
     window.__ddOutsideBound = true;
@@ -214,16 +220,19 @@ window.junigridJs.taskTimelineWatch = function (panelSel) {
         if (!openOvs.length) return;
         var t = e.target;
         if (!t || !t.closest) return;
-        if (t.closest('.jg-sort-dd, .jg-profile-dd')) return;   // 点在下拉自身内
-        if (t.closest('.jg-dd-overlay')) return;                // 点在遮罩上（它自己会收）
+        if (t.closest('.jg-sort-dd, .jg-profile-dd')) return;   // click inside the dropdown itself
+        if (t.closest('.jg-dd-overlay')) return;                // click on the overlay (it closes itself)
         openOvs.forEach(function (o) { o.click(); });
     });
 })();
 
-// ============ v1.1.2：返回顶部（左下角，丝滑滚动；Mod管理/Mod详情/Nexus 全系）============
-// v1.1.3：支持上下拖动改位 —— 默认位置会压住列表最后一个 mod 封面，按住可拖到任意高度。
-// 位置存 localStorage（记「距内容区底部的偏移」，窗口高度变化时按偏移重算并夹回屏内）。
-// 挪动距离 <5px 仍算点击，不触发滚动回顶；真拖动过则吞掉随后的 click。
+// ============ v1.1.2: back to top (bottom-left, smooth scroll; on Mod management / Mod detail / Nexus) ============
+// v1.1.3: supports vertical dragging to reposition — the default position covers the last mod cover
+// in the list, so press and drag it to any height.
+// The position is stored in localStorage (records the "offset from the bottom of the content area",
+// recomputed from that offset and clamped back on-screen when the window height changes).
+// Moving <5px still counts as a click and doesn't scroll back to top; a real drag swallows the
+// subsequent click.
 window.junigridJs.backTopInit = function () {
     var scroller = document.querySelector('.jg-main');
     var host = document.querySelector('.jg-content');
@@ -231,7 +240,7 @@ window.junigridJs.backTopInit = function () {
     if (!scroller || !btn || btn.__backTopBound) return;
     btn.__backTopBound = true;
     var POS_KEY = 'jg:backtop:bottom';
-    // 夹取后应用距底偏移（top:auto 保持 bottom 定位）
+    // clamp, then apply the bottom offset (top:auto keeps bottom positioning)
     function applyBottom(b) {
         var h = host || document.body;
         var minB = 8;
@@ -241,12 +250,12 @@ window.junigridJs.backTopInit = function () {
         btn.style.bottom = b + 'px';
         return b;
     }
-    // 恢复上次拖动后的位置
+    // restore the position after the last drag
     try {
         var saved = parseFloat(localStorage.getItem(POS_KEY));
         if (!isNaN(saved)) applyBottom(saved);
     } catch (e) { }
-    // 窗口高度变化 → 按存的偏移重夹一次，别让按钮悬在屏外
+    // window height changed → re-clamp from the stored offset so the button never hangs off-screen
     window.addEventListener('resize', function () {
         try {
             var v = parseFloat(localStorage.getItem(POS_KEY));
@@ -255,14 +264,14 @@ window.junigridJs.backTopInit = function () {
     });
     function update() {
         var p = location.pathname || '/';
-        // 只在 Mod 管理 / Mod 详情 / Nexus（含全部子视图）出现；且不在顶部才出现
+        // only on Mod management / Mod detail / Nexus (including all subviews); and only when not at the top
         var ok = p === '/mods' || p.indexOf('/mod/') === 0 || p.indexOf('/nexus') === 0;
         btn.classList.toggle('show', ok && scroller.scrollTop > 260);
     }
     scroller.addEventListener('scroll', update, { passive: true });
     window.junigridJs.backTopRefresh = update;
 
-    // ── 垂直拖动（pointer capture；CSS 里 .dragging 关过渡防跳变）──
+    // ── vertical drag (pointer capture; .dragging in CSS disables transitions to prevent jumps) ──
     var dragging = false, moved = false, startY = 0, startB = 0;
     btn.addEventListener('pointerdown', function (e) {
         if (e.button !== 0) return;
@@ -270,15 +279,15 @@ window.junigridJs.backTopInit = function () {
         startY = e.clientY;
         var r = btn.getBoundingClientRect();
         var hr = (host || document.body).getBoundingClientRect();
-        startB = hr.bottom - r.bottom;   // 按钮当前等效 bottom 偏移
+        startB = hr.bottom - r.bottom;   // the button's current equivalent bottom offset
         try { btn.setPointerCapture(e.pointerId); } catch (err) { }
     });
     btn.addEventListener('pointermove', function (e) {
         if (!dragging) return;
         var dy = e.clientY - startY;
-        if (!moved && Math.abs(dy) < 5) return;   // 微动不算拖，留给 click
+        if (!moved && Math.abs(dy) < 5) return;   // tiny movement isn't a drag, leave it for click
         if (!moved) { moved = true; btn.classList.add('dragging'); }
-        applyBottom(startB - dy);   // 上拖 dy<0 → bottom 增大
+        applyBottom(startB - dy);   // dragging up (dy<0) → bottom increases
         e.preventDefault();
     });
     function endDrag(e) {
@@ -286,9 +295,9 @@ window.junigridJs.backTopInit = function () {
         dragging = false;
         try { btn.releasePointerCapture(e.pointerId); } catch (err) { }
         if (!moved) return;
-        btn.__jgDragged = true;   // 吞掉松手后的合成 click，别误触发回顶
+        btn.__jgDragged = true;   // swallow the synthetic click on release so it doesn't accidentally trigger scroll-to-top
         try { localStorage.setItem(POS_KEY, String(parseFloat(btn.style.bottom) || 0)); } catch (err) { }
-        // 下一帧再去 dragging：同帧移除会立刻恢复过渡，transform 跳一下
+        // remove .dragging on the next frame: removing it in the same frame restores transitions immediately and the transform jumps
         requestAnimationFrame(function () { btn.classList.remove('dragging'); });
     }
     btn.addEventListener('pointerup', endDrag);
@@ -296,8 +305,8 @@ window.junigridJs.backTopInit = function () {
 
     btn.addEventListener('click', function () {
         if (btn.__jgDragged) { btn.__jgDragged = false; return; }
-        // GSAP 补间代理对象的 y → 每帧写回 scrollTop（丝滑滚到顶；
-        // GSAP 对 DOM 元素不能直接补间 scrollTop 这种非样式属性）
+        // tween a proxy object's y with GSAP → write it back to scrollTop every frame (smooth scroll
+        // to top; GSAP can't directly tween non-style properties like scrollTop on DOM elements)
         if (window.gsap) {
             var proxy = { y: scroller.scrollTop };
             gsap.to(proxy, {
@@ -312,6 +321,8 @@ window.junigridJs.backTopInit = function () {
 };
 
 
-// v0.71.1：等容器 scrollHeight 足够再设 scrollTop（图片未加载导致高度不够时不会被钳回顶部）
-// v0.71.6：抗双重干扰 —— ①更新检测把列表 display:none（骨架屏期 scrollHeight 塌成 0）
-// ②返回瞬间 playPageEnter 给 .jg-main 套了 transform 入场动画，transform 会让
+// v0.71.1: wait until the container's scrollHeight is big enough before setting scrollTop (won't be
+// clamped back to the top when unloaded images leave the height too small)
+// v0.71.6: guard against double interference — 1) update detection sets the list to display:none
+// (scrollHeight collapses to 0 during the skeleton phase)
+// 2) at the moment of going back, playPageEnter wraps .jg-main in a transform enter animation, and the transform will make

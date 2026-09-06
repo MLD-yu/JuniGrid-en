@@ -7,10 +7,10 @@ using System.Threading;
 namespace JuniGrid.Services;
 
 /// <summary>
-/// 全局下载/安装任务中心。Mods 直装、SMAPI 更新、nxm 接管都往这里报进度。
-/// UI 在右下角悬浮小图标 + /tasks 页看到当前所有任务和实时输出。
-/// v1.06.6：任务长存 —— 变更后防抖落盘（tasks.json），重启自动恢复，直到用户自己清理；
-/// 落盘时仍是 running 的任务（上次异常中断）恢复后标记为失败。
+/// Global download/install task center. Direct mod installs, SMAPI updates and nxm links all report progress here.
+/// The UI shows all current tasks and their live output on the floating bottom-right icon and the /tasks page.
+/// v1.06.6: tasks are long-lived — changes are debounced to disk (tasks.json), restored automatically on restart,
+/// and kept until the user clears them; tasks still "running" when saved (interrupted abnormally last time) are marked failed after restore.
 /// </summary>
 public sealed class TaskCenterService
 {
@@ -20,7 +20,8 @@ public sealed class TaskCenterService
     private readonly object _lock = new();
     private static readonly string PersistPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JuniGrid", "tasks.json");
-    // v1.1.2：构造时创建、只在 RequestSave 里触发 —— 之前懒初始化无锁，并发首调可能建出两个 Timer 泄漏一个
+    // v1.1.2: created in the constructor, fired only from RequestSave — the old lazy init was lock-free,
+    // so concurrent first calls could create two Timers and leak one
     private readonly Timer _saveTimer;
 
     public TaskCenterService()
@@ -38,37 +39,42 @@ public sealed class TaskCenterService
             if (list is null) return;
             foreach (var t in list)
             {
-                if (t.Status == "running") t.Status = "failed";   // 上次中断的下载不可能再继续
+                if (t.Status == "running") t.Status = "failed";   // a download interrupted last time cannot resume
                 Items.Add(t);
             }
         }
-        catch (Exception ex) { AppLog.Warn("TaskCenter", "任务恢复失败: " + ex.Message); }
+        catch (Exception ex) { AppLog.Warn("TaskCenter", "Failed to restore tasks: " + ex.Message); }
     }
 
-    /// <summary>进度回报非常频繁，落盘用 800ms 防抖：静默 800ms 后才真正写盘。</summary>
+    /// <summary>Progress reports are very frequent; persisting is debounced by 800ms: the disk is written only after 800ms of silence.</summary>
     private void RequestSave() => _saveTimer.Change(800, Timeout.Infinite);
 
     private void SaveNow()
     {
         try
         {
-            // v1.1.2：锁内序列化 —— 之前浅拷贝快照后锁外序列化，下载线程同时追加 t.Log
-            // 会撞出「集合已修改」把该次落盘整个丢掉；tasks.json 很小（≤几百 KB）且 800ms
-            // 防抖才写一次，锁内完成拷贝+写盘的代价可忽略
+            // v1.1.2: serialize inside the lock — previously the snapshot was shallow-copied under the lock but serialized
+            // outside it, while download threads appended to t.Log concurrently, hitting "collection was modified" and
+            // dropping that whole save; tasks.json is tiny (a few hundred KB at most) and written only once per 800ms
+            // debounce, so the cost of copying + writing under the lock is negligible
             lock (_lock)
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(PersistPath)!);
-                File.WriteAllText(PersistPath, JsonSerializer.Serialize(Items.ToList()));
-            }
+                AtomicFile.WriteAllText(PersistPath, JsonSerializer.Serialize(Items.ToList()));
         }
-        catch (Exception ex) { AppLog.Warn("TaskCenter", "任务落盘失败: " + ex.Message); }
+        catch (Exception ex) { AppLog.Warn("TaskCenter", "Failed to save tasks: " + ex.Message); }
     }
+
+    /// <summary>Thread-safe snapshot of the task list — UI rendering must use this and never enumerate Items directly
+    /// (download threads Insert/Remove at any time; enumerating on the render thread hits "collection was modified" and crashes the whole page).</summary>
+    public List<TaskItem> Snapshot() { lock (_lock) return Items.ToList(); }
+
+    /// <summary>Thread-safe copy of a single task's log (used to render the dropdown panel, avoiding races with background Report calls).</summary>
+    public List<string> CopyLog(TaskItem t) { lock (_lock) return t.Log.ToList(); }
 
     public TaskItem Start(string title, string? kind = null)
     {
         var t = new TaskItem { Id = Guid.NewGuid(), Title = title, Kind = kind ?? "download",
             StartedAt = DateTime.Now, Status = "running" };
-        // 插到列表头，让最新创建/下载的任务始终排在最上面（/tasks 页从上到下看）。
+        // Insert at the head of the list so the newest created/downloaded task always sits on top (the /tasks page reads top to bottom).
         lock (_lock) Items.Insert(0, t);
         OnChanged?.Invoke();
         RequestSave();
@@ -77,18 +83,25 @@ public sealed class TaskCenterService
 
     public void Report(TaskItem t, string line, double? percent = null, double? speedMBps = null)
     {
-        // v1.08.2：下载进度行（"正在下载… x MB / y MB"）属于高频重复心跳，
-        // 只覆盖日志里上一条同类行，不追加 —— 否则长下载轻松超 200 条上限，
-        // 把备份/解压等真正的过程日志从头挤掉。事件行（切镜像/续传/阶段切换）照常追加。
-        if (IsDownloadHeartbeat(line)
-            && t.Log.Count > 0 && IsDownloadHeartbeat(t.Log[t.Log.Count - 1]))
+        // v1.08.2: download progress lines ("Downloading… x MB / y MB") are high-frequency repeated heartbeats —
+        // they overwrite the previous heartbeat line in the log instead of being appended, otherwise a long download
+        // easily exceeds the 200-line cap and squeezes the real step logs (backup/extraction etc.) out from the top.
+        // Event lines (mirror switch/resume/phase change) are still appended.
+        // v1.1.6: reads and writes of t.Log are done under _lock — the save timer thread serializes all of Items
+        // (including every t.Log) inside the lock; an Add here outside the lock would hit "collection was modified"
+        // and silently drop that save.
+        lock (_lock)
         {
-            t.Log[t.Log.Count - 1] = $"[{DateTime.Now:HH:mm:ss}] {line}";
-        }
-        else
-        {
-            t.Log.Add($"[{DateTime.Now:HH:mm:ss}] {line}");
-            if (t.Log.Count > 200) t.Log.RemoveAt(0);
+            if (IsDownloadHeartbeat(line)
+                && t.Log.Count > 0 && IsDownloadHeartbeat(t.Log[t.Log.Count - 1]))
+            {
+                t.Log[t.Log.Count - 1] = $"[{DateTime.Now:HH:mm:ss}] {line}";
+            }
+            else
+            {
+                t.Log.Add($"[{DateTime.Now:HH:mm:ss}] {line}");
+                if (t.Log.Count > 200) t.Log.RemoveAt(0);
+            }
         }
         if (percent is not null) t.Percent = percent.Value;
         if (speedMBps is not null) t.SpeedMBps = speedMBps.Value;
@@ -97,12 +110,12 @@ public sealed class TaskCenterService
         RequestSave();
     }
 
-    /// <summary>带时间戳的日志行是否是下载心跳行（Report 写入时已加 "[HH:mm:ss] " 前缀）。</summary>
+    /// <summary>Whether a timestamped log line is a download heartbeat line (Report adds the "[HH:mm:ss] " prefix when writing).</summary>
     private static bool IsDownloadHeartbeat(string logLine)
     {
         var i = logLine.IndexOf("] ", StringComparison.Ordinal);
         var body = i >= 0 && logLine.StartsWith("[") ? logLine[(i + 2)..] : logLine;
-        return body.StartsWith("正在下载…", StringComparison.Ordinal);
+        return body.StartsWith("Downloading…", StringComparison.Ordinal);
     }
 
     public void Finish(TaskItem t, bool success, string? finalMsg = null)
@@ -110,7 +123,15 @@ public sealed class TaskCenterService
         t.Status = success ? "done" : "failed";
         t.Percent = success ? 100 : t.Percent;
         t.SpeedMBps = 0;
-        if (finalMsg is not null) { t.Log.Add($"[{DateTime.Now:HH:mm:ss}] {finalMsg}"); t.LastLine = finalMsg; }
+        if (finalMsg is not null)
+        {
+            lock (_lock)
+            {
+                t.Log.Add($"[{DateTime.Now:HH:mm:ss}] {finalMsg}");
+                if (t.Log.Count > 200) t.Log.RemoveAt(0);
+            }
+            t.LastLine = finalMsg;
+        }
         OnChanged?.Invoke();
         RequestSave();
     }
@@ -118,8 +139,9 @@ public sealed class TaskCenterService
     public void Remove(TaskItem t)
     {
         lock (_lock) Items.Remove(t);
-        // v1.1.3：移除 = 同步取消后台下载/安装 —— 之前只删条目，管线继续跑完，
-        // mod 照样出现在 Mod 管理页（下载一半移除还会"复活"）。
+        // v1.1.3: removing = cancelling the background download/install synchronously — previously only the entry was
+        // deleted and the pipeline kept running to the end, so the mod still showed up on the Mod Manager page
+        // (removing mid-download even "resurrected" it).
         try { t.Cts.Cancel(); } catch { }
         OnChanged?.Invoke();
         RequestSave();
@@ -136,7 +158,7 @@ public sealed class TaskCenterService
         RequestSave();
     }
 
-    /// <summary>v1.06.6：按条件清理（下载页「清理全部」= 清掉当前筛选下的所有任务）。</summary>
+    /// <summary>v1.06.6: clear by condition (the tasks page "Clear all" = remove every task matching the current filter).</summary>
     public void ClearMatching(Func<TaskItem, bool> match)
     {
         List<TaskItem>? killed = null;
@@ -149,7 +171,7 @@ public sealed class TaskCenterService
                     Items.RemoveAt(i);
                 }
         }
-        // v1.1.3：批量清理也取消还在跑的，避免"清了任务还继续装"
+        // v1.1.3: batch clear also cancels tasks still running, so a cleared task does not keep installing
         if (killed is not null)
             foreach (var k in killed) { try { k.Cts.Cancel(); } catch { } }
         OnChanged?.Invoke();
@@ -166,8 +188,8 @@ public sealed class TaskCenterService
                 var running = Items.Where(t => t.Status == "running").ToList();
                 if (running.Count > 0) return running.Average(t => t.Percent);
 
-                // 没有运行中任务但还有已完成/失败的记录时，仍显示最上面那个任务
-                // 的最终进度（成功时就是 100%），避免一完成总进度突然变 0。
+                // When nothing is running but finished/failed records remain, keep showing the top task's
+                // final percent (100 when it succeeded) so total progress does not suddenly drop to 0 on completion.
                 var top = Items.FirstOrDefault();
                 return top?.Percent ?? 0;
             }
@@ -188,11 +210,12 @@ public sealed class TaskItem
     public double Percent { get; set; }
     public double SpeedMBps { get; set; }
         public string? LastLine { get; set; }
-        // v1.06.7：必须有 setter —— 只读集合属性反序列化时不被填充，重启恢复的任务会丢光日志
+        // v1.06.7: a setter is required — a read-only collection property is not populated during deserialization,
+        // so tasks restored after a restart would lose all their logs
         public List<string> Log { get; set; } = new();
     public DateTime StartedAt { get; set; }
 
-    /// <summary>v1.1.3：任务取消源 —— 「移除/清理」时取消后台下载安装；不落盘。</summary>
+    /// <summary>v1.1.3: task cancellation source — cancels the background download/install on "Remove/Clear"; not persisted.</summary>
     [JsonIgnore]
     public CancellationTokenSource Cts { get; } = new();
 }

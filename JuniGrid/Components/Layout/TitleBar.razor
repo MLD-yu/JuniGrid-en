@@ -10,17 +10,17 @@
             <div class="jg-brand-text">
                 <span class="jg-brand-name">JuniGrid</span>
             </div>
-            @* v1.0.8：自更新按钮 —— 有新版本时显示在 logo + JuniGrid 右侧（无更新完全不渲染） *@
+            @* v1.0.8: self-update button — shown to the right of the logo + JuniGrid when a new version exists (not rendered at all when up to date) *@
             <SelfUpdateButton />
         </div>
     </div>
 
     <div class="jg-titlebar-actions">
-        @* ── v1.1.1：深浅主题开关（Element Plus 导航栏同款胶囊：浅色=太阳居左，
-             深色=月亮居右）。视觉完全由 html[data-theme] 驱动，Blazor 不需要持有状态；
-             点击走 junigridJs.toggleTheme 的 View Transitions 圆形揭示动画。 ── *@
+        @* ── v1.1.1: light/dark theme switch (same pill as the Element Plus navbar: light = sun on the left,
+             dark = moon on the right). Visuals are driven entirely by html[data-theme]; Blazor doesn't need to hold state;
+             clicking goes through junigridJs.toggleTheme's View Transitions circular reveal animation. ── *@
         <div class="jg-theme-wrap">
-            <button class="jg-theme-toggle" @onclick="ToggleThemeAsync" title="Toggle dark / light theme" aria-label="Toggle dark / light theme">                <span class="jg-tt-knob">
+            <button class="jg-theme-toggle" @onclick="ToggleThemeAsync" title="Switch dark / light theme" aria-label="Switch dark / light theme">                <span class="jg-tt-knob">
                     <svg class="jg-tt-sun" viewBox="0 0 1024 1024" aria-hidden="true">
                         <path fill="currentColor" d="M512 298.666667a170.666667 170.666667 0 1 0 0 341.333333 170.666667 170.666667 0 0 0 0-341.333333z m0 284.444444a113.777778 113.777778 0 1 1 0-227.555555 113.777778 113.777778 0 0 1 0 227.555555zM512 85.333333a28.444444 28.444444 0 0 1 28.444444 28.444445v56.888889a28.444444 28.444444 0 1 1-56.888888 0V113.777778a28.444444 28.444444 0 0 1 28.444444-28.444445z m0 739.555556a28.444444 28.444444 0 0 1 28.444444 28.444444v56.888889a28.444444 28.444444 0 1 1-56.888888 0v-56.888889a28.444444 28.444444 0 0 1 28.444444-28.444444zM85.333333 512a28.444444 28.444444 0 0 1 28.444445-28.444444h56.888889a28.444444 28.444444 0 1 1 0 56.888888H113.777778a28.444444 28.444444 0 0 1-28.444445-28.444444z m739.555556 0a28.444444 28.444444 0 0 1 28.444444-28.444444h56.888889a28.444444 28.444444 0 1 1 0 56.888888h-56.888889a28.444444 28.444444 0 0 1-28.444444-28.444444zM231.762946 231.762946a28.444444 28.444444 0 0 1 40.220445 0l40.220444 40.220445a28.444444 28.444444 0 1 1-40.220444 40.220444l-40.220445-40.220444a28.444444 28.444444 0 0 1 0-40.220445z m480.033219 480.033219a28.444444 28.444444 0 0 1 40.220444 0l40.220445 40.220444a28.444444 28.444444 0 1 1-40.220445 40.220445l-40.220444-40.220445a28.444444 28.444444 0 0 1 0-40.220444z m40.220444-480.033219a28.444444 28.444444 0 0 1 0 40.220445l-40.220444 40.220444a28.444444 28.444444 0 1 1-40.220444-40.220444l40.220444-40.220445a28.444444 28.444444 0 0 1 40.220444 0zM271.983391 711.796165a28.444444 28.444444 0 0 1 0 40.220444l-40.220445 40.220445a28.444444 28.444444 0 1 1-40.220444-40.220445l40.220444-40.220444a28.444444 28.444444 0 0 1 40.220445 0z"/>
                     </svg>
@@ -45,12 +45,12 @@
     {
         if (!firstRender) return;
         _selfRef = DotNetObjectReference.Create(this);
-        // 兜底：万一 junigridJs 还没就绪（脚本加载异常），首渲染的 Task 不能变成未观察异常
+        // Guard: if junigridJs isn't ready yet (script failed to load), the first-render Task must not become an unobserved exception
         try { await JS.InvokeVoidAsync("junigridJs.enableWindowDrag", _dragZone, _selfRef); }
         catch { }
 
-        // 跟踪窗口最大化状态：最大化时按钮图标换成「还原」形状（❐），并给 body
-        // 加 jg-max 类去掉 CSS 圆角（DWM 在最大化时圆角会消失）。
+        // Track the window maximized state: when maximized, the button icon switches to the "Restore" shape (❐), and body
+        // gets the jg-max class to remove the CSS rounded corners (DWM drops the rounding when maximized).
         var w = GetWindow();
         if (w is not null)
         {
@@ -59,9 +59,9 @@
             await SyncMaxClass();
         }
 
-        // v1.1.1：主题对账 —— 预置脚本已按 localStorage 打上 data-theme（防闪白的
-        // 同步快路径）；这里再用配置文件兜底对齐（localStorage 被 UWP 清理/换缓存
-        // 目录丢失时，配置文件里的选择仍生效），并让 WPF 窗口底色跟随主题。
+        // v1.1.1: theme reconciliation — the preset script has already set data-theme from localStorage (the
+        // synchronous fast path against flash-of-wrong-theme); here the config file is used as a fallback to realign (if localStorage
+        // is cleared by UWP or lost when the cache directory changes, the choice in the config file still applies), and the WPF window background follows the theme.
         var cfgTheme = string.IsNullOrWhiteSpace(Cfg.Current.Theme) ? "light" : Cfg.Current.Theme;
         var applied = "light";
         try { applied = await JS.InvokeAsync<string>("junigridJs.applyTheme", cfgTheme); }
@@ -85,12 +85,12 @@
         try
         {
             await JS.InvokeVoidAsync("junigridJs.setMaximized", _isMax);
-            await JS.InvokeVoidAsync("junigridJs.restored");   // 从最小化恢复时移除缩小淡出样式
+            await JS.InvokeVoidAsync("junigridJs.restored");   // remove the shrink fade-out style when restoring from minimize
         }
-        catch { /* JS 还没就绪时忽略 */ }
+        catch { /* ignored while JS isn't ready yet */ }
     }
 
-    // ---- 拖动窗口（JS mousedown → 这里；必须在左键按住时调用 DragMove）----
+    // ---- Window drag (JS mousedown → here; DragMove must be called while the left button is held) ----
     [JSInvokable]
     public void BeginDrag()
     {
@@ -104,21 +104,21 @@
         }
         catch (InvalidOperationException)
         {
-            // 鼠标已松开时 DragMove 会抛这个，正常忽略
+            // DragMove throws this when the mouse button is already released; ignore it as normal
         }
     }
 
     [JSInvokable]
     public void ToggleMaximize() => ToggleMax();
 
-    // ---- 窗口按钮 ----
+    // ---- Window buttons ----
     private async Task Minimize()
     {
         var w = GetWindow();
         if (w is null) return;
-        // 无边框窗口最小化：直接用 StaticMethod.ShowWindow(Win32) 强制最小化，
-        // 保证连同 WebView 子窗口一起从屏幕撤出，避免残留透明交互窗
-        // （最小化后原位置桌面点不动）。
+        // Minimizing a borderless window: use StaticMethod.ShowWindow (Win32) to force the minimize,
+        // making sure the WebView child window leaves the screen together with it, so no leftover transparent interactive window remains
+        // (after minimizing, the desktop at the original spot would otherwise be unclickable).
         try
         {
             await JS.InvokeVoidAsync("junigridJs.animateMinimize");
@@ -138,19 +138,19 @@
 
     private void Close() => GetWindow()?.Close();
 
-    // ---- v1.1.2：深浅主题切换（WPF 覆盖层圆形揭示，坐标取自点击位置）----
+    // ---- v1.1.2: light/dark theme switch (WPF overlay circular reveal, coordinates taken from the click position) ----
     private bool _switchingTheme;
 
     private async Task ToggleThemeAsync(Microsoft.AspNetCore.Components.Web.MouseEventArgs e)
     {
-        if (_switchingTheme) return;   // 揭示动画进行中忽略连点
+        if (_switchingTheme) return;   // ignore rapid clicks while the reveal animation is running
         _switchingTheme = true;
         try
         {
             var next = string.Equals(Cfg.Current.Theme, "dark", StringComparison.OrdinalIgnoreCase)
                 ? "light"
                 : "dark";
-            // 揭示动画在宿主侧：截旧主题页面 → 覆盖层挖圆洞 → JS 瞬时切主题
+            // The reveal animation lives on the host side: capture the old-theme page → cut a circular hole in the overlay → JS switches the theme instantly
             await MainWindow.RevealThemeSwitchAsync(
                 e.ClientX, e.ClientY, next,
                 async t => await JS.InvokeVoidAsync("junigridJs.applyTheme", t));

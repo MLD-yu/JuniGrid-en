@@ -1,9 +1,9 @@
 // ============================================================
-// Nexus 页：搜索岛、返回、DepthText 视差文字、Grainient WebGL 背景
+// Nexus page: search island, back navigation, DepthText parallax text, Grainient WebGL background
 // ============================================================
 
-// ─── v0.74.0：Nexus 搜索岛（GSAP easeReverse：back.out(2) 展开 / power2.out 收起）───
-// v1.06.2：恢复放大镜按钮（按钮紧跟 Nexus logo，点击输入框向右展开）；无按钮时退化为常驻展开模式。
+// ─── v0.74.0: Nexus search island (GSAP easeReverse: back.out(2) to expand / power2.out to collapse) ───
+// v1.06.2: restore the magnifier button (the button sits right after the Nexus logo; clicking the input expands it to the right); without a button, degrade to always-expanded mode.
 junigridJs.searchIslandInit = function (islandId, btnId, inputId) {
     var island = document.getElementById(islandId);
     if (!island || island.dataset.islandBound) return;
@@ -12,20 +12,20 @@ junigridJs.searchIslandInit = function (islandId, btnId, inputId) {
     var input = document.getElementById(inputId);
     var btn = document.getElementById(btnId);
     var isOpen = false;
-    // 无按钮（常驻展开模式）：只绑搜索历史显隐（bindHistory 为函数声明，提升可用）。
+    // No button (always-expanded mode): only bind the search history visibility (bindHistory is a function declaration, so hoisting makes it usable).
     if (!btn) { bindHistory(); return; }
 
-    if (typeof gsap === 'undefined') { // 无 GSAP 降级：class 切换
+    if (typeof gsap === 'undefined') { // no-GSAP fallback: class toggle
         btn.addEventListener('click', function () {
             isOpen = !isOpen;
-            if (!isOpen && input && input.value && input.value.trim().length > 0) { isOpen = true; return; } // v1.01.0：有内容不收起
+            if (!isOpen && input && input.value && input.value.trim().length > 0) { isOpen = true; return; } // v1.01.0: don't collapse when there is content
             island.classList.toggle('open', isOpen);
             if (isOpen && input) input.focus();
         });
         bindHistory();
         return;
     }
-    // easeReverse 需 GSAP 3.13+；低版本自动降级为对称缓动
+    // easeReverse requires GSAP 3.13+; older versions automatically fall back to symmetric easing
     var erOK = parseFloat(gsap.version || '0') >= 3.13;
     gsap.set(island, { width: 40 });
     gsap.set(field, { autoAlpha: 0, width: 0 });
@@ -36,24 +36,24 @@ junigridJs.searchIslandInit = function (islandId, btnId, inputId) {
     function hasContent() { return !!(input && input.value && input.value.trim().length > 0); }
     function toggle(force) {
         isOpen = (typeof force === 'boolean') ? force : !isOpen;
-        if (!isOpen && hasContent()) return; // v1.01.0：有内容时不允许关闭，避免误丢输入
+        if (!isOpen && hasContent()) return; // v1.01.0: don't allow closing while there is content, to avoid accidentally losing input
         btn.setAttribute('aria-expanded', isOpen);
         if (isOpen) {
             tl.timeScale(1).play();
             setTimeout(function () { if (input) input.focus(); }, 380);
         } else {
-            tl.timeScale(1.5).reverse(); // 收起稍快，跟手
+            tl.timeScale(1.5).reverse(); // collapse slightly faster so it feels snappy
         }
     }
     btn.addEventListener('click', function (e) { e.stopPropagation(); toggle(); });
     document.addEventListener('click', function (e) { if (isOpen && !island.contains(e.target)) toggle(false); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && isOpen) { toggle(false); btn.focus(); } });
-    bindHistory();   // v1.06.2：按钮模式的展开逻辑恢复后，历史面板绑定也要接回（v1.05.4 起只在无按钮路径调用）
+    bindHistory();   // v1.06.2: with button-mode expand logic restored, the history panel binding must be wired back in too (since v1.05.4 it was only called on the no-button path)
 
-    // ─── v1.05.1：搜索历史面板显隐 —— 完全由 JS 驱动。
-    // 实测：JS input.focus() 触发的 focus 事件到不了 Blazor（@onfocus 永不触发），
-    // 所以面板显隐不再走 C# 状态，改为 toggle 外层容器的 .history-open class。
-    // v1.05.4：抽出为 bindHistory()，无搜索按钮的常驻模式也要绑定。───
+    // ─── v1.05.1: search history panel visibility — driven entirely by JS.
+    // Tested: the focus event triggered by JS input.focus() never reaches Blazor (@onfocus never fires),
+    // so panel visibility no longer goes through C# state; instead we toggle the outer container's .history-open class.
+    // v1.05.4: extracted into bindHistory(); the always-expanded mode without a search button binds it too. ───
     function bindHistory() {
     var histWrap = island.closest('.jg-island-wrap');
     if (histWrap && !island.dataset.histBound) {
@@ -66,11 +66,11 @@ junigridJs.searchIslandInit = function (islandId, btnId, inputId) {
         input.addEventListener('click', showHist);
         input.addEventListener('blur', hideHistSoon);
         input.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideHist(); });
-        // 鼠标在面板内保持展开（focus 去了面板也不会闪关）
+        // keep it open while the mouse is over the panel (focus moving to the panel won't flash it closed)
         histWrap.addEventListener('mouseover', function (e) {
             if (e.target.closest && e.target.closest('.jg-search-history')) { if (hideTimer) clearTimeout(hideTimer); }
         });
-        // 点历史行 / 清空历史 → 执行完动作即收起（删除单条不收，方便连续删）
+        // clicking a history row / Clear history → collapse once the action runs (removing a single row doesn't collapse, so several can be deleted in a row)
         histWrap.addEventListener('click', function (e) {
             if (!e.target.closest) return;
             if (e.target.closest('.jg-search-history-row') || e.target.closest('.jg-search-history-clearall')) hideHist();
@@ -79,13 +79,13 @@ junigridJs.searchIslandInit = function (islandId, btnId, inputId) {
     } // bindHistory()
 };
 
-// v0.93.0：详情页返回 —— 回退到来源页（Blazor Router 监听 popstate 接管导航）
+// v0.93.0: back from the detail page — fall back to the origin page (the Blazor Router listens for popstate and takes over navigation)
 window.junigridJs.goBack = function () {
     if (window.history.length > 1) window.history.back();
     else window.location.href = "/mods";
 };
 
-// v0.93.0：DepthText 指针视差 + 空闲自动环绕（React Bits 原版逻辑的精简移植）
+// v0.93.0: DepthText pointer parallax + idle auto-orbit (slimmed-down port of the original React Bits logic)
 window.junigridJs.depthTextInit = function (el, tilt) {
     if (!el || el.__dtInit) return; el.__dtInit = true;
     var stage = el.querySelector(".depth-text__stage");
@@ -115,7 +115,7 @@ window.junigridJs.depthTextInit = function (el, tilt) {
     requestAnimationFrame(loop);
 };
 
-/* ─── v1.00.0：Grainient 背景（React Bits 移植，原生 WebGL2 实现，无 ogl 依赖）─── */
+/* ─── v1.00.0: Grainient background (ported from React Bits, native WebGL2 implementation, no ogl dependency) ─── */
 window.junigridJs = window.junigridJs || {};
 (function () {
     var VERT = "#version 300 es\nin vec2 position;\nvoid main() { gl_Position = vec4(position, 0.0, 1.0); }\n";
@@ -295,7 +295,7 @@ void main(){
         resize();
         var raf = 0, t0 = performance.now();
         function loop(t) {
-            if (!el.isConnected) { ro.disconnect(); states.delete(el); return; }  // 元素被 Blazor 移除 → 自清理
+            if (!el.isConnected) { ro.disconnect(); states.delete(el); return; }  // element removed by Blazor → clean itself up
             gl.uniform1f(U.iTime, (t - t0) * 0.001);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
             raf = requestAnimationFrame(loop);

@@ -1,5 +1,5 @@
 /* ============================================================
-   home：首页 Hero + 统计卡 / 日志配色 / 响应式断点 / SMAPI 置顶卡
+   home: home page Hero + stat cards / log colors / responsive breakpoints / SMAPI pinned card
    ============================================================ */
 /* -------- Hero + cards -------- */
 .jg-hero {
@@ -58,7 +58,7 @@
 }
 .jg-logtail { max-height: 160px; }
 .jg-logview { height: calc(100vh - 350px); min-height: 220px; margin: 0; border-radius: 8px 8px 0 0; }
-/* v1.07.0：SMAPI 命令胶囊输入 —— 发送键内嵌右侧；聚焦黑色描边（深色主题描边用近白） */
+/* v1.07.0: SMAPI command pill input - send button embedded on the right; black outline on focus (near-white outline in dark theme) */
 .jg-loginput {
     display: flex;
     padding: 8px 10px;
@@ -79,7 +79,7 @@
 .jg-cmdcaps:focus-within { border-color: var(--jg-outline); box-shadow: 0 0 0 1px var(--jg-line-heavy); }
 .jg-cmdcaps input {
     flex: 1;
-    min-width: 0;   /* 到发送键处文字开始滚动隐藏，而不是把胶囊顶宽 */
+    min-width: 0;   /* text starts scrolling/clipping at the send button instead of stretching the pill wider */
     font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
     font-size: 12px;
     color: inherit;
@@ -105,7 +105,7 @@
 .jg-cmdsend:hover:not(:disabled) { background: var(--jg-ink-hover); transform: translateY(-1px); }
 .jg-cmdsend:disabled { opacity: .45; cursor: not-allowed; }
 
-/* 日志框底部状态条（行数统计） */
+/* Status bar at the bottom of the log box (line count) */
 .jg-logfooter {
     padding: 6px 12px;
     font-size: 12px;
@@ -115,7 +115,7 @@
 }
 
 .jg-logline { white-space: pre-wrap; word-break: break-all; }
-/* v1.08.0：日志行内链接 —— 点击由 C# 用系统浏览器打开（WebView 内不导航） */
+/* v1.08.0: in-log links - clicks are opened in the system browser by C# (no navigation inside the WebView) */
 .jg-logline a {
     color: inherit;
     text-decoration: underline;
@@ -130,10 +130,10 @@
 .jg-logline.trace { color: var(--jg-text-3); }
 .jg-logline.sys   { color: #107c10; }
 
-/* v1.07.0：日志页右侧分类图例已删（错误/诊断/可更新/信息/警告） */
+/* v1.07.0: the right-side category legend was removed from the log page (Error/Diagnostics/Updatable/Info/Warning) */
 
-/* -------- Responsive: 全站断点体系 -------- */
-/* 窄窗口：缩紧一切 */
+/* -------- Responsive: site-wide breakpoint system -------- */
+/* Narrow window: tighten everything */
 @media (max-width: 980px) {
     .jg-account { width: 200px; padding: 14px 12px; }
     .jg-avatar-fallback { font-size: 30px; }
@@ -150,7 +150,7 @@
     .jg-grid-4 { grid-template-columns: 1fr; }
     .jg-account { width: 160px; padding: 10px 8px; }
 }
-/* 大屏：字号、间距同步放大，避免"放大后跟没放大一样" */
+/* Large screens: scale up font sizes and spacing together, avoiding "scaled up yet looking no different" */
 @media (min-width: 1400px) {
     .jg-account-name { font-size: 16px; }
     .jg-launch-big { font-size: 16px; padding: 14px 16px; }
@@ -190,27 +190,29 @@
 .jg-mod-updmsg.premium   { color: #d97b00; }
 
 
-/* ── v1.1.5：游玩时长热力图（GitHub contributions 风格，黑灰色阶）── */
+/* ── v1.1.5: playtime heatmap (GitHub contributions style, black-gray scale) ── */
 .jg-heat-card { margin-top: 16px; padding: 18px 20px 14px; }
 .jg-heat-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
 .jg-heat-title { font-size: 14.5px; font-weight: 600; color: var(--jg-text); }
-/* v1.1.6：年份选择改为通用下拉（.jg-sort-dd 结构复用，动画走 dropdownToggle）；
-   11 个年份超一屏高，菜单内部滚动 */
+/* v1.1.6: year selection changed to the generic dropdown (reuses the .jg-sort-dd structure, animation via dropdownToggle);
+   11 years exceed one screen height, so the menu scrolls internally */
 .jg-heat-yeardd .jg-sort-menu { max-height: 320px; overflow-y: auto; min-width: 120px; }
-/* 响应式：以卡片内容宽度为容器，格子宽度 = (可用宽 - 固定开销194px[星期列26+边缘间隙6+53个列间隙159]) / 53 周，
-   无上限 —— 任意窗口宽度都精确铺满不留右侧空白；下限 5px，再小才出横向滚动 */
+/* Responsive: the card content width is the container; cell width = (available width - fixed overhead of 194px
+   [weekday column 26 + edge gap 6 + 53 column gaps 159]) / 53 weeks, with no upper bound - it fills exactly at
+   any window width with no blank space on the right; lower bound 5px, below that a horizontal scrollbar appears */
 .jg-heat-scroll { container-type: inline-size; overflow-x: auto; padding-bottom: 4px; }
 .jg-heat-grid { border-spacing: 3px; border-collapse: separate; }
 .jg-heat-grid th { padding: 0 0 2px; font-size: 11px; font-weight: 400; color: var(--jg-text-3); text-align: left; white-space: nowrap; }
 .jg-heat-grid th.jg-heat-wday { width: 26px; }
-/* 月份标签：th 本体 0 宽不参与列宽分配，但保留 15px 行高让标签独占一条带，
-   文字绝对定位贴行底 —— 既不撑宽列、也不压到下面的格子 */
+/* Month labels: the th itself is 0-width and takes no part in column sizing, but keeps a 15px row height so the
+   label gets its own band; the text is absolutely positioned at the row bottom - it neither widens the column
+   nor overlaps the cells below */
 .jg-heat-grid th.jg-heat-month { position: relative; width: 0; font-size: 0; padding: 0; height: 15px; vertical-align: bottom; }
 .jg-heat-month span { position: absolute; left: 0; bottom: 0; font-size: 11px; font-weight: 400; color: var(--jg-text-3); white-space: nowrap; }
 .jg-heat-grid td { padding: 0; }
-/* v1.1.6：格子只读展示（手动改时长的入口已删，只信系统统计），不再有手型/放大反馈 */
+/* v1.1.6: cells are read-only display (the manual duration editing entry was removed, only system stats are trusted); no more pointer/scale feedback */
 .jg-heat-cell { display: block; width: max(5px, calc((100cqw - 194px) / 53)); height: auto; aspect-ratio: 1; border-radius: 2.5px; background: var(--jg-track); outline: 1px solid var(--jg-line); outline-offset: -1px; transition: transform 120ms ease; }
-/* v1.1.7：hover 轻微放大 —— 纯静态格子配悬停提示太「死」，给个缩放反馈 */
+/* v1.1.7: slight scale-up on hover - fully static cells with a tooltip feel too "dead", so give a scale feedback */
 .jg-heat-cell:hover { transform: scale(1.35); }
 .jg-heat-cell.l1 { background: #c4c4c4; }
 .jg-heat-cell.l2 { background: #8c8c8c; }
@@ -218,6 +220,8 @@
 .jg-heat-cell.l4 { background: #000; }
 .jg-heat-cell.empty { background: transparent; outline: none; }
 .jg-heat-cell.future { opacity: .45; }
-.jg-heat-foot { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; color: var(--jg-text-3); margin-top: 8px; flex-wrap: wrap; gap: 6px; }
+.jg-heat-foot { display: flex; justify-content: flex-end; align-items: center; font-size: 11.5px; color: var(--jg-text-3); margin-top: 8px; flex-wrap: wrap; gap: 6px; }
 .jg-heat-legend { display: flex; align-items: center; gap: 3px; }
-.jg-heat-legend .jg-heat-cell { cursor: default; transform: none; width: 11px; height: 11px; aspect-ratio: auto; }
+/* v1.1.6: legend swatches scale up on hover (easing with a bounce); the data-tip pill tooltip is handled by global delegation */
+.jg-heat-legend .jg-heat-cell { cursor: default; transform: none; width: 11px; height: 11px; aspect-ratio: auto; transition: transform 160ms cubic-bezier(.34,1.56,.64,1); }
+.jg-heat-legend .jg-heat-cell:hover { transform: scale(1.4); }

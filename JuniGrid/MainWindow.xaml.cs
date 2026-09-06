@@ -35,10 +35,10 @@ public partial class MainWindow : Window
             var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot", "index.html");
             Log($"wwwroot/index.html exists? {File.Exists(wwwrootPath)} @ {wwwrootPath}");
 
-            // v0.2.2：配置最早加载 —— 缓存位置（含 WebView2 目录）由它决定
+            // v0.2.2: config loads earliest — the cache locations (including the WebView2 folder) depend on it
             var configService = new ConfigService();
 
-            // v0.2.2：上次更改缓存目录时 WebView2 正被占用无法搬 → 趁 WebView2 还没初始化，先执行遗留迁移
+            // v0.2.2: last time the cache directory changed, WebView2 was busy and could not be moved -> while WebView2 is not yet initialized, run the pending legacy migration first
             var wv2Use = StoragePaths.WebView2Dir;
             var wv2From = configService.Current.PendingWebView2MoveFrom;
             if (!string.IsNullOrWhiteSpace(wv2From) && Directory.Exists(wv2From))
@@ -54,33 +54,34 @@ public partial class MainWindow : Window
                         Directory.CreateDirectory(Path.GetDirectoryName(wv2Use)!);
                         if (Services.StorageService.TryMoveTree(wv2From, wv2Use))
                         {
-                            Log($"WebView2 数据已迁移到 {wv2Use}");
+                            Log($"WebView2 data migrated to {wv2Use}");
                             configService.Current.PendingWebView2MoveFrom = null;
                         }
                         else
                         {
-                            wv2Use = wv2From;   // 部分文件占用 → 本会话继续用旧目录，下次启动再试
-                            Log("WebView2 数据迁移不完整（部分文件被占用），本会话继续使用 " + wv2From);
+                            wv2Use = wv2From;   // some files are in use -> keep the old directory for this session and retry on next start
+                            Log("WebView2 data migration incomplete (some files are in use); continuing with " + wv2From + " for this session");
                         }
                     }
                     catch (Exception ex)
                     {
                         wv2Use = wv2From;
-                        Log("WebView2 数据迁移失败: " + ex.Message + "（本会话继续使用 " + wv2From + "）");
+                        Log("WebView2 data migration failed: " + ex.Message + " (continuing with " + wv2From + " for this session)");
                     }
                 }
             }
             else if (!string.IsNullOrWhiteSpace(wv2From))
             {
-                configService.Current.PendingWebView2MoveFrom = null;   // 原目录已不存在
+                configService.Current.PendingWebView2MoveFrom = null;   // the original directory no longer exists
             }
             if (configService.Current.PendingWebView2MoveFrom is null && wv2From is not null)
             {
                 configService.Save(configService.Current);
             }
 
-            // v0.2.2：可迁移项默认位置统一挪到 %TEMP%\JuniGrid —— 未设置缓存目录时，
-            // 把旧默认位置（LocalAppData）的既有数据一次性搬过去（WebView2 必须在初始化前搬完）
+            // v0.2.2: movable items' default locations all moved to %TEMP%\JuniGrid — when no
+            // cache directory is set, move existing data from the old default location
+            // (LocalAppData) over in one go (WebView2 must finish moving before initialization)
             if (StoragePaths.CacheRoot is null)
             {
                 var legacyPairs = new (string From, string To)[]
@@ -96,19 +97,19 @@ public partial class MainWindow : Window
                         if (!Directory.Exists(from) || Directory.Exists(to)) continue;
                         Directory.CreateDirectory(Path.GetDirectoryName(to)!);
                         if (Services.StorageService.TryMoveTree(from, to))
-                            Log($"旧默认缓存已迁移到 {to}");
+                            Log($"Legacy default cache migrated to {to}");
                         else
-                            Log($"旧默认缓存迁移不完整（部分文件被占用），留在原处可稍后清理: {from}");
+                            Log($"Legacy default cache migration incomplete (some files are in use); left in place for later cleanup: {from}");
                     }
-                    catch (Exception ex) { Log("旧默认缓存迁移失败: " + ex.Message); }
+                    catch (Exception ex) { Log("Legacy default cache migration failed: " + ex.Message); }
                 }
             }
 
             // Isolate the Blazor WebView2 user-data folder.
-            // 注意：不要再 pin WEBVIEW2_BROWSER_EXECUTABLE_FOLDER ——
-            // WebView2 运行时自动更新后旧版本目录会被删除，固定路径会变成
-            // 无效目录，导致初始化直接报 0x8007139F（状态错误）。交给系统
-            // 自动定位运行时即可。
+            // Note: do not pin WEBVIEW2_BROWSER_EXECUTABLE_FOLDER again —
+            // after the WebView2 runtime auto-updates, the old version folder gets deleted, so a
+            // pinned path becomes an invalid directory and initialization fails outright with
+            // 0x8007139F (status error). Just let the system locate the runtime automatically.
             Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", wv2Use);
 
             var services = new ServiceCollection();
@@ -117,7 +118,7 @@ public partial class MainWindow : Window
             services.AddBlazorWebViewDeveloperTools();
 #endif
             services.AddFluentUIComponents();
-            services.AddSingleton(configService);   // v0.2.2：最早加载的那个实例直接注册，避免二次实例化
+            services.AddSingleton(configService);   // v0.2.2: register the earliest-loaded instance directly to avoid a second instantiation
             services.AddSingleton<GameService>();
             services.AddSingleton<ModService>();
             services.AddSingleton<LauncherService>();
@@ -129,42 +130,44 @@ public partial class MainWindow : Window
             services.AddSingleton<TaskCenterService>();
             services.AddSingleton<InstallService>();
             services.AddSingleton<NexusSsoService>();
-            // v0.2.1：缓存与存储管理 + 内存管理
+            // v0.2.1: cache and storage management + memory management
             services.AddSingleton<StorageService>();
             services.AddSingleton<MemoryService>();
-            // v1.0.2：应用自更新检查
+            // v1.0.2: app self-update check
             services.AddSingleton<SelfUpdateService>();
-            // v1.08：Nexus 封面/图片本地缓存（国内 CDN 直连极慢）
+            // v1.08: local cache for Nexus covers/images (direct CDN connections from China are extremely slow)
             services.AddSingleton<CoverCacheService>();
-            // v1.1.5：每日游玩时长统计（首页 GitHub 式热力图数据源）
+            // v1.1.5: daily playtime statistics (data source for the GitHub-style heatmap on the home page)
             services.AddSingleton<PlayTimeService>();
             var provider = services.BuildServiceProvider();
             Resources.Add("services", provider);
             App.Services = provider;
             Log("DI configured");
 
-            // 游戏在运行但不是本程序启动的（如 JuniGrid 重启）→ 接上现有 SMAPI 日志
+            // The game is running but was not started by this app (e.g. a JuniGrid restart) -> attach to the existing SMAPI log
             provider.GetRequiredService<LauncherService>().AttachIfGameRunning();
 
-            // v0.2.1：内存管理后台循环随启动常驻 —— 定时/阈值自动压缩不依赖设置页是否打开过
+            // v0.2.1: the memory management background loop runs from startup — scheduled/threshold auto-trim does not depend on the settings page having been opened
             _ = provider.GetRequiredService<MemoryService>();
 
-            // v1.1.5：游玩时长统计循环随启动常驻 —— 不管首页开不开都在累计
+            // v1.1.5: the playtime statistics loop runs from startup — it accumulates whether or not the home page is open
             _ = provider.GetRequiredService<PlayTimeService>();
 
-            // v1.0.2：启动后台检查一次应用新版本（不阻塞 UI，失败静默）
+            // v1.0.2: check once in the background at startup for a new app version (does not block the UI; fails silently)
             provider.GetRequiredService<SelfUpdateService>().StartBackgroundCheck();
 
             InitializeComponent();
-            // v1.1.2b：最小尺寸完全由 WM_GETMINMAXINFO hook 按【物理像素】1536×864 强制
-            //（用户设计规定值；hook 内坐标即物理像素，直接生效）。
-            // 必须放在 InitializeComponent 之后 —— XAML 里的 MinWidth/MinHeight(1536/864 DIP)
-            // 会在高 DPI 下换算成更大的物理值把窗口二次拉大，覆盖这里清零前的设置。
-            // WPF 属性清零让位给 hook，拖拽下限 = 1536×864PX 精确不放大。
+            // v1.1.2b: the drag minimum size is enforced entirely by the WM_GETMINMAXINFO hook
+            // (computed from the current monitor's work area ratio since v1.1.8, see
+            // WndProcClampMaximized).
+            // Must come after InitializeComponent — the XAML MinWidth/MinHeight (1100/650 DIP)
+            // converts to larger physical values at high DPI, resizing the window again and
+            // overriding the settings zeroed here.
+            // Zeroing the WPF properties yields to the hook.
             MinWidth = 0;
             MinHeight = 0;
-        // v0.35.0：吞掉 "no browser renderer with ID" 未观察异常（页面切换时残留的 JS 调用打到已销毁 renderer）
-        // v0.43.0：全项目未处理异常 / 未观察任务异常统一写入 juni-grid.log
+        // v0.35.0: swallow the "no browser renderer with ID" unobserved exception (leftover JS calls from page switches hitting a destroyed renderer)
+        // v0.43.0: project-wide unhandled exceptions / unobserved task exceptions are all written to juni-grid.log
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             Services.AppLog.Error("AppDomain", e.ExceptionObject?.ToString() ?? "unknown");
         TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -179,15 +182,17 @@ public partial class MainWindow : Window
 
             Log("InitializeComponent done");
 
-            // v0.19.0：监听前端 postMessage('ui-ready')，通知 App 层去淡出 Splash + 滑入主窗
+            // v0.19.0: listen for the frontend postMessage('ui-ready') so the App layer can fade out the Splash and slide in the main window
             blazorWebView.BlazorWebViewInitialized += (_, args) =>
             {
                 try
                 {
-                    _wv2 = args.WebView;   // v0.2.1：留存引用，最小化时挂起 WebView2 省内存
-                    // 未渲染帧的兜底色默认是白色：最小化恢复/可见性切换的瞬间会先闪白再出
-                    // 内容（浅色主题下是"白→内容"跳变）。设为 shell 主题色后，
-                    // 任何"还没内容"的帧都是界面本来的浅色，恢复全程无色跳。
+                    _wv2 = args.WebView;   // v0.2.1: keep the reference to suspend WebView2 on minimize and save memory
+                    // The fallback color for unrendered frames defaults to white: at the moment of
+                    // restore from minimize / visibility switches it would flash white before content
+                    // appears (a "white -> content" jump in the light theme). After setting it to the
+                    // shell theme color, every "no content yet" frame already looks like the light UI,
+                    // with no color jump during the whole restore.
                     args.WebView.DefaultBackgroundColor =
                         System.Drawing.Color.FromArgb(0xFF, 0xF3, 0xF6, 0xFB);
                     args.WebView.CoreWebView2.WebMessageReceived += (_, e) =>
@@ -199,51 +204,61 @@ public partial class MainWindow : Window
                         }
                         catch { }
                     };
-                    // v1.0.9：WebView2 子进程崩溃自愈 —— 渲染进程挂掉时 Reload 重启它，
-                    // 浏览器进程挂掉时记录日志（此时只能整窗重建，先保证不无声死掉）
+                    // v1.0.9: WebView2 child-process crash self-healing — when the render process
+                    // dies, Reload restarts it; when the browser process dies, log it (only a full
+                    // window rebuild can recover then; at minimum do not die silently)
                     args.WebView.CoreWebView2.ProcessFailed += (_, pf) =>
                     {
                         try
                         {
-                            Log($"WebView2 进程失败: kind={pf.ProcessFailedKind}, exitCode={pf.ExitCode}, reason={pf.FailureSourceModulePath}");
+                            Log($"WebView2 process failure: kind={pf.ProcessFailedKind}, exitCode={pf.ExitCode}, reason={pf.FailureSourceModulePath}");
                             if (pf.ProcessFailedKind == CoreWebView2ProcessFailedKind.RenderProcessUnresponsive
                                 || pf.ProcessFailedKind == CoreWebView2ProcessFailedKind.RenderProcessExited)
                             {
                                 Dispatcher.BeginInvoke(() =>
                                 {
-                                    try { args.WebView.CoreWebView2.Reload(); Log("WebView2 渲染进程已 Reload 恢复"); }
-                                    catch (Exception rex) { Log("Reload 恢复失败: " + rex.Message); }
+                                    try { args.WebView.CoreWebView2.Reload(); Log("WebView2 render process recovered via Reload"); }
+                                    catch (Exception rex) { Log("Reload recovery failed: " + rex.Message); }
                                 });
                             }
                         }
-                        catch (Exception pex) { Log("ProcessFailed 处理异常: " + pex.Message); }
+                        catch (Exception pex) { Log("Exception in the ProcessFailed handler: " + pex.Message); }
                     };
                 }
                 catch (Exception ex) { Log("WebMessageReceived hook failed: " + ex.Message); }
             };
 
-            // 主窗的出场由 SplashWindow 统一接管，这里不再做 Opacity 淡入淡出。
-            // 之前 Loaded 里 Opacity=0+淡入，会被某种第二次 Loaded/切换再次置 0，
-            // 导致主窗虽 Visible 却全透明——表现为“主界面不出现、进程却活着”。
-            // 去掉那段淡入：主窗默认全不透明显示。
+            // The main window's entrance is handled entirely by SplashWindow; no Opacity fade
+            // in/out here anymore.
+            // The earlier Opacity=0+fade-in in Loaded got reset to 0 again by some second
+            // Loaded/switch, leaving the main window Visible but fully transparent — appearing
+            // as "the main UI never shows up while the process is alive".
+            // That fade-in was removed: the main window shows fully opaque by default.
 
-            // 无边框窗口最小化的"影残"修复
-            // 最小化到任务栏后，WPF 主窗口虽已收起，但无边框窗口 + WebView2 的
-            // 渲染宿主窗口（独立的 Chrome_Widget HWND）不一定会跟着一并从屏幕撤下，
-            // 会在桌面层残留一个"不可见的可命中窗口"，把鼠标点击吃掉
-            // （现象：最小化后只有桌面/桌面图标点不动，应用/开始/任务栏正常）。
-            // 这里在进入 Minimized 时强制把 WebView2 宿主隐藏（不再驻留屏幕），
-            // 还原时再恢复可见，杜绝该残留命中区。
+            // Fix for the "leftover ghost" of minimized borderless windows
+            // After minimizing to the taskbar, although the WPF main window has retracted, the
+            // borderless window + WebView2 render host window (an independent Chrome_Widget HWND)
+            // does not necessarily get withdrawn from the screen along with it, leaving an
+            // "invisible hit-testable window" at the desktop level that eats mouse clicks
+            // (symptom: after minimizing, only the desktop/desktop icons are unclickable while
+            // apps/Start/taskbar work fine).
+            // Here, when entering Minimized, the WebView2 host is forcibly hidden (no longer
+            // lingering on screen) and made visible again on restore, eliminating that leftover
+            // hit-test region.
             //
-            // 恢复闪烁修复（v1.0.9）：此前恢复时 WebView 要延迟 60ms 才显示，
-            // 期间露出窗口底色；WebView2 又被 TrySuspendAsync 挂起，Resume 后
-            // 渲染器要几百毫秒才产出新帧，未渲染帧按默认白色呈现 ——
-            // 黑一闪 → 白一闪 → 内容，就是"一闪一闪"。现在：
-            // ① 窗口底色与 WebView2 DefaultBackgroundColor 都 = 浅色主题色；
-            // ② 恢复时立即显示 WebView（不再等待）；
-            // ③ 只用 MemoryUsageTargetLevel Low/Normal 省内存（官方文档明确
-            //    不许与 TrySuspendAsync/Resume 混用），不中断帧呈现 ——
-            //    恢复瞬间直接重现最小化前的最后一帧，全程无色跳。
+            // Restore flicker fix (v1.0.9): previously the WebView was delayed 60ms before showing
+            // on restore, exposing the window background meanwhile; WebView2 was also suspended
+            // with TrySuspendAsync, and after Resume the renderer needed hundreds of milliseconds
+            // to produce a new frame while unrendered frames show in the default white —
+            // a black flash, then a white flash, then content: "flicker, flicker". Now:
+            // (1) the window background and WebView2 DefaultBackgroundColor both equal the light
+            //     theme color;
+            // (2) the WebView shows immediately on restore (no more waiting);
+            // (3) only MemoryUsageTargetLevel Low/Normal is used to save memory (the official
+            //     docs explicitly forbid mixing it with TrySuspendAsync/Resume), without
+            //     interrupting frame rendering —
+            //     the restore instantly re-shows the last frame from before minimizing, with no
+            //     color jump throughout.
             StateChanged += (_, e2) =>
             {
                 var isMin = WindowState == System.Windows.WindowState.Minimized;
@@ -252,7 +267,7 @@ public partial class MainWindow : Window
                     var target = isMin ? Visibility.Collapsed : Visibility.Visible;
                     if (blazorWebView.Visibility == target) return;
                     try { blazorWebView.Visibility = target; }
-                    catch (Exception ex) { Log("WebView 可见性同步异常: " + ex.Message); }
+                    catch (Exception ex) { Log("WebView visibility sync exception: " + ex.Message); }
                     if (isMin)
                         _ = EnterLowMemoryModeAsync();
                     else
@@ -260,7 +275,7 @@ public partial class MainWindow : Window
                 });
             };
 
-            // ---- 关闭淡出（打开淡入移除，避免 Opacity=0 让主窗透明不可见） ----
+            // ---- Close fade-out (the open fade-in was removed; Opacity=0 left the main window invisibly transparent) ----
             Closing += (_, e) =>
             {
                 if (_closing) return;
@@ -276,7 +291,7 @@ public partial class MainWindow : Window
                 BeginAnimation(OpacityProperty, fadeOut);
             };
 
-            // 如果这次启动本身就是被 nxm:// 链接拉起的，现在 DI 好了，交给安装服务
+            // If this launch itself was triggered by an nxm:// link, DI is ready now — hand it to the install service
             if (App.PendingNxmLink is { } pending)
             {
                 App.PendingNxmLink = null;
@@ -286,17 +301,17 @@ public partial class MainWindow : Window
             if (!File.Exists(wwwrootPath))
             {
                 System.Windows.MessageBox.Show(
-                    $"关键文件缺失！\n\nwwwroot/index.html 没有被打包到:\n{wwwrootPath}\n\n" +
-                    "这就是白屏的原因。请检查 csproj 是否正确包含 wwwroot 文件夹。",
-                    "JuniGrid 诊断", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    $"Required file is missing!\n\nwwwroot/index.html was not packaged into:\n{wwwrootPath}\n\n" +
+                    "This is what causes the white screen. Please check that the csproj correctly includes the wwwroot folder.",
+                    "JuniGrid Diagnostics", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         catch (Exception ex)
         {
             Log($"CRASH: {ex}");
             System.Windows.MessageBox.Show(
-                $"JuniGrid 初始化失败\n\n{ex.Message}\n\n完整日志: {LogPath}",
-                "启动错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                $"JuniGrid failed to initialize\n\n{ex.Message}\n\nFull log: {LogPath}",
+                "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
             throw;
         }
     }
@@ -308,11 +323,12 @@ public partial class MainWindow : Window
     private static extern int DwmSetWindowAttribute(
         IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-    // Win32 窗口状态命令（对无边框窗口最小化/还原最可靠）。
-    // 无边框（WindowStyle=None + CaptionHeight=0）时 WindowState.Minimized
-    // 在部分系统上不会真正把窗口从屏幕撤掉，会残留一个透明交互窗口，
-    // 把下面的桌面鼠标点拦截（最小化后原区域点不动）。用 ShowWindow
-    // 强制系统级最小化/还原，会连同 WebView 子窗口一起正确处理。
+    // Win32 window state commands (most reliable for minimizing/restoring borderless windows).
+    // When borderless (WindowStyle=None + CaptionHeight=0), WindowState.Minimized
+    // does not truly withdraw the window from the screen on some systems, leaving a
+    // transparent interactive window behind that intercepts mouse clicks on the desktop
+    // below (the original area is unclickable after minimizing). ShowWindow forces a
+    // system-level minimize/restore, which correctly handles the WebView child windows too.
     private const int SW_MINIMIZE = 6;
     private const int SW_RESTORE = 9;
     private const int SW_SHOW = 5;
@@ -331,38 +347,131 @@ public partial class MainWindow : Window
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
         Log("DWM rounded corners applied");
 
-        // 无边框窗口最大化时会超出工作区（约 8px，被系统裁掉），
-        // 导致 WebView 底部内容（滚动到底的那几行）被切、滚不完全。
-        // 拦截 WM_GETMINMAXINFO，把最大尺寸/位置限制在系统工作区（避开任务栏）。
+        // v1.1.5: default startup size = 77.1% × 72.7% of the current monitor (responsive).
+        // On a 2560×1600 screen that is 1974×1163 physical pixels; DIP values are converted
+        // by DPI scaling, automatically adapting to other users' wildly varying monitors and
+        // scale factors. The 1600×1000 in XAML is only a fallback.
+        // v1.1.8: once the size is computed, derive the centering coordinates on the same
+        // monitor [and store them] — the window is still mounted off-screen (-32000) at this
+        // point and must not be moved back yet, otherwise the main window would appear before
+        // the Splash finishes; RevealAtStartupPosition applies it at reveal time. The old flow
+        // pre-computed the position in App.RevealMain from the creation-time XAML size
+        // (1600×1000); when the size later changed, the position was not recomputed -> opened
+        // off-center.
+        try
+        {
+            var monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (GetMonitorInfo(monitor, ref mi))
+            {
+                var dpiT = HwndSource.FromHwnd(hwnd).CompositionTarget.TransformToDevice;
+                var monW = (double)(mi.rcMonitor.Right - mi.rcMonitor.Left);
+                var monH = (double)(mi.rcMonitor.Bottom - mi.rcMonitor.Top);
+                Width = Math.Max(MinWidth, monW * 0.7711 / dpiT.M11);
+                Height = Math.Max(MinHeight, monH * 0.7269 / dpiT.M22);
+                // Work-area physical pixels -> DIP: when WPF applies Left/Top it converts back to
+                // physical pixels using the window's current DPI; here we take the inverse
+                // transform, giving exact centering on single screens and equally-scaled multi-screen setups
+                _startupLeft = mi.rcWork.Left / dpiT.M11
+                               + ((mi.rcWork.Right - mi.rcWork.Left) / dpiT.M11 - Width) / 2;
+                _startupTop = mi.rcWork.Top / dpiT.M22
+                              + ((mi.rcWork.Bottom - mi.rcWork.Top) / dpiT.M22 - Height) / 2;
+                _startupCentered = true;
+                Log($"startup size = {Width:0}x{Height:0} DIP (monitor {monW:0}x{monH:0} px @ {dpiT.M11:0.00}), centered target ({_startupLeft:0},{_startupTop:0})");
+            }
+        }
+        catch { }
+
+        // A maximized borderless window overshoots the work area (about 8px, clipped by the
+        // system), cutting off WebView bottom content (the last rows when scrolled all the way
+        // down) and preventing full scrolling.
+        // Intercept WM_GETMINMAXINFO to clamp the maximum size/position to the system work area
+        // (avoiding the taskbar).
         var src = HwndSource.FromHwnd(hwnd);
         src?.AddHook(WndProcClampMaximized);
-        // v1.1.2b：窗口尺寸检查点 —— 到达 1974×1383PX / 1536×864PX 时记录窗口状态
+        // v1.1.8: dragging across screens while maximized -> DPI change; the maximized geometry needs to be recomputed for the new screen
+        DpiChanged += (_, _) =>
+        {
+            if (WindowState == System.Windows.WindowState.Maximized)
+                VerifyMaximizedPlacement();
+        };
+        // v1.1.2b: window size checkpoints — log the window state when reaching 1974×1383PX / 1536×864PX
         SizeChanged += OnWindowSizeChanged;
     }
 
-    // 把最大化的范围锁定到工作区，消除无边框最大化的底部越界裁切。
+    // ─── v1.1.8: startup reveal position ───
+    // Centering coordinates (DIP) computed in OnSourceInitialized for the monitor the window is
+    // on, while the window is still mounted off-screen.
+    // The old flow pre-computed the position in App.RevealMain using the creation-time XAML size
+    // (1600×1000), but the window was subsequently changed to 77.1%×72.7% of the monitor; the
+    // size changed without the position being recomputed -> opened off-center overall.
+    private double _startupLeft, _startupTop;
+    private bool _startupCentered;
+
+    /// <summary>Called by the App startup flow when revealing the main window: moves it to the center of the current monitor's work area.</summary>
+    public void RevealAtStartupPosition()
+    {
+        if (_startupCentered)
+        {
+            Left = _startupLeft;
+            Top = _startupTop;
+            return;
+        }
+        // Fallback: per-screen centering was not computed (GetMonitorInfo failure and other error paths) — use the primary screen work area + the current actual size
+        var wa = SystemParameters.WorkArea;
+        Left = wa.Left + (wa.Width - ActualWidth) / 2;
+        Top = wa.Top + (wa.Height - ActualHeight) / 2;
+    }
+
+    // Lock the maximized bounds to the work area, eliminating the bottom overshoot clipping of maximized borderless windows.
     private const int WM_GETMINMAXINFO = 0x0024;
     private const int MONITOR_DEFAULTTONEAREST = 2;
     private IntPtr WndProcClampMaximized(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg != WM_GETMINMAXINFO) return IntPtr.Zero;
-        // 多显示器：用窗口当前所在屏的工作区（避开任务栏）。
+        // Multi-monitor: use the work area of the screen the window is currently on (avoiding the taskbar).
         var monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
         if (!GetMonitorInfo(monitor, ref mi)) return IntPtr.Zero;
         var wa = mi.rcWork;
         var mm = Marshal.PtrToStructure<MINMAXINFO>(lParam);
-        mm.ptMaxPosition = new POINT32(wa.Left, wa.Top);
+        // v1.1.8b: ptMaxPosition means [an offset relative to the monitor origin], not absolute
+        // coordinates! (DefWindowProc adds it on top of the monitor origin.) Previously the
+        // absolute values wa.Left/Top were written: on a primary screen with origin (0,0),
+        // absolute==relative happened to be correct; maximizing on any secondary screen landed
+        // at "origin×2" (tablet @(2560,0) measured (5120,0), exactly one screen width off-screen
+        // -> "disappears after maximizing"). The subsequent SetWindowPos fallback correction
+        // then made Windows treat the maximize as a manual resize and WPF synced back to
+        // Normal -> triggered the restore logic, "clicked maximize and it shrank back again".
+        // After switching to a relative offset it lands correctly in one shot.
+        mm.ptMaxPosition = new POINT32(wa.Left - mi.rcMonitor.Left, wa.Top - mi.rcMonitor.Top);
         mm.ptMaxSize = new POINT32(wa.Right - wa.Left, wa.Bottom - wa.Top);
         mm.ptMaxTrackSize = new POINT32(wa.Right - wa.Left, wa.Bottom - wa.Top);
-        // v1.1.2：拖拽最小尺寸强制 —— 设计值 1536×864 指的是【物理像素】，直接按设备像素写入
-        // （hook 里的一切坐标都是物理像素，不要再乘 DPI）。此前误乘 DPI 导致最小值被放大、
-        // 用户永远拖不到规定的 1536×864；更早版本则根本没设此项，窗口能拖到几百像素宽。
-        // 小屏兜底：最小值不超过本屏工作区，否则小屏上窗口永远缩不小。
+        // v1.1.5: when the taskbar is [auto-hide], rcWork == the whole monitor, so the maximized
+        // window exactly covers the screen and Windows suppresses the auto-hide taskbar's edge
+        // reveal (hovering the bottom edge does nothing). Here the maximized height is reduced
+        // by 1 physical pixel — the window no longer "exactly covers the full screen", the edge
+        // reveal works again immediately, and that 1px is visually invisible. With a visible
+        // taskbar, rcWork already excludes the taskbar, so no impact.
+        if (AutoHideBottomBarHeight(mi.rcMonitor) is int barH && barH > 0)
+        {
+            var maxH = Math.Max(0, wa.Bottom - wa.Top - 1);
+            mm.ptMaxSize = new POINT32(wa.Right - wa.Left, maxH);
+            mm.ptMaxTrackSize = new POINT32(wa.Right - wa.Left, maxH);
+        }
+        // v1.1.2: enforce the drag minimum size — every coordinate in the hook is already in
+        // physical pixels; do not multiply by DPI again.
+        // Even earlier versions did not set this at all, so the window could be dragged down to
+        // a few hundred pixels wide.
+        // v1.1.8b: the minimum size follows the monitor — 60% × 54% of the current monitor's
+        // resolution. Calibration baseline (design value confirmed by the user): on a 2560×1600
+        // screen = 1536×864PX.
+        // The minimum scales up proportionally on large screens and down on small ones; every
+        // WM_GETMINMAXINFO recomputes it for the screen the window is currently on, so
+        // cross-screen dragging follows automatically with no DPI conversion needed.
         try
         {
-            var minW = (int)Math.Min(1536, wa.Right - wa.Left);
-            var minH = (int)Math.Min(864, wa.Bottom - wa.Top);
+            var (minW, minH) = MonitorMinTrackSize(mi.rcMonitor);
             mm.ptMinTrackSize = new POINT32(minW, minH);
         }
         catch { }
@@ -370,6 +479,17 @@ public partial class MainWindow : Window
         handled = true;
         return IntPtr.Zero;
     }
+
+    // v1.1.8b: this screen's drag minimum size (physical pixels) — 60% × 54% of the current
+    // monitor's resolution. Calibration baseline (user-confirmed): 2560×1600 screen = 1536×864PX.
+    // Note the base is [the whole monitor], not the work area; otherwise on screens with a
+    // taskbar the height would come out noticeably smaller than on screens without one.
+    // Shared by WndProcClampMaximized and the size checkpoint logs, keeping both always consistent.
+    private static (int W, int H) MonitorMinTrackSize(RECT32 monitorRect) =>
+        ((int)((monitorRect.Right - monitorRect.Left) * 60 / 100),
+         (int)((monitorRect.Bottom - monitorRect.Top) * 54 / 100));
+
+
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
@@ -386,6 +506,49 @@ public partial class MainWindow : Window
         public RECT32 rcWork;
         public uint dwFlags;
     }
+
+    // ─── v1.1.5: auto-hide taskbar detection (for maximized WebView2 bottom avoidance) ───
+    private const int ABM_GETAUTOHIDEBAR = 0x0007;
+    private const int ABE_BOTTOM = 3;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct APPBARDATA
+    {
+        public int cbSize;
+        public IntPtr hWnd;
+        public uint uCallbackMessage;
+        public uint uEdge;
+        public RECT32 rc;
+        public IntPtr lParam;
+    }
+
+    [DllImport("shell32.dll")]
+    private static extern IntPtr SHAppBarMessage(uint dwMessage, ref APPBARDATA pData);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT32 lpRect);
+
+    /// <summary>Queries whether the bottom of the given monitor has an [auto-hide] taskbar and
+    /// returns its thickness (pixels); returns 0 if none; returns null on query errors
+    /// (the caller treats it as no auto-hide).</summary>
+    private static int? AutoHideBottomBarHeight(RECT32 monitorRect)
+    {
+        try
+        {
+            var abd = new APPBARDATA
+            {
+                cbSize = Marshal.SizeOf<APPBARDATA>(),
+                uEdge = (uint)ABE_BOTTOM,
+                rc = monitorRect,
+            };
+            var hBar = SHAppBarMessage(ABM_GETAUTOHIDEBAR, ref abd);
+            if (hBar == IntPtr.Zero) return 0;   // no auto-hide taskbar at the bottom of this screen
+            if (GetWindowRect(hBar, out var r))
+                return Math.Max(0, r.Bottom - r.Top);
+            return null;
+        }
+        catch { return null; }
+    }
     [StructLayout(LayoutKind.Sequential)]
     private struct MINMAXINFO
     {
@@ -398,32 +561,37 @@ public partial class MainWindow : Window
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     // ==================================================================
-    // 内置 Nexus 浏览器（主窗口覆盖层）
+    // Built-in Nexus browser (main window overlay)
     // ==================================================================
     private bool _closing;
 
-    // v0.2.1：最小化省内存 —— WebView2 是常驻内存大头（渲染整个 UI 的 Chromium 多进程）。
-    // v1.0.9：只切 MemoryUsageTargetLevel Low/Normal（官方给后台窗口的省内存姿态，
-    // 文档明确要求与 TrySuspendAsync/Resume 二选一、不得混用）。不再挂起 WebView2：
-    // 挂起会停掉帧呈现，恢复时渲染器唤醒要几百毫秒，是"最小化恢复一闪一闪"的主因之一；
-    // Low 档同样会把浏览器进程内存大量换出磁盘，且不中断呈现，恢复即显最后一帧。
-    // 宿主自身的工作集仍一并换出。
+    // v0.2.1: save memory on minimize — WebView2 is the biggest resident memory consumer
+    // (the multi-process Chromium rendering the entire UI).
+    // v1.0.9: only switch MemoryUsageTargetLevel Low/Normal (the official memory-saving posture
+    // for background windows; the docs explicitly require choosing between it and
+    // TrySuspendAsync/Resume, never mixing them). WebView2 is no longer suspended:
+    // suspending stops frame rendering and the renderer takes hundreds of milliseconds to wake
+    // on restore — one of the main causes of the "flicker when restoring from minimize";
+    // the Low level similarly pages a large share of the browser process memory out to disk
+    // without interrupting rendering, so the last frame shows immediately on restore.
+    // The host's own working set is still trimmed along with it.
     private Microsoft.Web.WebView2.Wpf.WebView2CompositionControl? _wv2;
 
     private async Task EnterLowMemoryModeAsync()
     {
-        // 注意：CoreWebView2 的 getter 在 WebView2 尚未初始化或浏览器进程已崩溃时
-        // 会直接抛异常，必须整体包进 try/catch，否则最小化/还原一瞬间就炸掉 UI 线程
+        // Note: the CoreWebView2 getter throws directly when WebView2 is not yet initialized or
+        // the browser process has crashed, so the whole thing must be wrapped in try/catch;
+        // otherwise a minimize/restore instant would blow up the UI thread
         try
         {
             var core = _wv2?.CoreWebView2;
             if (core is not null)
             {
                 try { core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low; }
-                catch { /* 旧 WebView2 运行时不支持该属性，跳过 */ }
+                catch { /* older WebView2 runtimes do not support this property; skip */ }
             }
         }
-        catch (Exception ex) { Log("EnterLowMemoryMode 跳过: " + ex.Message); }
+        catch (Exception ex) { Log("EnterLowMemoryMode skipped: " + ex.Message); }
         try { Services.MemoryService.TrimWorkingSet(); } catch { }
     }
 
@@ -434,27 +602,30 @@ public partial class MainWindow : Window
             var core = _wv2?.CoreWebView2;
             if (core is null) return;
             try { core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Normal; }
-            catch { /* 同上 */ }
+            catch { /* same as above */ }
         }
-        catch (Exception ex) { Log("ExitLowMemoryMode 跳过: " + ex.Message); }
+        catch (Exception ex) { Log("ExitLowMemoryMode skipped: " + ex.Message); }
     }
 
     // ══════════════════════════════════════════════════════════════
-    // v1.1.2：主题切换圆形揭示（CapturePreview 快照 + WPF 挖洞动画）
-    // View Transitions 的快照层在 WebView2 合成渲染路径下偶发「整层空白/
-    // 渲染器停摆」，无法根治 —— 改用完全普通的绘制路径：
-    //   1) CoreWebView2.CapturePreviewAsync 截当前（旧主题）页面；
-    //   2) 截图铺在 WebView 上方的覆盖层 Image 里（盖住页面）；
-    //   3) 通知 JS 立即（无动画）切到新主题；
-    //   4) 覆盖层 OpacityMask 从开关位置挖一个不断变大的圆洞露出新主题；
-    //   5) 动画结束摘除覆盖层。两个方向同一段代码，对称且不会白屏。
+    // v1.1.2: theme-switch circular reveal (CapturePreview snapshot + WPF hole-punch animation)
+    // The View Transitions snapshot layer sporadically shows "a completely blank layer /
+    // stalled renderer" on WebView2's composited rendering path, with no permanent fix —
+    // switch to a completely ordinary drawing path:
+    //   1) CoreWebView2.CapturePreviewAsync captures the current (old-theme) page;
+    //   2) the screenshot is laid into the overlay Image above the WebView (covering the page);
+    //   3) JS is told to switch to the new theme immediately (no animation);
+    //   4) the overlay's OpacityMask carves a constantly growing circular hole from the toggle
+    //      position, revealing the new theme;
+    //   5) when the animation ends the overlay is removed. Both directions share the same code —
+    //      symmetric and never blank.
     // ══════════════════════════════════════════════════════════════
     private static bool _themeRevealing;
 
-    /// <summary>圆形揭示动画时长。</summary>
+    /// <summary>Duration of the circular reveal animation.</summary>
     public static int ThemeRevealMs = 400;
 
-    /// <summary>由 TitleBar 调用：从 (cssX, cssY)（CSS 像素 = WPF DIP）开始圆形揭示到新主题。</summary>
+    /// <summary>Called by TitleBar: starts a circular reveal to the new theme from (cssX, cssY) (CSS pixels = WPF DIP).</summary>
     public static async Task RevealThemeSwitchAsync(
         double cssX, double cssY, string nextTheme, Func<string, Task> applyThemeJs)
     {
@@ -462,7 +633,7 @@ public partial class MainWindow : Window
         var w = app?.MainWindow as MainWindow;
         if (w is null || MainWindow._themeRevealing)
         {
-            await applyThemeJs(nextTheme);   // 正在揭示/无窗口：直接瞬时切换
+            await applyThemeJs(nextTheme);   // already revealing / no window: switch instantly
             return;
         }
         MainWindow._themeRevealing = true;
@@ -472,11 +643,11 @@ public partial class MainWindow : Window
             var overlay = w.ThemeRevealOverlay;
             if (core is null || overlay is null)
             {
-                await applyThemeJs(nextTheme);   // 兜底：无法截图时瞬时切换
+                await applyThemeJs(nextTheme);   // fallback: switch instantly when a capture is not possible
                 return;
             }
 
-            // 1. 截当前（旧主题）页面
+            // 1. Capture the current (old-theme) page
             using var ms = new System.IO.MemoryStream();
             await core.CapturePreviewAsync(
                 Microsoft.Web.WebView2.Core.CoreWebView2CapturePreviewImageFormat.Png, ms);
@@ -486,18 +657,18 @@ public partial class MainWindow : Window
             bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
             bmp.StreamSource = ms;
             bmp.EndInit();
-            bmp.Freeze();   // 跨线程可用
+            bmp.Freeze();   // usable across threads
 
-            // 2. 覆盖层铺旧画面（盖住页面）
+            // 2. Lay the old frame into the overlay (covering the page)
             overlay.Source = bmp;
             overlay.Visibility = Visibility.Visible;
 
-            // 3. 页面立即（无动画）切到新主题，并让宿主底色跟随
+            // 3. Switch the page to the new theme immediately (no animation) and let the host background follow
             await applyThemeJs(nextTheme);
             ApplyShellTheme(nextTheme == "dark");
-            await Task.Delay(60);   // 给新主题至少一帧绘制时间
+            await Task.Delay(60);   // give the new theme at least one frame of drawing time
 
-            // 4. OpacityMask 从开关位置挖圆洞（洞内透明露出新主题，洞外不透明旧画面）
+            // 4. OpacityMask carves a circular hole from the toggle position (transparent inside the hole revealing the new theme, opaque old frame outside)
             double wd = overlay.ActualWidth, ht = overlay.ActualHeight;
             if (wd < 1 || ht < 1)
             {
@@ -516,9 +687,11 @@ public partial class MainWindow : Window
             System.Windows.Media.Animation.DoubleAnimation anim;
             if (nextTheme == "dark")
             {
-                // 明变暗：旧浅色截图【只显示在以开关为圆心的收缩圆内】（圆外透明，
-                // 露出已翻转的真实暗色页面）—— 圆半径从全屏收缩到 0，
-                // 白色随圆缩回开关，四周先入夜，与官网「浅色向按钮收回」一致
+                // Light to dark: the old light screenshot [shows only inside a shrinking circle
+                // centered on the toggle] (transparent outside the circle, exposing the already
+                // flipped real dark page) — the circle radius shrinks from full screen to 0,
+                // the white pulls back into the toggle with the circle and night falls from the
+                // edges first, matching the official site's "light collapsing back into the button"
                 brush.GradientStops.Add(new System.Windows.Media.GradientStop(
                     System.Windows.Media.Colors.Black, 0.0));
                 brush.GradientStops.Add(new System.Windows.Media.GradientStop(
@@ -539,8 +712,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                // 变亮：旧暗色截图铺满，圆洞从开关扩大露出新浅色页面
-                //（浅色从按钮处向四周发散）
+                // Dark to light: the old dark screenshot fills the view and the circular hole
+                // expands from the toggle, revealing the new light page (light radiates outward from the button)
                 brush.GradientStops.Add(new System.Windows.Media.GradientStop(
                     System.Windows.Media.Colors.Transparent, 0.0));
                 brush.GradientStops.Add(new System.Windows.Media.GradientStop(
@@ -565,14 +738,14 @@ public partial class MainWindow : Window
             brush.BeginAnimation(System.Windows.Media.RadialGradientBrush.RadiusYProperty, anim);
             await tcs.Task;
 
-            // 5. 清理
+            // 5. Cleanup
             overlay.OpacityMask = null;
             overlay.Source = null;
             overlay.Visibility = Visibility.Collapsed;
         }
         catch (Exception ex)
         {
-            Log("主题圆形揭示失败，回退为瞬时切换: " + ex.Message);
+            Log("Theme circular reveal failed, falling back to an instant switch: " + ex.Message);
             try { await applyThemeJs(nextTheme); } catch { }
         }
         finally
@@ -592,21 +765,21 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Blazor 页面调这里：在主窗口内打开 Nexus 浏览覆盖层。</summary>
+    /// <summary>Called by the Blazor page: opens the Nexus browsing overlay inside the main window.</summary>
     public static void OpenNexusOverlay(string url, bool queueMode = false)
     {
         var w = System.Windows.Application.Current?.MainWindow as MainWindow;
         if (w is null) return;
-        _ = queueMode; // 内置浏览器已移除：统一跳系统浏览器
+        _ = queueMode; // built-in browser removed: everything opens in the system browser
         try
         {
             System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
         }
-        catch (Exception ex) { Log("打开系统浏览器失败: " + ex.Message); }
+        catch (Exception ex) { Log("Failed to open the system browser: " + ex.Message); }
     }
 
-    /// <summary>路由离开「Mod 管理」时收起覆盖层（保留 WebView2 实例避免重新初始化）。</summary>
+    /// <summary>Called when routing away from "Mod Management": collapses the overlay (keeping the WebView2 instance to avoid re-initialization).</summary>
     public static void HideNexusOverlay()
     {
         var w = System.Windows.Application.Current?.MainWindow as MainWindow;
@@ -627,65 +800,160 @@ public partial class MainWindow : Window
         }
     }
 
-    // ─── v1.1.7：窗口尺寸策略：启动即最大化（XAML WindowState）+ 最小 1536×864 ───
-    // 从最大化点「还原」时固定恢复到 1974×1383，不用系统 RestoreBounds 里记的旧尺寸
-    // （那可能是很久之前随手拖出来的小窗，还原出来突兀）。
+    // ─── v1.1.5/v1.1.8: window sizing policy ───
+    // Starts windowed and reveals centered at 77.1%×72.7% of the current screen (see
+    // OnSourceInitialized/RevealAtStartupPosition);
+    // the drag minimum size is 60%×54% of the current monitor (2560×1600 screen = 1536×864PX,
+    // see WndProcClampMaximized).
+    // "Restoring" from maximized returns to 77.1%×72.6% of the current screen's work area, not
+    // the old size recorded in the system RestoreBounds (that may be a small window casually
+    // dragged long ago, which would look jarring on restore).
     private bool _wasMaximized;
 
     protected override void OnStateChanged(EventArgs e)
     {
         base.OnStateChanged(e);
-        if (WindowState == System.Windows.WindowState.Maximized) { _wasMaximized = true; return; }
+        if (WindowState == System.Windows.WindowState.Maximized)
+        {
+            _wasMaximized = true;
+            VerifyMaximizedPlacement();
+            return;
+        }
         if (WindowState == System.Windows.WindowState.Normal && _wasMaximized)
         {
             _wasMaximized = false;
-            // 还原动画期间直接改尺寸会被状态机打回，调度到本布局拍之后执行
+            // Changing the size directly during the restore animation gets reverted by the state machine; schedule it to run after this layout pass
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                // v1.1.2c：还原尺寸（开源通用）—— 按【工作区比例】锁定，而非固定物理像素。
-                // 校准基准：2560×1528 工作区上为 1974×1110PX（16:9），即宽 77.1%、高 72.6%。
-                // 任何分辨率/缩放下都占工作区相同比例：作者屏上精确 1974×1110PX；
-                // 1080p 小屏自动等比缩小不裁剪；4K 大屏等比放大保持观感一致（主流软件行为）。
+                // v1.1.2c: restore size (general, open-source edition) — locked to [work area
+                // ratios], not fixed physical pixels.
+                // Calibration baseline: 1974×1110PX (16:9) on a 2560×1528 work area, i.e. 77.1%
+                // wide, 72.6% high.
+                // Occupies the same proportion of the work area at any resolution/scaling:
+                // exactly 1974×1110PX on the author's screen; scales down proportionally on
+                // 1080p screens without clipping; scales up on 4K screens to keep the same look
+                // (mainstream software behavior).
+                // v1.1.8: the work area comes from [the screen the window is actually on]
+                // (MonitorFromWindow + GetMonitorInfo, physical pixels, no DPI conversion) —
+                // the original SystemParameters.WorkArea only described the primary monitor, so
+                // restoring after maximizing on a secondary screen computed the size from the
+                // primary screen (too small) and the out-of-bounds check even dragged the window
+                // back to the primary screen.
                 var hwnd = new WindowInteropHelper(this).Handle;
                 var dpi = hwnd != IntPtr.Zero ? (int)GetDpiForWindow(hwnd) : 96;
                 if (dpi <= 0) dpi = 96;
                 var scale = dpi / 96.0;
-                var wa = SystemParameters.WorkArea;
-                var waPhysW = wa.Width * scale;     // 工作区物理像素
-                var waPhysH = wa.Height * scale;
+                double waPhysW, waPhysH, waLeft, waTop;
+                var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+                if (hwnd != IntPtr.Zero && GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), ref mi))
+                {
+                    waPhysW = mi.rcWork.Right - mi.rcWork.Left;
+                    waPhysH = mi.rcWork.Bottom - mi.rcWork.Top;
+                    waLeft = mi.rcWork.Left;
+                    waTop = mi.rcWork.Top;
+                }
+                else
+                {
+                    // Fallback: the current screen is unavailable (should not happen) — fall back to the primary screen work area
+                    var wa = SystemParameters.WorkArea;
+                    waPhysW = wa.Width * scale;
+                    waPhysH = wa.Height * scale;
+                    waLeft = wa.Left * scale;
+                    waTop = wa.Top * scale;
+                }
 
                 var physW = Math.Min(waPhysW - 16, Math.Max(400.0, waPhysW * (1974.0 / 2560.0)));
                 var physH = Math.Min(waPhysH - 16, Math.Max(300.0, waPhysH * (1110.0 / 1528.0)));
 
                 Width = Math.Max(MinWidth, Math.Round(physW / scale));
                 Height = Math.Max(MinHeight, Math.Round(physH / scale));
-                _restoreTargetPhysW = physW;   // 供尺寸检查点比对（本屏的还原期望尺寸）
+                _restoreTargetPhysW = physW;   // for size checkpoint comparison (this screen's expected restore size)
                 _restoreTargetPhysH = physH;
 
-                // 还原位置越界兜底 —— Normal 位置若还停在屏外挂载的 -32000 附近
-                //（旧版本启动时留下的），还原后窗口整个在屏幕外，表现为"窗口消失"。
-                if (Left < wa.Left - 100 || Left + Width > wa.Right + 100
-                    || Top < wa.Top - 100 || Top + Height > wa.Bottom + 100)
+                // Restore-position out-of-bounds fallback (same screen's work area, physical
+                // pixels) — if the Normal position is still near the off-screen mount point
+                // -32000 (left over from old-version startups), the window would end up entirely
+                // off-screen after restore, appearing as "the window vanished".
+                var leftPhys = Left * scale;
+                var topPhys = Top * scale;
+                if (leftPhys < waLeft - 100 || leftPhys + Width * scale > waLeft + waPhysW + 100
+                    || topPhys < waTop - 100 || topPhys + Height * scale > waTop + waPhysH + 100)
                 {
-                    Left = Math.Max(wa.Left, (wa.Width - Width) / 2 + wa.Left);
-                    Top = Math.Max(wa.Top, (wa.Height - Height) / 2 + wa.Top);
+                    Left = Math.Round((waLeft + (waPhysW - Width * scale) / 2) / scale);
+                    Top = Math.Round((waTop + (waPhysH - Height * scale) / 2) / scale);
                 }
-                Log($"[还原] 目标工作区 77.1%×72.6%（=本屏 {physW:F0}×{physH:F0}PX）→ 实际 " +
+                Log($"[restore] 77.1%×72.6% of the current screen work area {waPhysW:F0}×{waPhysH:F0}PX (={physW:F0}×{physH:F0}PX) -> actual " +
                     $"Width={Width:F0} Height={Height:F0} DIP = {Width * scale:F0}×{Height * scale:F0}PX (dpi={dpi}, scale={scale:0.##})");
-                // v1.1.2c：检查点必然记录（SizeChanged 版本可能因布局时序漏触发）
-                Log($"[尺寸检查点] ★ 到达还原标准尺寸（本屏期望 {physW:F0}×{physH:F0}PX，" +
-                    $"实际 {Width * scale:F0}×{Height * scale:F0}PX，Width={Width:F0} Height={Height:F0} DIP，" +
-                    $"dpi={dpi}，WindowState={WindowState}，Left={Left:F0} Top={Top:F0}）");
+                // v1.1.2c: the checkpoint is guaranteed to be logged here (the SizeChanged version can miss due to layout timing)
+                Log($"[size checkpoint] ★ reached the standard restore size (expected for this screen {physW:F0}×{physH:F0}PX, " +
+                    $"actual {Width * scale:F0}×{Height * scale:F0}PX, Width={Width:F0} Height={Height:F0} DIP, " +
+                    $"dpi={dpi}, WindowState={WindowState}, Left={Left:F0} Top={Top:F0})");
             }));
         }
     }
 
-    // 本屏还原期望尺寸（物理像素），由还原逻辑写入，供尺寸检查点比对
+    // This screen's expected restore size (physical pixels), written by the restore logic for size checkpoint comparison
     private double _restoreTargetPhysW, _restoreTargetPhysH;
 
-    // v1.1.2b：用户要求 —— 窗口到达规定尺寸时记录状态。
-    // 还原尺寸检查点 = 本屏还原期望值（2560×1528 参考屏上即 1974×1110PX）；
-    // 最小尺寸检查点 = 固定 1536×864PX。
+    // ─── v1.1.8: maximize placement safety net ───
+    // Two layers of problems, one fallback:
+    // (1) without a manifest the process is System DPI aware and secondary-screen coordinates
+    //     get virtualized by the system, so maximizing lands a full screen width off-screen
+    //     (measured (5120,0)) -> switching to PerMonitorV2 in app.manifest fixed it at the root;
+    // (2) under PMv2, cross-screen dragging (drag to a secondary screen with a different DPI and
+    //     maximize immediately) has a race between WM_DPICHANGED and SC_MAXIMIZE: the maximize
+    //     message is processed with the old DPI environment and the geometry is scaled by the
+    //     old/new DPI ratio (measured landing at (1707,0) with size ÷1.5, stuck at the primary
+    //     screen's right edge).
+    // Fallback: after maximizing settles, if the geometry ≠ this screen's work area, force it
+    // into place. The two-stage check covers the race: once after the layout pass + one recheck
+    // after 120ms (once the DPI change settles).
+    private void VerifyMaximizedPlacement()
+    {
+        Dispatcher.BeginInvoke(() => CheckMaximizedGeometry());
+        var t = new System.Windows.Threading.DispatcherTimer
+        { Interval = TimeSpan.FromMilliseconds(120) };
+        t.Tick += (_, _) => { t.Stop(); CheckMaximizedGeometry(); };
+        t.Start();
+    }
+
+    private void CheckMaximizedGeometry()
+    {
+        try
+        {
+            if (WindowState != System.Windows.WindowState.Maximized) return;
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var r)) return;
+            var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (!GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), ref mi)) return;
+            // Target geometry uses exactly the same rules as the WM_GETMINMAXINFO hook: work area + the 1px concession for an auto-hide taskbar
+            var barH = AutoHideBottomBarHeight(mi.rcMonitor);
+            var targetW = mi.rcWork.Right - mi.rcWork.Left;
+            var targetH = mi.rcWork.Bottom - mi.rcWork.Top - (barH > 0 ? 1 : 0);
+            var off = Math.Abs(r.Left - mi.rcWork.Left) > 2 || Math.Abs(r.Top - mi.rcWork.Top) > 2
+                   || Math.Abs(r.Right - r.Left - targetW) > 2 || Math.Abs(r.Bottom - r.Top - targetH) > 2;
+            if (!off) return;
+            Log($"[maximize fallback] window ({r.Left},{r.Top})-({r.Right},{r.Bottom}) ≠ current screen work area " +
+                $"({mi.rcWork.Left},{mi.rcWork.Top}) {targetW}×{targetH} -> forcing into place");
+            SetWindowPos(hwnd, IntPtr.Zero,
+                mi.rcWork.Left, mi.rcWork.Top, targetW, targetH,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        catch (Exception ex) { Log("Maximized placement check failed: " + ex.Message); }
+    }
+
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags);
+
+    // v1.1.2b: user request — log the state when the window reaches the specified sizes.
+    // Restore size checkpoint = this screen's expected restore value (1974×1110PX on the
+    // 2560×1528 reference screen);
+    // minimum size checkpoint = this screen's minimum size (43%×42.5% of the work area, same
+    // rule as the drag lower limit).
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
     {
         try
@@ -698,17 +966,27 @@ public partial class MainWindow : Window
             var pw = ActualWidth * scale;
             var ph = ActualHeight * scale;
             if (_restoreTargetPhysW > 0 && Math.Abs(pw - _restoreTargetPhysW) < 4 && Math.Abs(ph - _restoreTargetPhysH) < 4)
-                Log($"[尺寸检查点] ★ 到达还原标准尺寸（本屏期望 {_restoreTargetPhysW:F0}×{_restoreTargetPhysH:F0}PX，" +
-                    $"实际 {pw:F0}×{ph:F0}PX，Width={ActualWidth:F0} Height={ActualHeight:F0} DIP，dpi={dpi}，WindowState={WindowState}，Left={Left:F0} Top={Top:F0}）" +
-                    (_restoreTargetPhysW < 1970 ? " ≈ 1974×1110PX 基准" : ""));
-            else if (Math.Abs(pw - 1536) < 4 && Math.Abs(ph - 864) < 4)
-                Log($"[尺寸检查点] ★ 到达最小标准尺寸 1536×864PX（实际 {pw:F0}×{ph:F0}PX，" +
-                    $"Width={ActualWidth:F0} Height={ActualHeight:F0} DIP，dpi={dpi}，WindowState={WindowState}，Left={Left:F0} Top={Top:F0}）");
+                Log($"[size checkpoint] ★ reached the standard restore size (expected for this screen {_restoreTargetPhysW:F0}×{_restoreTargetPhysH:F0}PX, " +
+                    $"actual {pw:F0}×{ph:F0}PX, Width={ActualWidth:F0} Height={ActualHeight:F0} DIP, dpi={dpi}, WindowState={WindowState}, Left={Left:F0} Top={Top:F0})" +
+                    (_restoreTargetPhysW < 1970 ? " ≈ 1974×1110PX baseline" : ""));
+            else
+            {
+                // v1.1.8b: minimum size checkpoint — same rule as WndProcClampMaximized, computed
+                // as 60%×54% of the window's current monitor.
+                var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+                if (GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), ref mi))
+                {
+                    var (minW, minH) = MonitorMinTrackSize(mi.rcMonitor);
+                    if (Math.Abs(pw - minW) < 4 && Math.Abs(ph - minH) < 4)
+                        Log($"[size checkpoint] ★ reached this screen's minimum size {minW}×{minH}PX (actual {pw:F0}×{ph:F0}PX, " +
+                            $"Width={ActualWidth:F0} Height={ActualHeight:F0} DIP, dpi={dpi}, WindowState={WindowState}, Left={Left:F0} Top={Top:F0})");
+                }
+            }
         }
         catch { }
     }
 
-    /// <summary>用 Win32 ShowWindow 强制作最小化，确保无边框窗口真正从屏幕撤出，避免残留透明交互窗拦截鼠标。</summary>
+    /// <summary>Uses Win32 ShowWindow to force a minimize, ensuring the borderless window is truly withdrawn from the screen so no leftover transparent interactive window intercepts mouse clicks.</summary>
     public static void MinimizeWindow()
     {
         var w = System.Windows.Application.Current?.MainWindow as MainWindow;
@@ -718,15 +996,17 @@ public partial class MainWindow : Window
         else w.WindowState = System.Windows.WindowState.Minimized;
     }
 
-    // ─── v1.1.1：深浅主题 —— 窗口底色与 WebView2 兜底帧色跟随前端 data-theme ───
-    // 圆角外壳外的四角露出的是 WPF 窗口底色；WebView2 未出帧的瞬间显示 DefaultBackgroundColor。
-    // 两者必须与前端 shell 底色一致，否则深色主题下四角/恢复瞬间会闪浅色。
+    // ─── v1.1.1: light/dark theme — the window background and WebView2 fallback frame color follow the frontend data-theme ───
+    // The four corners outside the rounded shell expose the WPF window background; the instant
+    // before WebView2 produces a frame, DefaultBackgroundColor shows.
+    // Both must match the frontend shell background color, otherwise the corners/the restore
+    // instant would flash light in the dark theme.
     private static readonly System.Windows.Media.Color ThemeColorLight =
         System.Windows.Media.Color.FromArgb(0xFF, 0xF3, 0xF6, 0xFB);
     private static readonly System.Windows.Media.Color ThemeColorDark =
         System.Windows.Media.Color.FromArgb(0xFF, 0x1C, 0x1E, 0x23);
 
-    /// <summary>前端切换主题后调用（TitleBar）：同步 WPF 窗口底色 + WebView2 兜底帧色。</summary>
+    /// <summary>Called after the frontend switches theme (TitleBar): syncs the WPF window background + WebView2 fallback frame color.</summary>
     public static void ApplyShellTheme(bool dark)
     {
         var app = System.Windows.Application.Current;
@@ -746,16 +1026,19 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 用 Win32 强制显示主窗口。WPF 的 Visibility=Visible 对已 Show()/Hidden 过的
-    /// 窗口不一定触发 HWND SW_SHOW（导致窗口 visible=False、主界面不出现）。
-    /// 这里直接对 HWND 发 ShowWindow(SW_SHOW)，绕开该情况，保证系统真正显示。
+    /// Forcibly shows the main window via Win32. WPF's Visibility=Visible does not necessarily
+    /// trigger the HWND SW_SHOW for a window that has already been Show()n/Hidden
+    /// (leaving the window visible=False and the main UI not appearing).
+    /// This sends ShowWindow(SW_SHOW) directly to the HWND, bypassing that case and
+    /// guaranteeing the system actually shows it.
     /// </summary>
     public static void ShowMainWindow()
     {
         var w = Application.Current?.MainWindow as MainWindow;
         if (w is null) return;
-        // 先让 WPF 的状态机认为窗口可见——否则 ShowWindow 一下会被 WPF 的
-        // layout pass 当成「仍 Hidden」而撤销（之前一直 visible=False 的根源）。
+        // First make WPF's state machine consider the window visible — otherwise the ShowWindow
+        // call gets treated as "still Hidden" by WPF's layout pass and undone (the root cause of
+        // the persistent visible=False).
         w.Visibility = Visibility.Visible;
         var hwnd = new WindowInteropHelper(w).EnsureHandle();
         Log($"ShowMainWindow: Visibility={w.Visibility} hwnd=0x{hwnd.ToInt64():X}");

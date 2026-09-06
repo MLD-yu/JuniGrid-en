@@ -4,12 +4,13 @@ using System.Text.Json;
 namespace JuniGrid.Services;
 
 /// <summary>
-/// v1.1.5：每日游玩时长统计（GitHub 热力图数据源）。
-/// 后台每 30s 轮询一次游戏进程（LauncherService.IsGameRunning 同时覆盖本程序启动
-/// 与外部启动的 Stardew Valley / StardewModdingAPI），在运行就把 30s 累计进当天的
-/// 秒数桶并落盘 —— 会话级 Start/Exit 钩子（LauncherService.OnGameExit 那套）在
-/// JuniGrid 中途被杀时整段时长会丢，逐 tick 累计最多丢最后一个 tick。
-/// 数据存 %APPDATA%/JuniGrid/playtime.json：{ "yyyy-MM-dd": 秒 }。
+/// v1.1.5: daily play-time tracking (data source for the GitHub-style heatmap).
+/// A background loop polls the game process every 30s (LauncherService.IsGameRunning covers both sessions
+/// started by this app and externally started Stardew Valley / StardewModdingAPI); while running, 30s is
+/// added to that day's seconds bucket and persisted — session-level Start/Exit hooks (the
+/// LauncherService.OnGameExit approach) lose the whole session if JuniGrid is killed mid-way, while
+/// per-tick accumulation loses at most the last tick.
+/// Data is stored in %APPDATA%/JuniGrid/playtime.json: { "yyyy-MM-dd": seconds }.
 /// </summary>
 public sealed class PlayTimeService : IDisposable
 {
@@ -26,9 +27,9 @@ public sealed class PlayTimeService : IDisposable
     private readonly LauncherService _launcher;
     private readonly System.Threading.Timer _timer;
     private readonly object _gate = new();
-    private Dictionary<string, long> _seconds = new();   // 日期(本地) → 当天游玩秒数
+    private Dictionary<string, long> _seconds = new();   // date (local) → play seconds that day
 
-    /// <summary>数据变化（tick 累计 / 手动修正）后触发；可能来自后台线程，订阅方自行调度。</summary>
+    /// <summary>Raised after the data changes (tick accumulation / manual correction); may come from a background thread, subscribers must dispatch themselves.</summary>
     public event Action? OnChanged;
 
     public PlayTimeService(LauncherService launcher)
@@ -36,13 +37,16 @@ public sealed class PlayTimeService : IDisposable
         _launcher = launcher;
         Load();
         System.AppDomain.CurrentDomain.ProcessExit += (_, _) => Save();
-        // 首个 tick 延迟 5s：避开应用启动瞬间的一堆初始化争 IO
+        // delay the first tick by 5s to avoid contending for IO with the burst of startup initialization
         _timer = new System.Threading.Timer(_ => Tick(), null, 5000, 30000);
     }
 
     public IReadOnlyDictionary<string, long> Snapshot { get { lock (_gate) return new Dictionary<string, long>(_seconds); } }
 
     public long GetSeconds(string dateKey) { lock (_gate) return _seconds.TryGetValue(dateKey, out var s) ? s : 0; }
+
+    /// <summary>Total play seconds across all years (heatmap measure; used by the home page's "Recently played" card).</summary>
+    public long TotalSeconds { get { lock (_gate) { var t = 0L; foreach (var v in _seconds.Values) t += v; return t; } } }
 
     private void Tick()
     {
@@ -57,7 +61,7 @@ public sealed class PlayTimeService : IDisposable
             }
             OnChanged?.Invoke();
         }
-        catch { /* 统计失败不影响主流程，下个 tick 再试 */ }
+        catch { /* a failed tick doesn't affect the main flow; retry on the next tick */ }
     }
 
     private void Load()
@@ -75,9 +79,8 @@ public sealed class PlayTimeService : IDisposable
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             lock (_gate)
-                File.WriteAllText(FilePath, JsonSerializer.Serialize(_seconds, JsonOpts));
+                AtomicFile.WriteAllText(FilePath, JsonSerializer.Serialize(_seconds, JsonOpts));
         }
         catch (Exception ex) { AppLog.Warn("PlayTime", ex.Message); }
     }

@@ -3,9 +3,9 @@ using System.IO;
 namespace JuniGrid.Services;
 
 /// <summary>
-/// 统一运行日志（%AppData%\JuniGrid\juni-grid.log）。
-/// 用于把所有业务层的警告与报错落在文件里，方便排查"哪一步失败了、为什么"。
-/// 线程安全；超过 ~1MB 自动滚动到 .old 再开新文件，避免无限膨胀。
+/// Unified runtime log (%AppData%\JuniGrid\juni-grid.log).
+/// Persists warnings and errors from all business layers to a file, making it easy to trace "which step failed, and why".
+/// Thread-safe; rolls over to .old and starts a fresh file past ~1MB to avoid unbounded growth.
 /// </summary>
 public static class AppLog
 {
@@ -14,17 +14,17 @@ public static class AppLog
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "JuniGrid");
     private static readonly string FilePath = Path.Combine(Dir, "juni-grid.log");
-    private const long MaxBytes = 1024 * 1024;   // 1MB 就滚动
+    private const long MaxBytes = 1024 * 1024;   // rolls over at 1MB
 
-    /// <summary>记录一条警告（WRN）。不必要不问断调用，调用方应只在确实失败/异常才调。</summary>
+    /// <summary>Logs a warning (WRN). Do not call it indiscriminately; callers should only call on actual failures/anomalies.</summary>
     public static void Warn(string source, string message)
         => Write("WRN", source, message);
 
-    /// <summary>记录一条错误（ERR）。</summary>
+    /// <summary>Logs an error (ERR).</summary>
     public static void Error(string source, string message)
         => Write("ERR", source, message);
 
-    /// <summary>记录异常（ERR + 堆栈）。对 catch 里能抓到 ex 的调用最合适。</summary>
+    /// <summary>Logs an exception (ERR + stack trace). Best suited for catches where ex is available.</summary>
     public static void Error(string source, Exception ex)
         => Write("ERR", source, ex.ToString());
 
@@ -40,7 +40,7 @@ public static class AppLog
                     $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [{level}] [{source}] {message}{Environment.NewLine}");
             }
         }
-        catch { /* 日志本身失败也绝不能把程序拖崩 */ }
+        catch { /* logging must never crash the app, even when it fails itself */ }
     }
 
     private static void RollIfNeeded()

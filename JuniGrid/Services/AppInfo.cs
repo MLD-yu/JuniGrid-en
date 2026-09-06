@@ -1,20 +1,20 @@
 namespace JuniGrid.Services;
 
 /// <summary>
-/// 应用自身的基础信息。发新版本时只改这里的 Version，
-/// 关于页显示和自更新比较都从这里取，避免两处版本号对不上。
+/// Basic info about the app itself. When releasing a new version, only change Version here;
+/// the About page display and self-update comparison both read from here, so the two version numbers can't diverge.
 /// </summary>
 public static class AppInfo
 {
-    /// <summary>当前应用版本（不带 v 前缀）。</summary>
-    public const string Version = "1.1.1";
+    /// <summary>Current app version (without the v prefix).</summary>
+    public const string Version = "1.1.2";
 
     public const string RepoOwner = "MLD-yu";
-    public const string RepoName  = "JuniGrid";
+    public const string RepoName  = "JuniGrid-en";
 
-    /// <summary>Releases 下载页（发现新版本时跳转）。</summary>
+    /// <summary>Releases download page (opened when a new version is found).</summary>
     public static string ReleasesUrl => $"https://github.com/{RepoOwner}/{RepoName}/releases";
 
-    /// <summary>GitHub API：最新稳定版 Release。</summary>
+    /// <summary>GitHub API: latest stable Release.</summary>
     public static string LatestApiUrl => $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
 }

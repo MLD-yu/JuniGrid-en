@@ -1,35 +1,48 @@
-# JuniGrid (English Edition)
+# JuniGrid
 
-Your helper for Stardew Valley — mod manager, SMAPI launcher, Nexus integration and more.
+A desktop mod manager and launcher for **Stardew Valley**, built on .NET (WPF + Blazor WebView2).
+This repository hosts the official English edition of JuniGrid; downloads are available at [Releases](https://github.com/MLD-yu/JuniGrid-en/releases).
 
-Built with WPF + Blazor Hybrid (.NET 10). This repository tracks the **English edition** of JuniGrid;
-the Chinese edition lives at [MLD-yu/JuniGrid](https://github.com/MLD-yu/JuniGrid).
+## Security notes
+
+- No API keys or secrets are embedded in the source code. Nexus credentials are entered by the user at sign-in and are stored only in the local configuration file of the current Windows user on that machine.
+- All downloads are performed strictly as the currently signed-in Nexus user; the app never proxies, redistributes, or caches mod files on behalf of other users.
 
 ## Features
 
-- Mod manager with profiles, enable/disable, batch updates and one-click Nexus installs
-- SMAPI launcher with live log viewer and command console
-- Nexus Mods browsing (trending, search by name or mod ID) and one-click install (Premium for some mods)
-- Automatic SMAPI download/update
-- Play-time tracking with a GitHub-style heatmap
-- Task center, memory management and cache cleanup tools
-- Dark / light theme with a circular reveal switch animation
+- **Nexus Mods integration** — three sign-in methods: SSO (`wss://sso.nexusmods.com`), OAuth2 authorization code + PKCE (callback URL `http://localhost:49162/auth/callback`), and personal API keys. Browse mods through the Nexus GraphQL API and fetch files through the official download endpoints, acting as the signed-in user.
+- **One-click install** — registers as the `nxm://` protocol handler, so the "Mod Manager Download" button on Nexus pages launches JuniGrid directly.
+- **Mod management** — scans the Mods folder (including nested manifests), enable/disable/uninstall, dependency checks, save and configuration management.
+- **Task center** — a unified progress view for downloads, installs, and updates, with resumable transfers.
+- **SMAPI support** — install/update SMAPI, and pipe the SMAPI console into the in-app log viewer.
+- **Automatic updates** — an update button next to the title-bar logo appears only when a new version shows up on GitHub Releases (a green ring around the logo). Hovering shows the version; clicking starts a ring-shaped progress that fills clockwise from 12 o'clock, and once full it automatically launches the silent installer. Clicking again while downloading cancels it, and the partially downloaded data is kept for resuming.
 
-## Download
+## Build and run
 
-Grab the latest installer from the [Releases](https://github.com/MLD-yu/JuniGrid-en/releases) page
-(`JuniGrid-en-vX.Y.Z-setup.exe`).
+Requirements: Windows 10 1809+ and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (with the Windows Desktop workload).
 
-## Build
+```bash
+# Restore + build
+dotnet build JuniGrid.sln
 
-Requires .NET 10 SDK (Windows). Open `JuniGrid.sln` and build, or run:
+# Run directly from the repository root
+dotnet run --project JuniGrid/JuniGrid.csproj
 
+# Or open JuniGrid.sln in Visual Studio 2022+ and press F5
+
+# Release build (output goes to JuniGrid/bin/Release/net10.0-windows10.0.17763.0/)
+dotnet publish JuniGrid/JuniGrid.csproj -c Release
 ```
-dotnet build JuniGrid/JuniGrid.csproj -c Debug
-```
+## What to do if the download or installation gets blocked
 
-To package the self-contained installer:
+Niche desktop apps and unsigned installers are sometimes flagged as risky by browsers, Windows Defender, or SmartScreen. Please make sure the installer comes from the official GitHub Releases page ([JuniGrid-en Releases](https://github.com/MLD-yu/JuniGrid-en/releases)) and that the file name follows the pattern JuniGrid-en-vX.Y.Z-setup.exe (for example, JuniGrid-en-v1.1.1-setup.exe).
 
-```
-powershell -File installer/build-installer.ps1
-```
+1. If the browser's download bar shows a risk warning, open the downloads list, click the `···` (three dots) to the right of that download, choose `Keep` / `Keep anyway` / `Show more`, and then keep the file.
+2. If Windows SmartScreen pops up a blue blocking window, click `More info`, then `Run anyway`.
+3. If antivirus software explicitly reports a trojan or a high-severity threat, or has already quarantined the file, do not force it to run; delete the file and download it again from the official GitHub Releases page. If the problem persists, report it to the author with a screenshot.
+
+
+
+## License
+
+All rights reserved. This project also serves as the source-code submission for the Nexus Mods API team's registration review.

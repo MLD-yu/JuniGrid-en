@@ -8,21 +8,21 @@ using SharpCompress.Compressors.LZMA;
 
 namespace JuniGridInstaller;
 
-/// <summary>一次进度上报：Status 为界面文案，Fraction ∈ [0,1]；DoneBytes/TotalBytes 仅在释放文件阶段有效。</summary>
+/// <summary>One progress report: Status is the UI text, Fraction ∈ [0,1]; DoneBytes/TotalBytes are only valid during the file extraction phase.</summary>
 public sealed record InstallProgress(string Status, double Fraction, long DoneBytes = 0, long TotalBytes = 0);
 
 /// <summary>
-/// 安装核心流程（对齐旧 Inno Setup 脚本 installer.iss 的行为）：
-///   1. 结束正在运行的 JuniGrid（必须在动旧版卸载器之前，否则文件锁会让它失败）；
-///   2. 发现旧版（同 AppId 的 Inno 安装）→ 静默卸载 unins000.exe；自己的 GUI 卸载向导不在此列，直接跳过；
-///   3. 释放内嵌 payload.lz（publish\sc 自包含输出的 LZMA 固实容器，见 PayloadTool）到目标目录；
-///   4. 生成 uninstall.ps1 + 写 HKCU 卸载注册表（沿用旧 AppId，控制面板可卸载）；
-///   5. 开始菜单 + 可选桌面快捷方式。
-/// 全程 HKCU / %LocalAppData%，与 PrivilegesRequired=lowest 的旧版一致，无需管理员。
+/// Core install flow (mirrors the behavior of the old Inno Setup script installer.iss):
+///   1. Close the running JuniGrid (must happen before touching the old uninstaller, otherwise file locks make it fail);
+///   2. Detect a previous version (an Inno install with the same AppId) → silently run unins000.exe; our own GUI uninstall wizard is not in that category and is skipped;
+///   3. Extract the embedded payload.lz (LZMA solid container of the publish\sc self-contained output, see PayloadTool) into the target directory;
+///   4. Create the uninstaller + write the HKCU uninstall registry (reuses the old AppId so it can be uninstalled from Control Panel);
+///   5. Start menu + optional desktop shortcuts.
+/// Everything runs under HKCU / %LocalAppData%, matching the old PrivilegesRequired=lowest; no administrator rights needed.
 /// </summary>
 public sealed class InstallerEngine
 {
-    /// <summary>旧 Inno 脚本里的 AppId（installer.iss: AppId={{7E1B2C64-...}）。</summary>
+    /// <summary>AppId from the old Inno script (installer.iss: AppId={{7E1B2C64-...}).</summary>
     public const string LegacyKey = "{7E1B2C64-9A4D-4C0E-9F61-3A5D8B2C4E10}_is1";
     private static readonly string UninstallKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + LegacyKey;
 
@@ -33,7 +33,7 @@ public sealed class InstallerEngine
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion?.Split('+')[0] ?? "0.0.0";
 
-    /// <summary>默认安装目录：优先沿用旧版安装位置，否则 %LocalAppData%\Programs\JuniGrid。</summary>
+    /// <summary>Default install directory: reuse the previous install location when present, otherwise %LocalAppData%\Programs\JuniGrid.</summary>
     public static string GetDefaultInstallDir()
     {
         try
@@ -67,12 +67,13 @@ public sealed class InstallerEngine
         targetDir = Path.GetFullPath(targetDir);
         Directory.CreateDirectory(targetDir);
 
-        // 先关掉正在运行的 JuniGrid，再动旧版卸载器 —— 顺序反了文件被占用，
-        // 旧版卸载器会弹「文件正在使用」错误或卡在拦截页，静默卸载等于失败。
-        progress.Report(new InstallProgress("正在关闭正在运行的 JuniGrid…", 0.02));
+        // Close the running JuniGrid first, then touch the old uninstaller — in the reverse order the files are
+        // still locked, the old uninstaller pops a "file in use" error or hangs on an interstitial page, and the
+        // silent uninstall effectively fails.
+        progress.Report(new InstallProgress("Closing running JuniGrid…", 0.02));
         CloseRunningApp();
 
-        // 测试逃生口：设 JGINSTALLER_NOLEGACY=1 可跳过旧版静默卸载
+        // Test escape hatch: set JGINSTALLER_NOLEGACY=1 to skip the legacy silent uninstall
         if (Environment.GetEnvironmentVariable("JGINSTALLER_NOLEGACY") != "1")
         {
             var legacy = FindLegacyInstall();
@@ -83,14 +84,15 @@ public sealed class InstallerEngine
                     .Equals("Uninstall.exe", StringComparison.OrdinalIgnoreCase);
                 if (!ownGui)
                 {
-                    progress.Report(new InstallProgress("正在移除旧版本…", 0.05));
+                    progress.Report(new InstallProgress("Removing previous version…", 0.05));
                     RunLegacyUninstaller(legacy.uninstallCmd);
                 }
-                // 卸载入口是我们自己的 GUI 卸载向导（Uninstall.exe = 主程序副本）时，
-                // 绝不能在安装中途拉起：它会停在确认页等用户点击，应用还开着时只剩
-                // 拦截页，确认后的延时 rd /s /q 自删还可能把刚解压的新文件删掉。
-                // 它的职责（关应用/删快捷方式/清注册表）本次安装的同址覆盖 +
-                // 注册表/快捷方式重写已完整覆盖，直接跳过。
+                // When the uninstall entry is our own GUI uninstall wizard (Uninstall.exe = a copy of the main app),
+                // it must never be launched mid-install: it would sit on its confirmation page waiting for a click,
+                // and while the app is still running only the interstitial page is shown; after confirmation its
+                // delayed rd /s /q self-delete could even wipe the freshly extracted files.
+                // Its duties (close the app / remove shortcuts / clean the registry) are already fully covered by
+                // this install's same-location overwrite + the registry/shortcut rewrite below, so skip it outright.
             }
         }
 
@@ -101,12 +103,12 @@ public sealed class InstallerEngine
             totalBytes = total;
             var root = Path.GetPathRoot(targetDir);
             if (root is not null && new DriveInfo(root).AvailableFreeSpace < total + 256L * 1024 * 1024)
-                throw new InvalidOperationException("目标磁盘空间不足，请清理后重试。");
+                throw new InvalidOperationException("Not enough free space on the target drive. Free up some space and try again.");
 
             var props = new byte[5];
             res.ReadExactly(props);
-            // 解码在 LZMA 结束标记处自然终止（编码端未知大小模式必带标记）；
-            // 每个条目按头部记录的大小精确写出，流提前耗尽会在下方 Read 抛错
+            // Decoding ends naturally at the LZMA end-of-stream marker (the encoder's unknown-size mode always writes one);
+            // each entry is written out exactly at the size recorded in its header, and an exhausted stream throws in the Read below
             using var lzma = LzmaStream.Create(props, res, leaveOpen: true);
 
             long done = 0, lastReport = 0;
@@ -124,42 +126,42 @@ public sealed class InstallerEngine
                 {
                     int n = lzma.Read(buf, 0, (int)Math.Min(buf.Length, remaining));
                     if (n <= 0)
-                        throw new IOException("安装包数据不完整：" + rel);
+                        throw new IOException("Incomplete setup package data: " + rel);
                     dst.Write(buf, 0, n);
                     done += n;
                     remaining -= n;
                     if (done - lastReport > 3_500_000)
                     {
                         lastReport = done;
-                        progress.Report(new InstallProgress("正在安装文件…", 0.10 + 0.87 * done / total, done, total));
+                        progress.Report(new InstallProgress("Installing files…", 0.10 + 0.87 * done / total, done, total));
                     }
                 }
             }
         }
-        progress.Report(new InstallProgress("正在安装文件…", 0.97));
+        progress.Report(new InstallProgress("Installing files…", 0.97));
 
-        // 独立卸载器：复制主程序为 Uninstall.exe，程序内按文件名进入卸载模式
-        progress.Report(new InstallProgress("正在配置卸载程序…", 0.97));
+        // Standalone uninstaller: copy the main app as Uninstall.exe; the app enters uninstall mode based on its file name
+        progress.Report(new InstallProgress("Configuring uninstaller…", 0.97));
         File.Copy(Path.Combine(targetDir, "JuniGrid.exe"), Path.Combine(targetDir, "Uninstall.exe"), true);
 
-        progress.Report(new InstallProgress("正在创建快捷方式…", 0.985));
+        progress.Report(new InstallProgress("Creating shortcuts…", 0.985));
         CreateShortcuts(targetDir, desktopShortcut);
         WriteUninstallRegistry(targetDir);
 
-        progress.Report(new InstallProgress("安装完成", 1.0, totalBytes, totalBytes));
+        progress.Report(new InstallProgress("Installation complete", 1.0, totalBytes, totalBytes));
     }
 
     private static Stream OpenResource()
         => typeof(InstallerEngine).Assembly.GetManifestResourceStream(ResourceName)
-           ?? throw new InvalidOperationException($"找不到内置安装内容 {ResourceName}");
+           ?? throw new InvalidOperationException($"Missing embedded install payload {ResourceName}");
 
-    /// <summary>读取 JGP1 容器头（格式见 PayloadTool/Program.cs），返回文件条目表与解压后总大小。</summary>
+    /// <summary>Reads the JGP1 container header (format documented in PayloadTool/Program.cs), returning the file entry table and the total extracted size.</summary>
     private static List<(string rel, long size)> ReadPayloadHeader(Stream stream, out long totalSize)
     {
         Span<byte> head = stackalloc byte[8];
         stream.ReadExactly(head);
         if (!head[..4].SequenceEqual("JGP1"u8))
-            throw new InvalidOperationException("安装包格式不符（应为 JGP1 容器）");
+            throw new InvalidOperationException("Unexpected setup package format (expected a JGP1 container)");
         int count = BinaryPrimitives.ReadInt32LittleEndian(head[4..]);
         var entries = new List<(string, long)>(count);
         long total = 0;
@@ -168,7 +170,7 @@ public sealed class InstallerEngine
         {
             stream.ReadExactly(entry);
             if (entry[0] != 0)
-                throw new InvalidOperationException("安装包条目类型未知");
+                throw new InvalidOperationException("Unknown setup package entry type");
             var pathBytes = new byte[BinaryPrimitives.ReadUInt16LittleEndian(entry[1..3])];
             stream.ReadExactly(pathBytes);
             long size = BinaryPrimitives.ReadInt64LittleEndian(entry[3..]);
@@ -179,7 +181,7 @@ public sealed class InstallerEngine
         return entries;
     }
 
-    /// <summary>zip 内路径拼接，拒绝越出目标目录的恶意路径；返回 null 表示该条目是根目录本身，可跳过。</summary>
+    /// <summary>Joins a path inside the package, rejecting malicious paths that escape the target directory; returns null when the entry is the root directory itself and can be skipped.</summary>
     private static string? SafePath(string root, string rel)
     {
         rel = rel.Replace('\\', '/');
@@ -189,11 +191,11 @@ public sealed class InstallerEngine
         var combined = Path.GetFullPath(Path.Combine(root, rel));
         var prefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         if (!combined.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            throw new IOException("安装包内出现非法路径：" + rel);
+            throw new IOException("Illegal path inside the setup package: " + rel);
         return combined;
     }
 
-    /// <summary>拆开「"C:\path\xxx.exe" args」形式的卸载命令；解析不出 exe 时 exe 为空串。</summary>
+    /// <summary>Splits an uninstall command of the form "C:\path\xxx.exe" args; exe is the empty string when it cannot be parsed.</summary>
     private static (string exe, string args) SplitCommand(string cmd)
     {
         cmd = cmd.Trim();
@@ -212,7 +214,7 @@ public sealed class InstallerEngine
         {
             var (exe, args) = SplitCommand(cmd);
             if (exe.Length == 0) return;
-            // 旧 Inno 卸载器（unins000.exe）没有给参数时补上静默参数
+            // Add silent flags when the old Inno uninstaller (unins000.exe) was given none
             if (args.Length == 0 && Path.GetFileName(exe).StartsWith("unins", StringComparison.OrdinalIgnoreCase))
                 args = "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES";
             using var p = Process.Start(new ProcessStartInfo
@@ -226,7 +228,7 @@ public sealed class InstallerEngine
         }
         catch
         {
-            // 旧卸载器失败不阻塞新安装（同目录覆盖 + 注册表覆盖写）
+            // A legacy uninstaller failure must not block the new install (same-directory overwrite + registry overwrite)
         }
     }
 
@@ -248,7 +250,7 @@ public sealed class InstallerEngine
     {
         var exe = Path.Combine(dir, "JuniGrid.exe");
         dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)
-            ?? throw new InvalidOperationException("无法创建快捷方式（WScript.Shell 不可用）");
+            ?? throw new InvalidOperationException("Cannot create shortcuts (WScript.Shell unavailable)");
 
         void Make(string path)
         {
@@ -256,7 +258,7 @@ public sealed class InstallerEngine
             lnk.TargetPath = exe;
             lnk.WorkingDirectory = dir;
             lnk.IconLocation = exe + ",0";
-            lnk.Description = "JuniGrid — 星露谷物语小助手";
+            lnk.Description = "JuniGrid — Stardew Valley companion";
             lnk.Save();
         }
 
@@ -281,7 +283,7 @@ public sealed class InstallerEngine
             try { bytes += new FileInfo(f).Length; } catch { }
         }
 
-        // 卸载入口：安装目录里的独立 Uninstall.exe（双击即进入卸载向导）
+        // Uninstall entry: the standalone Uninstall.exe in the install directory (double-clicking starts the uninstall wizard)
         using var k = Registry.CurrentUser.CreateSubKey(UninstallKeyPath);
         k.SetValue("DisplayName", "JuniGrid");
         k.SetValue("DisplayVersion", Version);

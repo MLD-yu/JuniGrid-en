@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,7 +7,7 @@
     <base href="/" />
 
     <link rel="stylesheet" href="_content/Microsoft.FluentUI.AspNetCore.Components/css/reboot.css" />
-    <!-- app.css 已按区块拆分，link 顺序即原文件层叠顺序（后面的文件可覆盖前面），不可调换 -->
+    <!-- app.css is split by section; the link order matches the original file's cascade order (later files can override earlier ones) - do not reorder -->
     <link rel="stylesheet" href="css/base.css?v=1.1.3" />
     <link rel="stylesheet" href="css/shell.css?v=1.1.3" />
     <link rel="stylesheet" href="css/home.css?v=1.1.3" />
@@ -19,19 +19,20 @@
     <link rel="stylesheet" href="css/theme.css?v=1.1.3" />
 
     <style>
-        /* 高度用 100%（而非 100vh）：WebView2 下窗口最大化 / 高 DPI 缩放时，
-           100vh 会与 WebView 实际内容高度产生偏差，导致 #app 底部被 overflow:hidden
-           裁掉、内容滚不到底。用 100% 跟随 html/body 的实际高度链更稳。 */
+        /* Height uses 100% (not 100vh): with WebView2, when the window is maximized or under high DPI
+           scaling, 100vh can diverge from the WebView's actual content height, causing the bottom of #app
+           to be clipped by overflow:hidden so content cannot scroll to the bottom. Using 100% follows the
+           real height chain of html/body and is more reliable. */
         html, body { height: 100%; }
         #app {
             height: 100%;
-            border-radius: 10px;   /* 与 Win11 DWM 窗口圆角（约8px）匹配 */
+            border-radius: 10px;   /* matches the Win11 DWM window corner radius (about 8px) */
             overflow: hidden;
-            /* 默认深品牌色：保证第一帧不是白闪（启动动画盖在它上面）；
-               主界面皮肤（浅色/暗色）由 .jg-shell 主体自己提供，不依赖 #app 底色 */
+            /* Default dark brand color: guarantees the first frame is not a white flash (the splash animation covers it);
+               the main UI skin (light/dark) is provided by the .jg-shell body itself and does not rely on the #app background */
             background: linear-gradient(135deg, #101e16 0%, #0b1510 100%);
         }
-        /* 最大化时 DWM 圆角消失，CSS 圆角也要同步归零 */
+        /* DWM corners disappear when maximized; the CSS radius must zero out in sync */
         body.jg-max #app { border-radius: 0; }
         
         #blazor-error-ui {
@@ -51,27 +52,27 @@
     </style>
 </head>
 <body>
-    <!-- 最先执行：立即打上 jg-booting，让 .jg-shell 从第一帧就被藏起，避免露出浅色底 -->
+    <!-- Runs first: add jg-booting immediately so .jg-shell is hidden from the first frame, avoiding a flash of light background -->
     <script>document.body.classList.add('jg-booting');</script>
-    <!-- v1.1.1：主题预置 —— Blazor 挂载前同步读 localStorage 打上 data-theme，
-         深色用户启动不再闪一帧浅色（写入方见 junigridJs.toggleTheme/applyTheme） -->
+    <!-- v1.1.1: Theme preset - synchronously read localStorage and set data-theme before Blazor mounts,
+         so dark-theme users no longer see a flash of light on startup (writers: junigridJs.toggleTheme/applyTheme) -->
     <script>
         try {
             var jgTheme = localStorage.getItem('jg-theme');
             document.documentElement.dataset.theme = (jgTheme === 'light') ? 'light' : 'dark';
         } catch (e) { document.documentElement.dataset.theme = 'dark'; }
     </script>
-    <!-- Blazor 挂载点：保持为空，Blazor 启动后会把整个应用渲染进这里 -->
+    <!-- Blazor mount point: keep it empty; Blazor renders the whole app into it once started -->
     <div id="app"></div>
 
-    <!-- Blazor 挂载前的兜底覆盖层：透明，不再画 logo。
-         PCL 式 splash 由 WPF SplashWindow.xaml 负责显示；这里只用来防
-         Blazor 挂载瞬间露出 shell。 -->
+    <!-- Fallback overlay shown before Blazor mounts: transparent, no longer draws the logo.
+         The PCL-style splash is handled by WPF SplashWindow.xaml; this only prevents
+         the shell from flashing through during the Blazor mount. -->
     <div id="jg-splash" aria-hidden="true"></div>
 
     <div id="blazor-error-ui">
-        <span id="err-msg">JuniGrid 启动出错</span> —
-        <a href="" class="reload" onclick="location.reload();return false;">重新加载</a>
+        <span id="err-msg">JuniGrid failed to start</span> —
+        <a href="" class="reload" onclick="location.reload();return false;">Reload</a>
         <a class="dismiss" style="float:right;cursor:pointer"
            onclick="document.getElementById('blazor-error-ui').classList.remove('show')">🗙</a>
     </div>
@@ -85,14 +86,14 @@
         }
 
         window.addEventListener('error', e =>
-            showErr('JS 错误: ' + (e.message || '未知') + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?')));
+            showErr('JS error: ' + (e.message || 'unknown') + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?')));
         window.addEventListener('unhandledrejection', e =>
-            showErr('Promise 拒绝: ' + (e.reason?.message || e.reason || '未知')));
+            showErr('Promise rejection: ' + (e.reason?.message || e.reason || 'unknown')));
 
         setTimeout(() => {
-            // Blazor 挂载成功的标志：.jg-shell 出现在 #app 里
+            // Sign that Blazor mounted successfully: .jg-shell appears inside #app
             if (!document.querySelector('#app .jg-shell')) {
-                showErr('Blazor 启动超时（5s）— 组件树未挂载');
+                showErr('Blazor startup timed out (5s) — component tree not mounted');
             }
         }, 5000);
     </script>
@@ -101,7 +102,7 @@
     <script src="js/vendor/Flip.min.js"></script>
     <script src="js/vendor/ScrollTrigger.min.js"></script>
     <script>
-        // v0.25.0：禁用鼠标滚轮缩放页面（Ctrl+滚轮），以及 Ctrl+加号/减号/0
+        // v0.25.0: Disable mouse wheel page zoom (Ctrl+wheel) and Ctrl+plus/minus/0
         window.addEventListener('wheel', function (e) {
             if (e.ctrlKey) { e.preventDefault(); }
         }, { passive: false });
@@ -112,11 +113,12 @@
             }
         });
     </script>
-    <!-- v0.2.2：junigrid.*.js 必须排在 blazor.webview.js 之前 —— Blazor 引擎一加载就可能立刻
-         渲染并回调 OnAfterRenderAsync 里的 junigridJs.*。此前引擎在前、两个 gsap CDN 插件
-         夹在中间，CDN 一慢/一挂 junigridJs 就未定义（TitleBar/MainLayout 报
-         "junigridJs was undefined" 未观察异常）。gsap 插件已本地化 + 引擎最后加载，竞态归零。
-         （原 interop.js 已按功能拆分；core 必须最先 —— 它定义 window.junigridJs 基础对象） -->
+    <!-- v0.2.2: junigrid.*.js must come before blazor.webview.js - as soon as the Blazor engine loads it may render
+         immediately and call back into junigridJs.* from OnAfterRenderAsync. Previously the engine loaded first with the
+         two gsap CDN plugins in between; whenever the CDN was slow/down, junigridJs was undefined (TitleBar/MainLayout
+         threw an unobserved "junigridJs was undefined" exception). The gsap plugins are now localized and the engine
+         loads last, eliminating the race.
+         (The original interop.js has been split by feature; core must load first - it defines the window.junigridJs base object) -->
     <script src="js/junigrid.core.js?v=1.1.13"></script>
     <script src="js/junigrid.splash.js?v=1.1.9"></script>
     <script src="js/junigrid.ui.js?v=1.1.9"></script>

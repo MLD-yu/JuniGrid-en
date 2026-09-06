@@ -10,12 +10,13 @@ using Microsoft.Win32;
 namespace JuniGrid;
 
 /// <summary>
-/// GUI 卸载向导（JuniGrid.exe --uninstall）：深色确认页 → 立绘卸载中 → 白底完成页。
-/// 目录删除通过延时 cmd 自删（等本进程退出后 rd /s /q），与旧 uninstall.ps1 同机制。
+/// GUI uninstall wizard (JuniGrid.exe --uninstall): dark confirm page -> key-art
+/// uninstalling page -> white completion page. Directory deletion is handled by a delayed
+/// cmd self-delete (rd /s /q after this process exits), same mechanism as the old uninstall.ps1.
 /// </summary>
 public partial class UninstallWindow : Window
 {
-    // 与 installer/JuniGridInstaller/InstallerEngine.cs 保持一致（同一卸载 AppId）
+    // Keep in sync with installer/JuniGridInstaller/InstallerEngine.cs (same uninstall AppId)
     private const string UninstallKeyName = "{7E1B2C64-9A4D-4C0E-9F61-3A5D8B2C4E10}_is1";
     private static readonly string UninstallKeyPath =
         @"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + UninstallKeyName;
@@ -45,14 +46,14 @@ public partial class UninstallWindow : Window
         {
             if (e.ButtonState == MouseButtonState.Pressed) { try { DragMove(); } catch { } }
         };
-        // 卸载模式里这是唯一窗口：关掉就结束应用；已确认卸载的话退出前调度目录自删
+        // In uninstall mode this is the only window: closing it ends the app; if an uninstall was confirmed, schedule the directory self-delete before exiting
         Closed += (_, _) =>
         {
             if (_confirmed) ScheduleSelfDelete();
             Application.Current?.Shutdown();
         };
 
-        // 应用正在运行 → 拦截页（对齐 Riot：无法卸载，请先关闭应用）
+        // App is running -> blocked page (mirrors the Riot launcher: cannot uninstall, close the app first)
         if (IsAppRunning())
         {
             ConfirmScreen.Visibility = Visibility.Collapsed;
@@ -99,7 +100,7 @@ public partial class UninstallWindow : Window
 
     private void DoUninstall()
     {
-        // 1) 结束其它正在运行的 JuniGrid（不杀自己）
+        // 1) Kill other running JuniGrid instances (not this one)
         try
         {
             var self = Environment.ProcessId;
@@ -113,7 +114,7 @@ public partial class UninstallWindow : Window
         catch { }
         Thread.Sleep(400);
 
-        // 2) 快捷方式
+        // 2) Shortcuts
         try
         {
             File.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "JuniGrid.lnk"));
@@ -123,12 +124,13 @@ public partial class UninstallWindow : Window
         }
         catch { }
 
-        // 3) 注册表卸载项
+        // 3) Registry uninstall entry
         try { Registry.CurrentUser.DeleteSubKeyTree(UninstallKeyPath, false); } catch { }
     }
 
-    /// <summary>调度目录自删：必须在窗口关闭（进程即将退出）时才执行。
-    /// WebView2 子进程等释放文件锁有延迟，rd 失败会静默跳过，所以跨 ~15s 重试三次。</summary>
+    /// <summary>Schedules the directory self-delete: must only run once the window has closed
+    /// (the process is about to exit). WebView2 child processes release file locks with a
+    /// delay and a failed rd is skipped silently, so it retries three times over ~15s.</summary>
     private void ScheduleSelfDelete()
     {
         try

@@ -33,7 +33,7 @@
             }
             else
             {
-                @* 未检测到 Steam（或拿不到头像）→ 用项目内置 Steam 圆标兜底，不再是首字母色块 *@
+                @* Steam not detected (or avatar unavailable) → fall back to the built-in Steam round logo instead of an initial-letter block *@
                 <img class="jg-avatar" src="assets/steam.svg" alt="Steam" />
             }
             @if (_isRunning)
@@ -57,7 +57,7 @@
         @if (!_isRunning && !_launching)
         {
             <span class="jg-launch-ver">
-                Game version: @(_gameVersion ?? "Not found")
+                Current game version: @(_gameVersion ?? "Not detected")
                 @if (_gameHasUpdate && _gameLatest is not null)
                 {
                     <span class="jg-upd-arrow">→ @_gameLatest</span>
@@ -76,10 +76,10 @@
 {
     <div class="jg-dlg-overlay" @onclick="DismissConfirm">
         <div class="jg-dialog" @onclick:stopPropagation>
-            <div class="jg-dialog-body">Closing the game may lose unsaved progress.<br />Are you sure you want to close it?</div>
+            <div class="jg-dialog-body">Closing the game may cause unsaved progress to be lost.<br />Are you sure you want to close the game?</div>
             <div class="jg-dialog-actions">
                 <button type="button" class="jg-pill-ghost" @onclick="DismissConfirm">Cancel</button>
-                <button type="button" class="jg-pill-danger" @onclick="KillGame">Confirm</button>
+                <button type="button" class="jg-pill-danger" @onclick="KillGame">Close game</button>
             </div>
         </div>
     </div>
@@ -107,8 +107,8 @@
             : "No Steam account detected";
 
     private string MainButtonLabel =>
-        _launching ? "Launching…" :
-        _isRunning ? "Running…" :
+        _launching ? "Launching..." :
+        _isRunning ? "Running..." :
         _gameHasUpdate ? "⬆ Update game" :
         "▶ Launch game";
 
@@ -130,6 +130,7 @@
         ProbeVersions();
         _ = CheckGameVersionAsync();
         Launcher.OnLogLine += HandleLogLine;
+        ConfigService.Saved += HandleCfgSaved;
     }
 
     protected override async Task OnInitializedAsync()
@@ -137,22 +138,24 @@
         _update = await Updater.CheckSmapiAsync(_smapiVersion);
         StateHasChanged();
 
-        // 轮询真实游戏进程，让「关闭游戏」按钮对 SMAPI / Steam 官方两种模式都生效
+        // Poll the real game process so the "Close game" button works for both SMAPI and official Steam modes
         _ = PollRunningAsync();
     }
 
     public void Dispose()
     {
         _cts.Cancel();
+        try { _cts.Dispose(); } catch { }   // v1.1.6: dispose after Cancel; the polling loop exits normally via OCE
         Launcher.OnLogLine -= HandleLogLine;
+        ConfigService.Saved -= HandleCfgSaved;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // 启动按钮：光标驱动的 3D 透视倾斜（GSAP quickTo）
-            // v1.1.2：hover 像素溶解「点击启动！」遮罩已按需求移除，仅保留随鼠标倾斜
+            // Launch button: cursor-driven 3D perspective tilt (GSAP quickTo)
+            // v1.1.2: the hover pixel-dissolve "Click to launch!" overlay was removed by request; only the mouse-follow tilt remains
             try { await JS.InvokeVoidAsync("junigridJs.tiltPerspective", "#launch-btn"); } catch { }
         }
     }
@@ -169,26 +172,50 @@
         }
     }
 
+    private string? _probedGamePath;   // Directory used by the last version probe (the config is a shared mutable object that _cfg follows, so it can't tell whether the directory changed)
+
     private void ProbeVersions()
     {
         _smapiVersion = Game.ProbeSmapiVersion(_cfg.GamePath);
         _gameVersion = Updater.GetGameVersion(_cfg.GamePath);
+        _probedGamePath = _cfg.GamePath;
     }
 
-    // 每次启动 JuniGrid 都自动检测一次游戏本体最新版，有新版本就在启动按钮里显示
+    // v1.1.2: re-probe versions right after the game directory is saved on the Settings page — AccountPanel lives in MainLayout and is never rebuilt,
+    // so previously the launch button kept saying "Not detected" until the app restarted. Saved may fire on a background thread → InvokeAsync back to the UI (same as TaskDock.Refresh).
+    private void HandleCfgSaved()
+    {
+        // Skip saves where the directory didn't change (frequent writes like theme/notes/fingerprint) — don't probe files needlessly
+        if (string.Equals(Cfg.Current.GamePath, _probedGamePath, StringComparison.OrdinalIgnoreCase)) return;
+        InvokeAsync(() =>
+        {
+            _cfg = Cfg.Current;
+            ProbeVersions();
+            RecomputeGameHasUpdate();
+            StateHasChanged();
+        });
+    }
+
+    // Version comparison: local 1.6.15 vs remote 1.6.16; if the local version can't be parsed, treat it as unknown and don't report a false update
+    private void RecomputeGameHasUpdate()
+    {
+        _gameHasUpdate = false;
+        if (_gameLatest is not null
+            && !string.IsNullOrWhiteSpace(_gameVersion)
+            && Version.TryParse(_gameVersion, out var local)
+            && Version.TryParse(_gameLatest, out var remote))
+        {
+            _gameHasUpdate = remote > local;
+        }
+    }
+
+    // On every JuniGrid start, check the latest vanilla game version once; if there's an update, show it in the launch button
     private async Task CheckGameVersionAsync()
     {
         var latest = await Updater.GetLatestGameVersionAsync();
         if (string.IsNullOrWhiteSpace(latest)) { _gameLatest = null; _gameHasUpdate = false; return; }
         _gameLatest = latest;
-        // 版本比较：本地 1.6.15 vs 远端 1.6.16；本地无法解析时当作未知、不误报
-        _gameHasUpdate = false;
-        if (!string.IsNullOrWhiteSpace(_gameVersion)
-            && Version.TryParse(_gameVersion, out var local)
-            && Version.TryParse(latest, out var remote))
-        {
-            _gameHasUpdate = remote > local;
-        }
+        RecomputeGameHasUpdate();
 
         StateHasChanged();
     }
@@ -202,9 +229,9 @@
     private async Task Launch()
     {
         _launching = true;
-        _launchCancelled = false;   // v1.1.2c：清掉上一次的取消标记
+        _launchCancelled = false;   // v1.1.2c: clear the previous run's cancel flag
         StateHasChanged();
-        // 立刻清掉按钮上残留的像素溶解蒙版与倾斜 transform，避免盖住「启动中…」
+        // Immediately clear any leftover pixel-dissolve mask and tilt transform on the button so it doesn't cover "Launching..."
         try { await JS.InvokeVoidAsync("junigridJs.clearLaunchFx", "#launch-btn"); } catch { }
 
         try { await JS.InvokeVoidAsync("junigridJs.popAnimate", "#launch-btn"); } catch { }
@@ -228,17 +255,17 @@
 
                 if (_cfg.LaunchMode == "smapi")
                 {
-                    // 跟 PCL 一样：SMAPI 启动后自动切到日志页看输出（运行态由进程轮询接管）
+                    // Like PCL: after SMAPI launches, switch to the logs page automatically to watch the output (running state is taken over by process polling)
                     Nav.NavigateTo("/logs");
                 }
 
-                // 启动成功但进程可能还在被 Steam/运行时拉起：
-                // 保持「启动中…」直到 IsGameRunning 真正为 true（或超时），避免回弹成「▶ 启动游戏」。
+                // Launch succeeded but the process may still be being spawned by Steam/the runtime:
+                // keep "Launching..." until IsGameRunning is actually true (or times out) instead of snapping back to "▶ Launch game".
                 _ = WaitForRunningAsync();
             }
             else
             {
-                // 启动失败 → toast「启动失败」并恢复按钮为可点
+                // Launch failed → toast "Launch failed" and make the button clickable again
                 ShowToast("Launch failed");
                 _launching = false;
                 StateHasChanged();
@@ -246,31 +273,32 @@
         }
         catch (Exception ex)
         {
-            // v1.1.2：Launch 全程兜底 —— 此前 _launching=true 之后任何一步抛异常
-            // （保存/导航/JS 调用等）都会让按钮永远卡在「启动中…」且无任何提示
-            AppLog.Error("AccountPanel", "Launch flow exception: " + ex.Message);
-            ShowToast("Launch flow exception: " + ex.Message);
+            // v1.1.2: catch-all around Launch — previously any exception thrown after _launching=true
+            // (saving/navigation/JS calls etc.) left the button stuck on "Launching..." with no message
+            AppLog.Error("AccountPanel", "Launch error: " + ex.Message);
+            ShowToast("Launch error: " + ex.Message);
             _launching = false;
             StateHasChanged();
         }
     }
 
-    // 等待游戏真正进入运行态：期间按钮持续「启动中…」；超时/Steam 退出则回退为「▶ 启动游戏」。
-    // v1.1.2c：任何退出路径（超时/取消/Steam 退出/异常）都保证复位 _launching，
-    // 绝不让按钮永久卡在「启动中…」。
-    // v1.1.2c：启动等待期的中途取消 —— 终断等待 + 关闭游戏进程（若已被拉起）。
+    // Wait for the game to actually reach the running state: the button keeps showing "Launching...";
+    // on timeout/Steam exit it falls back to "▶ Launch game".
+    // v1.1.2c: every exit path (timeout/cancel/Steam exit/exception) guarantees _launching is reset,
+    // so the button can never get stuck on "Launching..." forever.
+    // v1.1.2c: mid-launch cancel during the launch wait — abort the wait and close the game process (if it was spawned).
     private volatile bool _launchCancelled;
-    private volatile bool _cancelWatchdog;   // 取消清场看门狗运行中：期间轮询不把按钮翻成「运行中…」
+    private volatile bool _cancelWatchdog;   // cancel-cleanup watchdog running: while active, polling won't flip the button to "Running..."
 
     private void CancelLaunch()
     {
         if (!_launching) return;
         _launchCancelled = true;
         ShowToast("Launch cancelled");
-        _launching = false;    // WaitForRunningAsync 的 finally 也会兜底复位
+        _launching = false;    // WaitForRunningAsync's finally also resets it as a fallback
         StateHasChanged();
-        // Steam 的拉起管线可能在取消之后才把游戏进程拉出来（家庭共享校验要几秒），
-        // 一次性 KillGame 会扑空 → 用看门狗持续清场 20s；期间若重新点启动则自动让位
+        // Steam's spawn pipeline may bring up the game process only after the cancel (family sharing checks take a few seconds),
+        // so a one-shot KillGame would miss it → use a watchdog to keep cleaning up for 20s; it yields automatically if launch is clicked again
         _cancelWatchdog = true;
         _ = Launcher.KillGameWatchdogAsync(20000, stopWhen: () => _launching || !_launchCancelled)
                 .ContinueWith(_ => _cancelWatchdog = false);
@@ -286,49 +314,49 @@
         {
             while (!_cts.IsCancellationRequested)
             {
-                // 用户点了 ✕ 取消 → 立即退出（清场由 KillGameWatchdogAsync 接管）
+                // User clicked ✕ to cancel → return immediately (cleanup is handled by KillGameWatchdogAsync)
                 if (_launchCancelled) return;
                 if (Launcher.IsGameRunning)
                 {
-                    // 真正进入了运行态：直接落地「运行中」，让「启动中」退出
+                    // Actually reached the running state: settle on "Running" and let "Launching" exit
                     _launching = false;
                     _isRunning = true;
                     StateHasChanged();
                     return;
                 }
-                // Steam 官方模式下 25 秒仍无游戏进程 → 大概率 Steam 在等用户处理
-                // 弹窗（家庭共享「借用游戏」确认/登录/更新），或当前账号未拥有此游戏 ——
-                // 之前只是默默干等，用户完全不知道 Steam 那边在等他点确认
+                // In official Steam mode, no game process after 25 seconds → most likely Steam is waiting for the user
+                // to handle a popup (family sharing "borrow this game" confirmation/login/update), or the current account doesn't own this game —
+                // previously it just waited silently, with no hint that Steam was waiting for a click
                 if (!hinted && _cfg.LaunchMode == "steam" && Environment.TickCount64 >= deadline - 20_000)
                 {
                     hinted = true;
-                    ShowToast("Game did not start: check whether Steam popped a confirmation dialog (e.g. family sharing). If this Steam account does not own the game, launch via SMAPI instead.");
+                    ShowToast("Game not started: check whether Steam has popped up a confirmation window.");
                 }
-                // Steam 被关闭 → 没人能拉起游戏了，立即取消等待（之前要干等满超时，
-                // 用户"关了 Steam 按钮还是启动中"的观感即来源于此）。
-                // steam:// 协议拉起 Steam 需要几秒：先等见到过一次 Steam 才开始检测"消失"；
-                // 若 12s 内 Steam 始终没出现，同样视为启动失败收场。
+                // Steam was closed → nothing can spawn the game anymore, cancel the wait immediately (previously it waited out the full
+                // timeout, which felt like "closed Steam but the button is still Launching").
+                // Launching Steam via the steam:// protocol takes a few seconds: only start checking for "disappearance" after Steam has been seen once;
+                // if Steam never appears within 12s, treat that as a failed launch too.
                 if (_cfg.LaunchMode == "steam")
                 {
                     if (LauncherService.IsSteamRunning) steamSeen = true;
                     if (steamSeen && !LauncherService.IsSteamRunning)
                     {
-                        if (++steamGoneChecks >= 8)   // 连续 ~4s 不在才判定（防瞬间抖动）
+                        if (++steamGoneChecks >= 8)   // require ~4s of continuous absence before deciding (guards against momentary flicker)
                         {
-                            ShowToast("Steam exited; cancelled the launch wait.");
+                            ShowToast("Steam exited; the launch wait was cancelled.");
                             return;
                         }
                     }
                     else steamGoneChecks = 0;
                     if (!steamSeen && Environment.TickCount64 >= deadline - 30_000)
                     {
-                        ShowToast("Steam never started; launch wait cancelled. Start Steam first or use SMAPI instead.");
+                        ShowToast("Steam never started running; the launch wait was cancelled. Start Steam first and try again, or switch to SMAPI.");
                         return;
                     }
                 }
                 if (Environment.TickCount64 >= deadline)
                 {
-                    ShowToast("Timed out waiting for the game process; button restored. Check the Steam window for pending dialogs.");
+                    ShowToast("Timed out waiting: no game process detected");
                     return;
                 }
                 await Task.Delay(500, _cts.Token);
@@ -342,11 +370,11 @@
         }
     }
 
-    // 主按钮统一入口：正在运行→弹确认框关游戏；有更新→去更新；否则启动
+    // Single entry point for the main button: running → confirm dialog to close the game; update available → go update; otherwise launch
     private void OnButtonClick()
     {
-        // v1.1.2c：启动等待期点 ✕ = 中途取消 —— 无论游戏有没有被拉起，直接终断等待并
-        // 关闭游戏进程（与「运行中」的 ✕ 同一个按钮，行为按状态分流）
+        // v1.1.2c: clicking ✕ during the launch wait = mid-launch cancel — whether or not the game was spawned, abort the wait and
+        // close the game process (same ✕ button as the "Running" state; behavior branches on state)
         if (_launching) { CancelLaunch(); return; }
         if (_isRunning)
         {
@@ -361,7 +389,7 @@
         _ = Launch();
     }
 
-    // 有新版本 → 打开 Steam 游戏页让用户点更新（不再直接启动本体，否则旧版会被启动）
+    // New version available → open the Steam game page so the user can click update (no longer launches the game directly, otherwise the old version would start)
     private void OpenUpdatePage()
     {
         try
@@ -379,27 +407,27 @@
         }
     }
 
-    // 取消关闭 / 点遮罩关闭 → 关闭确认框，不做任何事
+    // Cancel button / overlay click → dismiss the confirm dialog without doing anything
     private void DismissConfirm()
     {
         _showConfirm = false;
     }
 
-    // 确认关闭游戏：先关确认框，再真正结束进程
+    // Confirm closing the game: dismiss the dialog first, then actually kill the process
     private void KillGame()
     {
         _showConfirm = false;
         Launcher.KillGame();
     }
 
-    // 轮询真实游戏进程，让「关闭游戏」按钮在 SMAPI / Steam 官方两种模式都生效
+    // Poll the real game process so the "Close game" button works in both SMAPI and official Steam modes
     private async Task PollRunningAsync()
     {
         try
         {
             while (!_cts.IsCancellationRequested)
             {
-                // 取消清场看门狗运行期间，Steam 迟到拉起的游戏进程不算「运行中」（马上会被清掉）
+                // While the cancel-cleanup watchdog is running, a game process spawned late by Steam doesn't count as "Running" (it gets killed right away)
                 var r = !_cancelWatchdog && Launcher.IsGameRunning;
                 if (r != _isRunning)
                 {
@@ -415,7 +443,7 @@
 
     private void ShowToast(string text)
     {
-        // v0.43.1：报错 → 红底白字 toast，同时落日志
+        // v0.43.1: errors → red toast with white text, also written to the log
         AppLog.Error("AccountPanel", text);
         _ = JS.InvokeVoidAsync("junigridJs.toast", text, "err");
     }

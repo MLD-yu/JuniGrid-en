@@ -22,11 +22,11 @@ public sealed class NexusService
     {
         var h = new HttpClient();
         h.DefaultRequestHeaders.UserAgent.ParseAdd("JuniGrid-Launcher");
-        // Nexus AUP 要求的应用标识头
+        // App identification headers required by the Nexus AUP
         h.DefaultRequestHeaders.TryAddWithoutValidation("Application-Name", "JuniGrid");
         h.DefaultRequestHeaders.TryAddWithoutValidation("Application-Version", "0.2.0");
         h.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-        h.Timeout = TimeSpan.FromSeconds(15);   // v1.06.8：检查更新提速——慢请求 15s 快速失败，不再拖住整批
+        h.Timeout = TimeSpan.FromSeconds(15);   // v1.06.8: faster update checks — slow requests fail fast after 15s instead of stalling the whole batch
         return h;
     }
 
@@ -38,8 +38,8 @@ public sealed class NexusService
         return r;
     }
 
-    // v1.08：宽容客户端 —— 详情页/按需单请求专用。Nexus API 单请求实测要 5~8 秒，
-    // 详情页要串 7 个请求，15s 快速失败通道必然超时。批量检查更新仍走 Http(15s)。
+    // v1.08: lenient client — for the detail page / on-demand single requests. A single Nexus API request
+    // takes 5-8s in practice and the detail page chains 7, so the 15s fail-fast channel always timed out. Batch update checks still use Http (15s).
     private static readonly HttpClient SlowHttp = CreateSlow();
     private static HttpClient CreateSlow()
     {
@@ -49,7 +49,7 @@ public sealed class NexusService
     }
 
     /// <summary>Mod metadata (name + current version + cover). null on error.</summary>
-    /// <summary>v0.46.0：拉取本游戏的官方分类表（category_id → 名称），调用方缓存进 config。</summary>
+    /// <summary>v0.46.0: fetches the official category table for this game (category_id → name); the caller caches it in config.</summary>
     public async Task<Dictionary<int, string>?> GetCategoriesAsync(string apiKey)
     {
         using var res = await Http.SendAsync(Req(apiKey, Base + ".json"));
@@ -109,9 +109,9 @@ public sealed class NexusService
             }
         }
 
-        // 图集：primary picture 打头，其余按 images 数组顺序排。
-        // Nexus v1 的 images 每项字段可能是 picture_url / original_url / thumbnail_url，
-        // 按清晰度优先取 original_url > picture_url > thumbnail_url。
+        // Gallery: the primary picture first, the rest in images array order.
+        // In Nexus v1 each images entry may use picture_url / original_url / thumbnail_url;
+        // prefer by resolution: original_url > picture_url > thumbnail_url.
         var primary = GetStr(root, "picture_url");
         var images = new List<string>();
         if (!string.IsNullOrWhiteSpace(primary)) images.Add(primary);
@@ -155,17 +155,17 @@ public sealed class NexusService
             && v.TryGetInt64(out var n) ? n : 0;
 
     /// <summary>
-    /// Nexus 的 description 是 BBCode 风格（[b]…[/b]、[url=…]…[/url]、[list]…[/list]），
-    /// 不是 HTML —— 直接 (MarkupString) 会把这些当成字面文本显示。
-    /// 这里把常见 BBCode 转成真正的 HTML，让详情页能渲染出加粗/链接/列表/颜色。
+    /// Nexus descriptions are BBCode-style ([b]...[/b], [url=...]...[/url], [list]...[/list]),
+    /// not HTML — rendering them directly as (MarkupString) shows them as literal text.
+    /// This converts common BBCode into real HTML so the detail page can render bold/links/lists/colors.
     /// </summary>
     private static string SanitizeHtml(string html)
 {
     if (string.IsNullOrEmpty(html)) return "";
     var s = html;
-    // 先剥掉危险的 script（防御）
+    // Strip dangerous script tags first (defensive)
     s = Regex.Replace(s, "<script.*?</script>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-    // 若一段是转义实体（&lt;）则先解一次
+    // If the payload is escaped entities (&lt;), decode it once first
     if (s.Contains("&lt;", StringComparison.OrdinalIgnoreCase))
         s = System.Net.WebUtility.HtmlDecode(s);
 
@@ -174,7 +174,7 @@ public sealed class NexusService
     s = Regex.Replace(s, @"\[i\](.*?)\[/i\]", "<i>$1</i>", RegexOptions.Singleline);
     s = Regex.Replace(s, @"\[u\](.*?)\[/u\]", "<u>$1</u>", RegexOptions.Singleline);
     s = Regex.Replace(s, @"\[s\](.*?)\[/s\]", "<s>$1</s>", RegexOptions.Singleline);
-    // 颜色 / 字号（Nexus 的 size 是 1–7 档位，映射到可读的像素字号）
+    // Color / font size (Nexus size is 1-7; map to readable pixel sizes)
     s = Regex.Replace(s, @"\[color\s*=\s*([^\]]+)\](.*?)\[/color\]",
         "<span style=\"color:$1\">$2</span>", RegexOptions.Singleline);
     s = Regex.Replace(s, @"\[size\s*=\s*([^\]]+)\](?<c>.*?)\[/size\]", m =>
@@ -187,7 +187,7 @@ public sealed class NexusService
         };
         return $"<span style=\"font-size:{px}px\">{m.Groups["c"].Value}</span>";
     }, RegexOptions.Singleline);
-    // 链接：[url=外链]文字[/url] 或 [url]外链[/url]
+    // Links: [url=link]text[/url] or [url]link[/url]
     s = Regex.Replace(s, @"\[url\s*=\s*[^\]]+?\](.*?)\[/url\]", m =>
     {
         var tag = m.Value;
@@ -197,23 +197,23 @@ public sealed class NexusService
     }, RegexOptions.Singleline);
     s = Regex.Replace(s, @"\[url\](.*?)\[/url\]",
         "<a href=\"$1\" target=\"_blank\" rel=\"noopener\">$1</a>", RegexOptions.Singleline);
-    // 图片
+    // Images
     s = Regex.Replace(s, @"\[img\s*(?:=\s*([^\]]+))?\](.*?)\[/img\]",
         "<img src=\"$2\" alt=\"\" loading=\"lazy\" class=\"jg-desc-img\"/>", RegexOptions.Singleline);
-    // v0.56.0：HTML <img> 标签也统一加 class，便于 Flip 放大
+    // v0.56.0: add the class to plain HTML <img> tags too, for the Flip zoom
     s = Regex.Replace(s, @"<img\s+([^>]*?)src=""([^""]+)""([^>]*?)>",
         @"<img src=""$2"" alt="""" loading=""lazy"" class=""jg-desc-img""/>", RegexOptions.IgnoreCase);
-    // v0.57.0：裸图片直链（既没包 [img] 也不是 <img> 的）也渲染成图片。
-    // 前置否定 lookbehind 排除已生成标签属性里的 URL（href="/src=" 前的引号、> 等）。
+    // v0.57.0: bare image links (wrapped in neither [img] nor <img>) are rendered as images too.
+    // The negative lookbehind excludes URLs inside attributes of already-generated tags (quotes before href="/src=", >, etc.).
     s = Regex.Replace(s, @"(?<![""'>=])(https?://[^\s<""'\]\[]+?\.(?:png|jpe?g|gif|webp)(?:\?[a-zA-Z0-9=&_%\-]*)?)",
         "<img src=\"$1\" alt=\"\" loading=\"lazy\" class=\"jg-desc-img\"/>", RegexOptions.IgnoreCase);
-    // 引用 / 代码
+    // Quote / code
     s = Regex.Replace(s, @"\[quote\](.*?)\[/quote\]",
         "<blockquote>$1</blockquote>", RegexOptions.Singleline);
     s = Regex.Replace(s, @"\[code\](.*?)\[/code\]",
         "<pre>$1</pre>", RegexOptions.Singleline);
 
-    // 列表与列表项：用栈记录 open 的 <ul>/<ol>，让 [/list] 正确闭合并保持嵌套
+    // Lists and items: use a stack to track open <ul>/<ol> so [/list] closes correctly and nesting is preserved
     var listStack = new Stack<string>();
     s = Regex.Replace(s, @"\[(/)?list(=([^\]]+))?\]", match =>
     {
@@ -230,13 +230,13 @@ public sealed class NexusService
     s = Regex.Replace(s, @"\[item\]", "<li>", RegexOptions.IgnoreCase);
     s = Regex.Replace(s, @"\[\*\]", "<li>", RegexOptions.IgnoreCase);
 
-    // 常用子集：字体、水平线、float 保留辅助样式
+    // Common subset: font and horizontal rule keep their helper styles
     s = Regex.Replace(s, @"\[font\s*=\s*([^\]]+)\](.*?)\[/font\]",
         "<span style=\"font-family:$1\">$2</span>", RegexOptions.Singleline);
     s = Regex.Replace(s, @"\[hr\]", "<hr/>", RegexOptions.IgnoreCase);
 
-    // 剩下的未知 BBCode 当作纯文本剥掉标签语法，避免方括号毒化
-    // v0.58.0：列表闭合标记 [*] 的收尾 [/ *] / [/*] 也要清掉（* 不是字母，原规则匹配不到）
+    // Strip the remaining unknown BBCode as plain tag syntax to avoid bracket poisoning
+    // v0.58.0: also clean up the [*] list-item closing forms [/ *] / [/*] (* is not a letter, the original rule missed them)
     s = Regex.Replace(s, @"\[/?\*\]", "", RegexOptions.Singleline);
     s = Regex.Replace(s, @"\[/?[a-zA-Z][a-zA-Z0-9_=:,/\.# -]*?\]", "", RegexOptions.Singleline);
 
@@ -260,7 +260,7 @@ public sealed class NexusService
                 var ver = f.TryGetProperty("version", out var fv) ? fv.GetString() ?? "" : "";
                 var cat = f.TryGetProperty("category_name", out var fc) ? fc.GetString() ?? "" : "";
                 var ts = f.TryGetProperty("uploaded_timestamp", out var ft) ? ft.GetInt64() : 0;
-                // v1.04.0：主文件大小（字节）—— 详情页统计行「大小」用；缺失按 0 处理（详情页照样显示 0 B）
+                // v1.04.0: main file size in bytes — feeds the detail page's "Size" stat row; treated as 0 when missing (the detail page then shows 0 B)
                 var size = f.TryGetProperty("size", out var fz) && fz.ValueKind == JsonValueKind.Number
                     && fz.TryGetInt64(out var szl) ? szl : 0;
                 var info = new NexusFileInfo(id, name, ver, cat, size);
@@ -272,14 +272,16 @@ public sealed class NexusService
     }
 
     /// <summary>
-    /// vNext：更新检查「指纹批量快道」—— 一次 GraphQL legacyModsByDomain 拿一批 mod 的
-    /// { modId, version, updatedAt, pictureUrl }（50 个/批、免 API key、与封面/榜单同一通道）。
-    /// 核心依据（2026-09 实测验证）：mod 的 updatedAt 跟随文件上传变化（SVE 最新 MAIN 文件
-    /// 上传于 23:17:39，updatedAt=23:19:24）—— updatedAt 没变 ⟹ 文件列表没变 ⟹ 上次
-    /// files.json 查到的「最新 MAIN 文件版本」仍然有效，可整批跳过逐 mod 精查。
-    /// 几百个 mod 的更新检查从 N 个请求塌缩到 ~N/50 个请求（重启后/超 60 分钟 TTL 的
-    /// 常规进页从几十秒降到约 1 秒）。
-    /// 任一批次失败返回 null（调用方整体回落到逐 mod 精查，宁可慢不可错）。
+    /// vNext: the "fingerprint batch fast path" for update checks — one GraphQL legacyModsByDomain call
+    /// fetches { modId, version, updatedAt, pictureUrl } for a batch of mods (50 per batch, no API key,
+    /// same channel as covers/browse lists).
+    /// Key finding (verified 2026-09): a mod's updatedAt follows file uploads (SVE's newest MAIN file was
+    /// uploaded at 23:17:39 and updatedAt=23:19:24) — unchanged updatedAt => unchanged file list => the
+    /// "newest MAIN file version" found by the last files.json query is still valid, so the whole batch can
+    /// skip per-mod detailed checks.
+    /// Update checks for hundreds of mods collapse from N requests to ~N/50 (after a restart / past the
+    /// 60-minute TTL, the normal page load drops from tens of seconds to about 1 second).
+    /// Returns null if any batch fails (the caller falls back entirely to per-mod checks — prefer slow over wrong).
     /// </summary>
     public async Task<Dictionary<int, NexusModFingerprint>?> GetModFingerprintsBatchAsync(
         IEnumerable<int> modIds, string gameDomain = "stardewvalley")
@@ -288,9 +290,9 @@ public sealed class NexusService
         {
             var ids = modIds.Distinct().ToList();
             if (ids.Count == 0) return new Dictionary<int, NexusModFingerprint>();
-            const int CHUNK = 50;   // 与浏览页 FetchChunkedAsync 同尺寸（单批 50 稳定可用）
+            const int CHUNK = 50;   // same size as the browse page's FetchChunkedAsync (batches of 50 are stable)
             var result = new Dictionary<int, NexusModFingerprint>();
-            // 各批次并行拉（几百个 mod 也只是几个并发 POST，无 key 无限流压力）
+            // Fetch batches in parallel (even hundreds of mods is just a few concurrent POSTs; no key, no rate-limit pressure)
             var chunks = new List<Task<Dictionary<int, NexusModFingerprint>?>>();
             for (var i = 0; i < ids.Count; i += CHUNK)
             {
@@ -332,7 +334,7 @@ public sealed class NexusService
         catch { return null; }
     }
 
-    /// <summary>v0.69.0：mod 的更新日志（版本 → 变更行）。对应官网 LOGS 页签的 Changelogs。</summary>
+    /// <summary>v0.69.0: mod changelogs (version → change lines). Matches the Changelogs on the site's LOGS tab.</summary>
     public async Task<List<NexusChangelog>?> GetChangelogsAsync(string apiKey, int modId)
     {
         using var res = await SlowHttp.SendAsync(Req(apiKey, $"{Base}/mods/{modId}/changelogs.json"));
@@ -352,10 +354,11 @@ public sealed class NexusService
     }
 
     /// <summary>
-    /// v0.69.2：抓取 mod 图片页（?tab=images）补齐完整画廊。
-    /// 根因：v1 mods.json 的 images 字段基本只含主图（官网 25 张不在其中），
-    /// 完整图集只存在于图片页 HTML 里。抓到 staticdelivery 直链、按文件名去重。
-    /// 任何失败返回 null（调用方保留原主图），绝不影响详情页。
+    /// v0.69.2: fetches the mod images page (?tab=images) to complete the full gallery.
+    /// Root cause: the images field of v1 mods.json usually contains only the main picture (the site's
+    /// 25 images are not included), and the full gallery only exists in the images page HTML.
+    /// Collects staticdelivery direct links and dedupes by file name.
+    /// Returns null on any failure (the caller keeps the original main image); never affects the detail page.
     /// </summary>
     public async Task<List<string>?> GetModImagesAsync(int modId)
     {
@@ -371,9 +374,9 @@ public sealed class NexusService
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase))
             {
                 var u = m.Value;
-                // 剔除头像/图标类小图
+                // Skip avatar/icon-sized images
                 if (u.Contains("/avatars/", StringComparison.OrdinalIgnoreCase)) continue;
-                // 按 base（去掉查询串）去重，查询串不同的同图只留一张
+                // Dedupe by base URL (query string stripped): keep only one copy when only the query string differs
                 var baseU = u.Split('?')[0];
                 if (!urls.Any(x => x.Split('?')[0].Equals(baseU, StringComparison.OrdinalIgnoreCase)))
                     urls.Add(u);
@@ -385,24 +388,45 @@ public sealed class NexusService
 
 
     // ══════════════════════════════════════════════════════════════════
-    // v0.69.5：Requirements 走 GraphQL v2（修复 v0.69.3 手工拼 JSON 内层引号未转义
-    // 导致请求体非法、接口 400、UI 永远卡在 shimmer 的 bug —— 改用 JsonSerializer）。
+    // v0.69.5: Requirements uses GraphQL v2 (fixes the v0.69.3 bug where hand-built JSON left inner
+    // quotes unescaped, making the request body invalid, the API return 400, and the UI stick on shimmer — switched to JsonSerializer).
     // ══════════════════════════════════════════════════════════════════
-    // v0.96.0：切到官网同款 api-router 端点 —— 旧 api.nexusmods.com/v2 的 modId EQUALS(数字尾号搜索)
-    // 在它上面永远返回空，api-router 上正常；其余字段/形状完全兼容（官网前端也走这条）。
+    // v0.96.0: switched to the site's own api-router endpoint — on the old api.nexusmods.com/v2, modId EQUALS
+    // (search by numeric id) always returned empty, but works on api-router; all other fields/shapes are fully
+    // compatible (the site's frontend uses this route too).
     private const string GraphQlEndpoint = "https://api-router.nexusmods.com/graphql";
-    /// <summary>v0.79.0：成人内容总开关 —— false=浏览/搜索 GraphQL 追加 adultContent:false 过滤条件。
-    /// 由 ConfigService 按「设置 → 过滤色情内容」开关同步（FilterAdultContent=true ⇒ 这里=false）。</summary>
-    public static bool IncludeAdultContent = true;
-    /// <summary>「只显示成人内容」开关 —— true 时浏览/搜索 GraphQL 追加 adultContent:true 过滤条件
-    /// （优先级高于 IncludeAdultContent，两者互斥由 ConfigService 保证）。默认关闭。</summary>
-    public static bool OnlyAdultContent = false;
-    /// <summary>成人过滤条件的版本号：开关每实际变化一次 +1（ConfigService.SyncAdultFilter 维护）。
-    /// Nexus 页快照存下取数时的版本，返回时版本对不上说明快照是旧过滤条件拉的数据 → 弃用重拉。</summary>
-    public static int AdultFilterVersion = 0;
-    /// <summary>v0.81.0：最近一次榜单查询服务端报告的 totalCount（分页器「第 x / N 页 · 共 X 个」的数据源）。</summary>
-    public int? LastBrowseTotalCount;
-    /// <summary>v0.96.0：Surprise 榜服务端 random 排序种子 —— 翻页期间保持不变保证页序连续，「换一批」时换新种子。</summary>
+    /// <summary>v0.79.0: adult content master switch — false = browse/search GraphQL appends an adultContent:false filter.
+    /// Synced by ConfigService from the "Settings → filter adult content" toggle (FilterAdultContent=true => this=false).
+    /// v1.1.6: written on the UI thread / read on GraphQL background threads; switched to a Volatile property to avoid torn reads.</summary>
+    private static bool _includeAdultContent = true;
+    public static bool IncludeAdultContent
+    {
+        get => Volatile.Read(ref _includeAdultContent);
+        set => Volatile.Write(ref _includeAdultContent, value);
+    }
+    /// <summary>"Only show adult content" toggle — when true, browse/search GraphQL appends an adultContent:true filter
+    /// (takes priority over IncludeAdultContent; mutual exclusion is guaranteed by ConfigService). Off by default.</summary>
+    private static bool _onlyAdultContent = false;
+    public static bool OnlyAdultContent
+    {
+        get => Volatile.Read(ref _onlyAdultContent);
+        set => Volatile.Write(ref _onlyAdultContent, value);
+    }
+    /// <summary>Version counter for the adult filter: +1 each time the toggle actually changes (maintained by ConfigService.SyncAdultFilter).
+    /// Nexus page snapshots store the version at fetch time; a version mismatch on return means the snapshot holds data fetched under the old filter => discard and refetch.</summary>
+    private static int _adultFilterVersion;
+    public static int AdultFilterVersion => Volatile.Read(ref _adultFilterVersion);
+    /// <summary>Increments the version whenever the toggle actually changes (atomic; the property is read-only and all increments funnel through here).</summary>
+    public static void BumpAdultFilterVersion() => Interlocked.Increment(ref _adultFilterVersion);
+    /// <summary>v0.81.0: the totalCount the server reported for the latest list query (source for the pager's "page x / N, X items total").
+    /// v1.1.6: moved to Volatile storage (-1 sentinel = null); written on the GraphQL thread / read on the UI thread.</summary>
+    private int _lastBrowseTotalCount = -1;
+    public int? LastBrowseTotalCount
+    {
+        get => Volatile.Read(ref _lastBrowseTotalCount) is int v && v >= 0 ? v : null;
+        set => Volatile.Write(ref _lastBrowseTotalCount, value is int v ? v : -1);
+    }
+    /// <summary>v0.96.0: server-side random sort seed for the Surprise list — kept constant while paging so page order stays continuous; a new seed is drawn on "shuffle".</summary>
     public int SurpriseSeed { get; private set; } = Random.Shared.Next();
     public void ReshuffleSurprise() => SurpriseSeed = Random.Shared.Next();
     private static readonly ConcurrentDictionary<string, int> GameIdCache = new();
@@ -416,31 +440,42 @@ public sealed class NexusService
                 new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
             if (!res.IsSuccessStatusCode) return null;
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
-            // v0.76.0：GraphQL 语法/参数报错时响应是 200 + {"errors":[...],"data":null} ——
-            // data 字段【存在但为 null】也必须当失败处理，否则下方解析抛异常、降级重试永远不触发
-            // （这就是选时间段/Trending 必然「拉取失败」的根因）。
+            // v0.76.0: on GraphQL syntax/argument errors the response is 200 + {"errors":[...],"data":null} —
+            // a data field that is present but null must also count as failure, otherwise parsing below throws and the
+            // fallback retry never fires (root cause of "fetch failed" whenever a time range or Trending was selected).
             if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind == JsonValueKind.Null)
                 return null;
             return data.Clone();
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            // v1.1.6: no longer fully silent — GraphQL is the only channel for browse/search/detail; keep one log line for diagnostics
+            AppLog.Warn("Nexus", "GraphQL request failed: " + ex.Message);
+            return null;
+        }
     }
 
-    /// <summary>拉取官网 Requirements（要求/依赖表格）。失败返回 null，由 UI 给"到官网查看"兜底。</summary>
+    /// <summary>gameDomain → internal gameId (cached). v1.1.6: the four call sites each used to duplicate a
+    /// "GraphQL query + parse + cache write-back" block; consolidated here. Returns null on failure.</summary>
+    private async Task<int?> EnsureGameIdAsync(string gameDomain)
+    {
+        if (GameIdCache.TryGetValue(gameDomain, out var gameId)) return gameId;
+        var g = await GraphQlAsync("{ game(domainName:\"" + gameDomain + "\") { id } }");
+        if (g is null) return null;
+        var gv = g.Value;
+        if (!gv.TryGetProperty("game", out var gg) || gg.ValueKind != JsonValueKind.Object) return null;
+        var gidEl = gg.TryGetProperty("id", out var tmp) ? tmp : default;
+        gameId = gidEl.ValueKind == JsonValueKind.Number ? gidEl.GetInt32()
+               : int.TryParse(gidEl.ToString(), out var p) ? p : 0;
+        if (gameId <= 0) return null;
+        GameIdCache[gameDomain] = gameId;
+        return gameId;
+    }
+
+    /// <summary>Fetches the site's Requirements (required-dependencies table). Returns null on failure; the UI falls back to a "view on the website" link.</summary>
     public async Task<List<NexusRequirement>?> GetModRequirementsAsync(int modId, string gameDomain = "stardewvalley")
     {
-        if (!GameIdCache.TryGetValue(gameDomain, out var gameId))
-        {
-            var g = await GraphQlAsync("{ game(domainName:\"" + gameDomain + "\") { id } }");
-            if (g is null) return null;
-            var gv = g.Value;
-            if (!gv.TryGetProperty("game", out var gg) || gg.ValueKind != JsonValueKind.Object) return null;
-            var gidEl = gg.TryGetProperty("id", out var tmp) ? tmp : default;
-            gameId = gidEl.ValueKind == JsonValueKind.Number ? gidEl.GetInt32()
-                   : int.TryParse(gidEl.ToString(), out var p) ? p : 0;
-            if (gameId <= 0) return null;
-            GameIdCache[gameDomain] = gameId;
-        }
+        if (await EnsureGameIdAsync(gameDomain) is not { } gameId) return null;
 
         var d = await GraphQlAsync(
             "{ mod(gameId:\"" + gameId + "\", modId:\"" + modId + "\") { modRequirements { nexusRequirements { nodes { modName notes url modId externalRequirement } } } } }");
@@ -461,7 +496,7 @@ public sealed class NexusService
         return list;
     }
 
-    /// <summary>v0.69.7：Requirements + 封面（先取需求，再按 modId 批量补 pictureUrl）。</summary>
+    /// <summary>v0.69.7: Requirements + covers (fetch requirements first, then batch-fill pictureUrl by modId).</summary>
     public async Task<List<NexusRequirementEx>?> GetModRequirementsWithCoversAsync(int modId, string gameDomain = "stardewvalley")
     {
         var base_ = await GetModRequirementsAsync(modId, gameDomain);
@@ -485,31 +520,20 @@ public sealed class NexusService
                         if (mid > 0) covers[mid] = string.IsNullOrWhiteSpace(pic) ? null : pic;
                     }
             }
-            catch { /* 封面缺失不阻塞 */ }
+            catch { /* missing covers are non-blocking */ }
         }
         return base_.Select(r => new NexusRequirementEx(
             r.ModName, r.Notes, r.Url, r.ModId, r.External,
             covers.TryGetValue(r.ModId, out var pu) ? pu : null)).ToList();
     }
 
-    /// <summary>v0.69.7：译本 —— 用 mods 搜索按主 mod 名匹配翻译版本（官网 HTML 抓取被 403 反爬挡死）。</summary>
+    /// <summary>v0.69.7: translations — finds translation versions by matching the main mod's name via the mods search (site HTML scraping is blocked by 403 anti-bot).</summary>
     public async Task<List<NexusTranslationItem>?> GetModTranslationsAsync(int modId, string modName, string gameDomain = "stardewvalley")
     {
         try
         {
-            if (!GameIdCache.TryGetValue(gameDomain, out var gameId))
-            {
-                var g = await GraphQlAsync("{ game(domainName:\"" + gameDomain + "\") { id } }");
-                if (g is null) return null;
-                var gv = g.Value;
-                if (!gv.TryGetProperty("game", out var gg) || gg.ValueKind != JsonValueKind.Object) return null;
-                var gidEl = gg.TryGetProperty("id", out var tmp) ? tmp : default;
-                gameId = gidEl.ValueKind == JsonValueKind.Number ? gidEl.GetInt32()
-                       : int.TryParse(gidEl.ToString(), out var p) ? p : 0;
-                if (gameId <= 0) return null;
-                GameIdCache[gameDomain] = gameId;
-            }
-            // 主名做通配搜索；结果里排除本体，只留带翻译语义的
+            if (await EnsureGameIdAsync(gameDomain) is not { } gameId) return null;
+            // Wildcard-search the main name; exclude the mod itself and keep only results with translation semantics
             var safeName = new string((modName ?? "")
                 .Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '-' || c == '_').ToArray()).Trim();
             if (string.IsNullOrEmpty(safeName)) return new List<NexusTranslationItem>();
@@ -517,7 +541,7 @@ public sealed class NexusService
                 + "\", op:WILDCARD}}, count:30) { nodes { modId name } } }";
             var d = await GraphQlAsync(q);
             if (d is null) return null;
-            // v0.81.0：捕获 totalCount（调试功能：前端展示"服务端总数 vs 已加载数"）
+            // v0.81.0: capture totalCount (debug feature: the UI shows "server total vs loaded count")
             try
             {
                 var rv0 = d.Value;
@@ -533,7 +557,10 @@ public sealed class NexusService
                 return null;
             var keywords = new[] { "translation", "chinese", "japanese", "korean", "francais", "french",
                 "german", "deutsch", "spanish", "espanol", "portuguese", "russian", "italian", "polish",
-                "czech", "turkish", "mandarin", "kor", "中文", "翻译", "汉化", "简体", "繁体" };
+                "czech", "turkish", "mandarin", "kor",
+                // The \uXXXX escapes below are CJK keywords (Chinese for "chinese/translation/localized/
+                // simplified/traditional") matched against real Nexus mod names; kept as escapes so matching behavior is unchanged.
+                "\u4E2D\u6587", "\u7FFB\u8BD1", "\u6C49\u5316", "\u7B80\u4F53", "\u7E41\u4F53" };
             var list = new List<NexusTranslationItem>();
             foreach (var n in nodes.EnumerateArray())
             {
@@ -546,7 +573,7 @@ public sealed class NexusService
                     list.Add(new NexusTranslationItem(nm, mid, null));
             }
 
-            // v0.69.9：批量补封面（同 Requirements 逻辑）
+            // v0.69.9: batch-fill covers (same logic as Requirements)
             if (list.Count > 0)
             {
                 try
@@ -569,7 +596,7 @@ public sealed class NexusService
                             ? new NexusTranslationItem(t.Name, t.ModId, pu) : t).ToList();
                     }
                 }
-                catch { /* 封面缺失不阻塞 */ }
+                catch { /* missing covers are non-blocking */ }
             }
             return list;
         }
@@ -577,9 +604,10 @@ public sealed class NexusService
     }
 
     /// <summary>
-    /// v0.69.2：抓取 mod 详情页 HTML，解析「许可与致谢 / 译本 / 包含该 mod 的合集」三块
-    /// （这三块 v1 REST 与 GraphQL 公开文档均无对应端点，官网页面是服务端渲染的，可直接解析）。
-    /// 任一区块解析失败就是空/ null，UI 显示"到官网查看"兜底。
+    /// v0.69.2: fetches the mod detail page HTML and parses three sections: Permissions and credits /
+    /// Translations / Collections containing this mod (none of these has an endpoint in the v1 REST API or
+    /// the public GraphQL docs; the site's pages are server-rendered and can be parsed directly).
+    /// If a section fails to parse it comes back empty/null; the UI shows a "view on the website" fallback.
     /// </summary>
     public async Task<NexusModExtras?> GetModPageExtrasAsync(int modId)
     {
@@ -590,7 +618,7 @@ public sealed class NexusService
             if (!res.IsSuccessStatusCode) return null;
             var html = await res.Content.ReadAsStringAsync();
 
-            // ── 译本：Translations 区块里的 mod 链接 ──
+            // ── Translations: mod links inside the Translations section ──
             var translations = new List<NexusLinkItem>();
             var tRegion = ExtractRegion(html, "Translations",
                 "Changelogs", "Mods using this mod", "Collections containing this mod", "Posts");
@@ -598,7 +626,7 @@ public sealed class NexusService
                 foreach (var (u, t) in ExtractModLinks(tRegion))
                     translations.Add(new NexusLinkItem(t, "https://www.nexusmods.com" + u, ""));
 
-            // ── 合集：Collections containing this mod / Included in N collections 区块 ──
+            // ── Collections: the "Collections containing this mod" / "Included in N collections" section ──
             var collections = new List<NexusLinkItem>();
             var cRegion = ExtractRegion(html, "Collections containing this mod",
                 "Posts", "Bug reports", "Activity logs", "Mod statistics", "</footer");
@@ -611,7 +639,7 @@ public sealed class NexusService
                 {
                     var t = m.Groups["t"].Value.Trim();
                     if (t.Length == 0) continue;
-                    // 链接附近找 "N mods" 计数
+                    // Look for an "N mods" count near the link
                     var tail = cRegion.Substring(m.Index, Math.Min(400, cRegion.Length - m.Index));
                     var cm = System.Text.RegularExpressions.Regex.Match(tail, @"(\d[\d,]*)\s*mods");
                     var sub = cm.Success ? cm.Groups[1].Value + " mods" : "";
@@ -619,7 +647,7 @@ public sealed class NexusService
                 }
             }
 
-            // ── 许可与致谢：区块内剥标签取纯文本（太长截断）──
+            // ── Permissions and credits: strip tags inside the section and take plain text (truncated when too long) ──
             string? permissions = null;
             var pRegion = ExtractRegion(html, "Permissions and credits",
                 "Translations", "Changelogs", "Mods using this mod", "Collections containing this mod");
@@ -628,9 +656,9 @@ public sealed class NexusService
                 var txt = System.Text.RegularExpressions.Regex.Replace(pRegion, "<[^>]+>", " ");
                 txt = System.Text.RegularExpressions.Regex.Replace(
                     System.Net.WebUtility.HtmlDecode(txt), "\\s+", " ").Trim();
-                // 去掉开头的区块标题本身
+                // Drop the section heading itself at the start
                 txt = System.Text.RegularExpressions.Regex.Replace(txt, "^Permissions and credits\\s*", "");
-                if (txt.Length > 30) permissions = txt.Length > 900 ? txt[..900] + "…" : txt;
+                if (txt.Length > 30) permissions = txt.Length > 900 ? txt[..900] + "..." : txt;
             }
 
             return new NexusModExtras(permissions, translations, collections);
@@ -638,7 +666,7 @@ public sealed class NexusService
         catch { return null; }
     }
 
-    /// <summary>截取 startMarker 到任一 endMarker 之间的 HTML 区域（找不到返回 null）。</summary>
+    /// <summary>Cuts out the HTML region between startMarker and the first matching endMarker (null when not found).</summary>
     private static string? ExtractRegion(string html, string startMarker, params string[] endMarkers)
     {
         var i = html.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
@@ -649,11 +677,11 @@ public sealed class NexusService
             var j = html.IndexOf(em, i + startMarker.Length, StringComparison.OrdinalIgnoreCase);
             if (j > i && j < end) end = j;
         }
-        var len = Math.Min(end - i, 200000);   // 防御：区域异常大时截断
+        var len = Math.Min(end - i, 200000);   // defensive: truncate pathologically large regions
         return html.Substring(i, len);
     }
 
-    /// <summary>从 HTML 区域里提取 (mod 链接, 显示文本) 对。</summary>
+    /// <summary>Extracts (mod link, display text) pairs from an HTML region.</summary>
     private static IEnumerable<(string Url, string Text)> ExtractModLinks(string region)
     {
         foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
@@ -665,9 +693,9 @@ public sealed class NexusService
     }
 
     /// <summary>
-    /// v0.69.0：用户下载历史（modId → 最后下载日期 yyyy-MM-dd）。
-    /// 这是 v1 遗留端点、官方随时可能下线 —— 任何失败一律返回 null，调用方静默兜底，
-    /// 绝不因为这个端点影响详情页打开。
+    /// v0.69.0: user download history (modId → last download date, yyyy-MM-dd).
+    /// This is a legacy v1 endpoint that could be taken down at any time — always return null on any failure
+    /// and let the caller fall back silently; opening the detail page must never be affected by this endpoint.
     /// </summary>
     public async Task<Dictionary<int, string>?> GetDownloadHistoryAsync(string apiKey)
     {
@@ -681,12 +709,12 @@ public sealed class NexusService
             if (doc.RootElement.ValueKind != JsonValueKind.Array) return map;
             foreach (var e in doc.RootElement.EnumerateArray())
             {
-                // 防御式解析：mod_id 可能平铺也可能嵌在 "mod" 对象里
+                // Defensive parsing: mod_id may be flat or nested inside a "mod" object
                 var mid = e.TryGetProperty("mod_id", out var m1) && m1.ValueKind == JsonValueKind.Number ? m1.GetInt32()
                         : e.TryGetProperty("mod", out var mo) && mo.ValueKind == JsonValueKind.Object
                             && mo.TryGetProperty("mod_id", out var m2) && m2.ValueKind == JsonValueKind.Number ? m2.GetInt32() : 0;
                 if (mid <= 0) continue;
-                // 日期字段名历代不一：date / downloaded_at / time，ISO 字符串或 unix 秒都兜
+                // The date field name has varied across versions: date / downloaded_at / time; accept ISO strings or unix seconds
                 string? iso = null;
                 foreach (var key in new[] { "date", "downloaded_at", "time" })
                 {
@@ -717,11 +745,11 @@ public sealed class NexusService
         foreach (var server in doc.RootElement.EnumerateArray())
             if (server.TryGetProperty("URI", out var u) && u.GetString() is { } uri)
                 return NexusDownloadResult.Ok(uri);
-        return NexusDownloadResult.Fail("响应里没有下载地址");
+        return NexusDownloadResult.Fail("No download URL in the response");
     }
 
-    // 大文件下载用单独的长超时客户端（免费账户限速约 1MB/s，
-    // 30 秒超时的 API 客户端会把几百 MB 的合集包下载掐断）。
+    // Large downloads use a separate long-timeout client (free accounts are throttled to ~1 MB/s,
+    // and the API client's 30s timeout would cut off multi-hundred-MB collection downloads).
     private static readonly HttpClient DownloadHttp = CreateDownloadClient();
 
     private static HttpClient CreateDownloadClient()
@@ -732,14 +760,14 @@ public sealed class NexusService
         return h;
     }
 
-    /// <summary>流式下载：边下边写盘，不像 GetByteArrayAsync 那样整个读进内存。</summary>
+    /// <summary>Streaming download: writes to disk as it goes instead of reading everything into memory like GetByteArrayAsync.</summary>
     public Task DownloadFileAsync(string url, string destPath) =>
         DownloadFileAsync(url, destPath, null);
 
     /// <summary>
-    /// 带实时进度回调的流式下载，供任务中心展示下载百分比和速度。
-    /// progress 为 null 时退化为普通下载。
-    /// v1.07：断点续传/自动重试统一走 ResumableDownload（掉连接不再从 0 重下）。
+    /// Streaming download with a live progress callback, for the task center to show download percentage and speed.
+    /// Degrades to a plain download when progress is null.
+    /// v1.07: resumable downloads / automatic retries all go through ResumableDownload (a dropped connection no longer restarts from 0).
     /// </summary>
     public Task DownloadFileAsync(string url, string destPath,
         IProgress<NexusDownloadProgress>? progress, CancellationToken ct = default)
@@ -749,18 +777,7 @@ public sealed class NexusService
             ct: ct);
     }
 
-    private static string FormatBytes(long bytes)
-    {
-        double value = bytes;
-        string[] units = { "B", "KB", "MB", "GB" };
-        int i = 0;
-        while (value >= 1024 && i < units.Length - 1)
-        {
-            value /= 1024;
-            i++;
-        }
-        return value.ToString(i == 0 ? "F0" : "F1") + " " + units[i];
-    }
+    // v1.1.6: the private FormatBytes copy was removed (no callers) — use ResumableDownload.FormatBytes everywhere.
 
     // ------------------------------------------------------------------
     // nxm:// one-time links (free accounts OK — the key+expires come from
@@ -776,15 +793,15 @@ public sealed class NexusService
         {
             var code = (int)res.StatusCode;
             return NexusDownloadResult.Fail(code is 400 or 401 or 403
-                ? $"HTTP {code}（下载凭证与「设置」里的 API Key 所属账号不一致，或链接已过期——请确认应用和网页登录的是同一个 Nexus 账号，然后回网页重新点一次 Mod Manager Download）"
-                : $"HTTP {code}（链接可能已过期，回网页重新点一次下载）");
+                ? $"HTTP {code} (the download credentials do not match the Nexus account that owns the API Key in Settings, or the link has expired — make sure the app and the website are logged into the same Nexus account, then click Mod Manager Download on the website again)"
+                : $"HTTP {code} (the link may have expired — click the download on the website again)");
         }
 
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         foreach (var server in doc.RootElement.EnumerateArray())
             if (server.TryGetProperty("URI", out var u) && u.GetString() is { } uri)
                 return NexusDownloadResult.Ok(uri);
-        return NexusDownloadResult.Fail("响应里没有下载地址");
+        return NexusDownloadResult.Fail("No download URL in the response");
     }
 
     // ------------------------------------------------------------------
@@ -813,31 +830,33 @@ public sealed class NexusService
     }
 
     /// <summary>
-    /// v0.77.0：浏览榜单对外入口。
+    /// v0.77.0: public entry point for the browse lists.
     /// </summary>
     /// <summary>
-    /// v0.96.0：时间过滤整体重写 —— 弃用「沿时间流爬取 + 客户端排序」模拟方案，改为与官网完全一致的
-    /// 服务端过滤：GraphQL createdAt/updatedAt 过滤值用 Unix 时间戳秒（ISO 字符串在官网 ES 里匹配恒为 0，
-    /// 这就是旧注释「日期过滤一加就挂」的真正原因）。实测口径（对照官网 games/{domain}/mods?sort=&timeRange=）：
-    /// New      = createdAt 过滤 + createdAt 排序
-    /// Updated  = updatedAt 过滤 + updatedAt 排序
-    /// Trending = createdAt 过滤 + endorsements 排序（官网默认 timeRange=7，首页 Trending 板块仍用）
-    /// Downloads= downloads 排序（原 Trending 榜位，按下载数排序）
-    /// Popular  = createdAt 过滤 + downloads 排序（官网 popular 就是下载数，不是推荐数）
-    /// Surprise = 无时间过滤 + 服务端 random{seed} 排序（种子稳定保证翻页连续，「换一批」换种子）
-    /// 过滤下移服务端后每页都是单次精确查询：totalCount 全时段可用（分页器时间筛选也能显示尾页）。
-    /// v1.04.0：去掉「自定义时间区间」（UI 已移除）；新增 direction（ASC/DESC，正序/倒序下拉）。
+    /// v0.96.0: time filtering rewritten — dropped the "crawl the time stream + sort client-side" simulation in
+    /// favor of server-side filtering identical to the website: GraphQL createdAt/updatedAt filter values use Unix
+    /// timestamp seconds (ISO strings always match 0 results in the site's Elasticsearch — the real reason behind
+    /// the old "date filtering always breaks" note). Verified against the site's games/{domain}/mods?sort=&timeRange=:
+    /// New      = createdAt filter + createdAt sort
+    /// Updated  = updatedAt filter + updatedAt sort
+    /// Trending = createdAt filter + endorsements sort (the site's default timeRange=7; still used by the homepage Trending block)
+    /// Downloads= downloads sort (the old Trending slot, sorted by download count)
+    /// Popular  = createdAt filter + downloads sort (the site's "popular" is download count, not endorsements)
+    /// Surprise = no time filter + server-side random{seed} sort (a stable seed keeps paging continuous; "shuffle" draws a new seed)
+    /// With filtering moved server-side, every page is a single exact query: totalCount is available at all times
+    /// (the pager can show the last page even when time-filtered).
+    /// v1.04.0: removed the custom time range (UI already removed); added direction (ASC/DESC order dropdown).
     /// </summary>
     public async Task<List<NexusModListEntry>?> BrowseModsAsync(string kind, int offset, int count,
         string gameDomain = "stardewvalley", string? searchText = null, string? categoryName = null,
         string timeRange = "all", string direction = "DESC")
     {
-        // ─── Surprise 特殊路径：官网同款服务端 random 排序（seed 由 UI「换一批」控制）───
+        // ─── Surprise special path: server-side random sort matching the site (seed controlled by the UI's "shuffle") ───
         if (kind == "surprise")
             return await FetchChunkedAsync(kind, offset, count, gameDomain, searchText, categoryName,
                 randomSeed: SurpriseSeed);
 
-        // ─── 时间窗口 → epoch 过滤条件（Updated tab 过滤更新时间，其余过滤发布时间，对照官网）───
+        // ─── Time window → epoch filter conditions (the Updated tab filters by update time, the rest by publish time — matches the site) ───
         long? sinceEpoch = null, untilEpoch = null;
         var dateOnUpdatedAt = kind == "updated";
         if (timeRange != "all")
@@ -851,7 +870,7 @@ public sealed class NexusService
             direction: direction);
     }
 
-    /// <summary>v0.77.0：按 CHUNK 循环补齐到 count 条（服务端截断时续拉凑满）。</summary>
+    /// <summary>v0.77.0: loops in CHUNK-sized fetches until count entries are collected (keeps pulling when the server truncates).</summary>
     private async Task<List<NexusModListEntry>?> FetchChunkedAsync(string kind, int offset, int count,
         string gameDomain, string? searchText, string? categoryName,
         long? sinceEpoch = null, long? untilEpoch = null, bool dateOnUpdatedAt = false,
@@ -864,7 +883,7 @@ public sealed class NexusService
         var emptyStreak = 0;
         for (var guard = 0; guard < 10 && all.Count < count; guard++)
         {
-            var want = Math.Min(CHUNK, count - all.Count);   // v0.88.0：不多要 —— 每页精确条数，末排不再缺
+            var want = Math.Min(CHUNK, count - all.Count);   // v0.88.0: don't over-request — exact count per page, so the last row is no longer short
             var batch = await BrowseModsChunkAsync(kind, cur, want, gameDomain, searchText, categoryName,
                 sinceEpoch: sinceEpoch, untilEpoch: untilEpoch, dateOnUpdatedAt: dateOnUpdatedAt,
                 direction: direction, randomSeed: randomSeed);
@@ -883,14 +902,14 @@ public sealed class NexusService
             foreach (var e in batch)
                 if (seen.Add(e.Id)) { all.Add(e); added++; }
             cur += Math.Max(batch.Count, 1);
-            // v0.77.0：单批 0 新增不能立刻判到顶（服务端偶发返回重叠一页）；连续 2 批 0 新增才真到顶
+            // v0.77.0: a single batch with 0 new entries does not mean the end yet (the server occasionally returns an overlapping page); 2 consecutive empty batches do
             if (added == 0) { if (++emptyStreak >= 2) break; }
             else emptyStreak = 0;
         }
         return all;
     }
 
-    /// <summary>单批 GraphQL 拉取（原 BrowseModsAsync 实现，仅内部调用）。</summary>
+    /// <summary>Single-batch GraphQL fetch (the original BrowseModsAsync implementation, internal only).</summary>
     private async Task<List<NexusModListEntry>?> BrowseModsChunkAsync(string kind, int offset, int count,
         string gameDomain = "stardewvalley", string? searchText = null, string? categoryName = null,
         long? sinceEpoch = null, long? untilEpoch = null, bool dateOnUpdatedAt = false,
@@ -898,22 +917,12 @@ public sealed class NexusService
     {
         try
         {
-            if (!GameIdCache.TryGetValue(gameDomain, out var gameId))
-            {
-                var g = await GraphQlAsync("{ game(domainName:\"" + gameDomain + "\") { id } }");
-                if (g is null) return null;
-                var gv = g.Value;
-                if (!gv.TryGetProperty("game", out var gg) || gg.ValueKind != JsonValueKind.Object) return null;
-                var gidEl = gg.TryGetProperty("id", out var tmp) ? tmp : default;
-                gameId = gidEl.ValueKind == JsonValueKind.Number ? gidEl.GetInt32()
-                       : int.TryParse(gidEl.ToString(), out var p) ? p : 0;
-                if (gameId <= 0) return null;
-                GameIdCache[gameDomain] = gameId;
-            }
+            if (await EnsureGameIdAsync(gameDomain) is not { } gameId) return null;
 
-            // v0.96.0：排序对照官网前端映射表（new=createdAt / updated=updatedAt / trending=endorsements
-            // / downloads=downloads / popular=downloads / surprise=random）。random 只认 seed 不认 direction。
-            // v1.04.0：正序/倒序下拉 → direction（ASC/DESC）；random 忽略方向。
+            // v0.96.0: sort mapping verified against the site's frontend (new=createdAt / updated=updatedAt /
+            // trending=endorsements / downloads=downloads / popular=downloads / surprise=random). random honors
+            // only seed, not direction.
+            // v1.04.0: ascending/descending dropdown → direction (ASC/DESC); random ignores direction.
             var dir = string.Equals(direction, "ASC", StringComparison.OrdinalIgnoreCase) ? "ASC" : "DESC";
             string sort = randomSeed is int rs
                 ? "random:{seed:" + rs + "}"
@@ -926,12 +935,12 @@ public sealed class NexusService
                     _             => $"createdAt:{{direction:{dir}}}"
                 };
 
-            // v0.71.0：过滤条件 —— 恒过滤成人内容；分类；搜索（纯数字=N网尾号精确，否则名称/作者 OR 模糊）
+            // v0.71.0: filters — adult content per the toggles; category; search (a pure number = exact Nexus mod id, otherwise fuzzy OR over name/author)
             var conds = new List<string>
             {
                 "{gameId:{value:\"" + gameId + "\"}}"
             };
-            // 只显示成人内容优先；否则按总开关在关闭时过滤成人内容
+            // "Only show adult content" takes priority; otherwise filter adult content when the master switch is off
             if (OnlyAdultContent)
                 conds.Add("{adultContent:{value:true, op:EQUALS}}");
             else if (!IncludeAdultContent)
@@ -942,22 +951,22 @@ public sealed class NexusService
             {
                 var st = searchText.Trim();
                 if (int.TryParse(st, out var idNum))
-                    // v0.96.0：value 必须是字符串字面量（BaseFilterValue.value: String!），裸数字整个查询直接报错；
-                    // 且 modId EQUALS 只在 api-router 端点正常，旧 v2 镜像恒返回空。
+                    // v0.96.0: value must be a string literal (BaseFilterValue.value: String!) — a bare number makes the
+                    // whole query error out; and modId EQUALS only works on the api-router endpoint, the old v2 mirror always returned empty.
                     conds.Add("{modId:{value:\"" + idNum + "\", op:EQUALS}}");
                 else
                 {
                     var safe = new string(st.Where(c => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_' or '.' or '&').ToArray());
                     if (safe.Length > 0)
-                        // v0.98.1：名称/作者/上传者三路 OR —— 搜作者名或上传者名都能列出他做的 mod
+                        // v0.98.1: three-way OR over name/author/uploader — searching an author's or uploader's name lists their mods
                         conds.Add("{filter:[{name:{value:\"" + safe + "\", op:WILDCARD}},"
                                 + "{author:{value:\"" + safe + "\", op:WILDCARD}},"
                                 + "{uploader:{value:\"" + safe + "\", op:WILDCARD}}], op:OR}");
                 }
             }
-            // v0.96.0：服务端时间过滤（对照官网）—— 过滤值用 Unix 时间戳秒。
-            // 注意 ES 会把它拼成 date:>=<value> 的 Lucene 查询：ISO 字符串里的冒号会撞坏
-            // Lucene 语法、纯日期字符串则匹配恒 0，只有纯数字 epoch 能真正命中。
+            // v0.96.0: server-side time filtering (matches the site) — filter values use Unix timestamp seconds.
+            // Note ES builds this into a Lucene date:>=<value> query: the colon in ISO strings breaks Lucene syntax,
+            // plain date strings always match 0, and only a numeric epoch actually hits.
             var dateField = dateOnUpdatedAt ? "updatedAt" : "createdAt";
             if (sinceEpoch is long se)
                 conds.Add("{" + dateField + ":{value:\"" + se + "\", op:GTE}}");
@@ -974,9 +983,10 @@ public sealed class NexusService
                 !mods.TryGetProperty("nodes", out var nodes) || nodes.ValueKind != JsonValueKind.Array)
                 return null;
 
-            // v0.95.0：捕获服务端 totalCount —— 分页器「第 x / N 页 · 共 X 个」的数据源。
-            // 同一查询里 totalCount 不随 offset 变化，任意一批捕获的值都等于全结果集大小。
-            // v0.96.0：时间过滤下移服务端后，时间筛选也有精确 totalCount（尾页全程可用）。
+            // v0.95.0: capture the server's totalCount — the data source for the pager's "page x / N, X items total".
+            // Within one query totalCount does not vary with offset, so the value captured from any batch equals the
+            // full result set size.
+            // v0.96.0: with time filtering moved server-side, time-filtered queries also get an exact totalCount (the last page stays reachable).
             if (mods.TryGetProperty("totalCount", out var tv) && tv.ValueKind == JsonValueKind.Number
                 && tv.TryGetInt32(out var tcv))
                 LastBrowseTotalCount = tcv;
@@ -1005,23 +1015,12 @@ public sealed class NexusService
         catch { return null; }
     }
 
-    /// <summary>v0.71.0：拉分类 facets（Showcase 4 分类 pills 数据源，含每类 mod 数）。</summary>
+    /// <summary>v0.71.0: fetches category facets (data source for the Showcase category pills, including per-category mod counts).</summary>
     public async Task<Dictionary<string, int>?> GetCategoryFacetsAsync(string gameDomain = "stardewvalley")
     {
         try
         {
-            if (!GameIdCache.TryGetValue(gameDomain, out var gameId))
-            {
-                var g = await GraphQlAsync("{ game(domainName:\"" + gameDomain + "\") { id } }");
-                if (g is null) return null;
-                var gv = g.Value;
-                if (!gv.TryGetProperty("game", out var gg) || gg.ValueKind != JsonValueKind.Object) return null;
-                var gidEl = gg.TryGetProperty("id", out var tmp) ? tmp : default;
-                gameId = gidEl.ValueKind == JsonValueKind.Number ? gidEl.GetInt32()
-                       : int.TryParse(gidEl.ToString(), out var p) ? p : 0;
-                if (gameId <= 0) return null;
-                GameIdCache[gameDomain] = gameId;
-            }
+            if (await EnsureGameIdAsync(gameDomain) is not { } gameId) return null;
             var d = await GraphQlAsync("{ mods(filter:{gameId:{value:\"" + gameId
                 + "\"}}, count:1, facets:{categoryName:[]}) { facetsData } }");
             if (d is null) return null;
@@ -1039,10 +1038,11 @@ public sealed class NexusService
         catch { return null; }
     }
 
-    /// <summary>调 /v1/users/validate.json 拿当前 API Key 对应的账号信息。
-    /// v1.08.0 实测：该接口已无 avatar / member_id 字段 —— 用户 id 叫 user_id（读 member_id 恒为 0，
-    /// GraphQL 附加信息与头像回填整条链路因此从未跑起来）；头像直链可按
-    /// avatars.nexusmods.com/{user_id}/100 构造（当前接口把它错装在 profile_url 字段里，顺手纠正）。</summary>
+    /// <summary>Calls /v1/users/validate.json for the account info behind the current API Key.
+    /// Verified in v1.08.0: the endpoint no longer has avatar / member_id fields — the user id is called
+    /// user_id (reading member_id always yields 0, so the whole GraphQL extras + avatar backfill chain never ran);
+    /// the avatar direct link can be built as avatars.nexusmods.com/{user_id}/100 (the endpoint currently
+    /// misplaces it in the profile_url field; corrected here).</summary>
     public async Task<NexusUser?> ValidateAsync(string apiKey)
     {
         try
@@ -1070,12 +1070,12 @@ public sealed class NexusService
         catch { return null; }
     }
 
-    /// <summary>v0.70.1：GraphQL user(id) 拉用户扩展信息（tooltip 卡片用）。失败返回 null。</summary>
+    /// <summary>v0.70.1: fetches extended user info via GraphQL user(id) (for tooltip cards). Returns null on failure.</summary>
     public async Task<NexusUserExtras?> GetUserExtrasAsync(int memberId)
     {
         if (memberId <= 0) return null;
-        // v1.08.0：user.id 是 Int! —— 旧写法 user(id:"123") 带引号被服务端整体拒绝
-        // （Expected type 'Int!'），本查询（含头像回填与悬浮卡统计）因此从未成功过
+        // v1.08.0: user.id is Int! — the old quoted form user(id:"123") was rejected outright by the server
+        // (Expected type 'Int!'), so this query (including avatar backfill and hover-card stats) never succeeded
         var d = await GraphQlAsync(
             "{ user(id:" + memberId + ") { avatar about joined country modCount uniqueModDownloads endorsementsGiven kudos recognizedAuthor verifiedCurator } }");
         if (d is null) return null;
@@ -1091,11 +1091,11 @@ public sealed class NexusService
             GetBool("recognizedAuthor"), GetBool("verifiedCurator"));
     }
 
-    /// <summary>v1.04.0：查询单个 mod 的上传者（详情页 by 作者名 hover 头像预览用）。
-    /// v1.06.1：改走 legacyModsByDomain 单 mod 精确查询 —— 旧的 mods(filter modId EQUALS)
-    /// 已被服务端封死（即使带上 gameId 也恒报 "gameId is required when filtering by modId"），
-    /// 头像因此永远落空。legacyModsByDomain 实测稳定返回 uploader.name/avatar
-    /// （avatar 为 https://avatars.nexusmods.com/<memberId>/100 真实直链）。失败返回 null。</summary>
+    /// <summary>v1.04.0: queries a single mod's uploader (for the hover avatar preview on the detail page's "by <author>").
+    /// v1.06.1: switched to a single-mod exact legacyModsByDomain query — the old mods(filter modId EQUALS)
+    /// was blocked server-side (even with gameId it always returned "gameId is required when filtering by modId"),
+    /// so the avatar never resolved. In practice legacyModsByDomain reliably returns uploader.name/avatar
+    /// (avatar is a real direct link like https://avatars.nexusmods.com/<memberId>/100). Returns null on failure.</summary>
     public async Task<(string? Name, string? Avatar)?> GetUploaderInfoAsync(int modId, string gameDomain = "stardewvalley")
     {
         try
@@ -1117,13 +1117,14 @@ public sealed class NexusService
         catch { return null; }
     }
 
-    /// <summary>v1.05.1：详情页作者头像。
-    /// v1.06.1：GraphQL legacyModsByDomain 提为主通道 —— 官网 HTML 抓取被 Cloudflare 403
-    /// （HttpClient/curl 无论什么 UA 都拦），而 GraphQL 的 avatar 字段实测能返回真实直链，
-    /// 之前拿不到是查询本身被服务端拒绝（见 GetUploaderInfoAsync 注释）。HTML 抓取保留兜底。</summary>
+    /// <summary>v1.05.1: author avatar for the detail page.
+    /// v1.06.1: GraphQL legacyModsByDomain promoted to the primary channel — site HTML scraping is blocked by
+    /// Cloudflare 403 (HttpClient/curl are blocked no matter the UA), while GraphQL's avatar field does return
+    /// real direct links in practice; earlier failures were the query itself being rejected by the server (see the
+    /// GetUploaderInfoAsync comment). HTML scraping is kept as a fallback.</summary>
     public async Task<string?> GetUploaderAvatarAsync(int modId, string gameDomain = "stardewvalley")
     {
-        // ① GraphQL legacyModsByDomain → uploader.avatar（当前唯一稳定通道）
+        // (1) GraphQL legacyModsByDomain → uploader.avatar (currently the only stable channel)
         try
         {
             var up = await GetUploaderInfoAsync(modId, gameDomain);
@@ -1132,7 +1133,7 @@ public sealed class NexusService
                 return gav;
         }
         catch { }
-        // ② 官网页面 HTML 抓头像兜底（Cloudflare 放行时才有用）
+        // (2) Fallback: scrape the avatar from the site page HTML (only works when Cloudflare lets it through)
         try
         {
             using var res = await Http.GetAsync($"https://www.nexusmods.com/{gameDomain}/mods/{modId}");
@@ -1152,9 +1153,10 @@ public sealed class NexusService
         return null;
     }
 
-    /// <summary>头像图片以 data URI 返回（避免 WebView2 跨域和 Referer 限制）。
-    /// v1.05.0：过滤 avatars.nexusmods.com/missing 占位图 —— 无头像用户的 GraphQL avatar
-    /// 字段会返回这个占位 URL，拉回来显示的是错误的「N 网占位头像」，改走首字母兜底。</summary>
+    /// <summary>Returns avatar images as data URIs (avoids WebView2 cross-origin and Referer restrictions).
+    /// v1.05.0: filter out the avatars.nexusmods.com/missing placeholder — for users without an avatar the GraphQL
+    /// avatar field returns this placeholder URL, and displaying it shows the wrong "Nexus placeholder avatar";
+    /// fall back to the initial-letter avatar instead.</summary>
     public async Task<string?> FetchAvatarAsync(string url)
     {
         try
@@ -1163,12 +1165,12 @@ public sealed class NexusService
             if (url.Contains("/missing", StringComparison.OrdinalIgnoreCase)) return null;
             using var res = await SlowHttp.GetAsync(url);
             if (!res.IsSuccessStatusCode) return null;
-            // v1.08.0：无头像用户的 ID 直链会 307 重定向到 missing 占位图 —— 重定向后的最终 URL
-            // 要再查一次（原 URL 不含 /missing，落点含）
+            // v1.08.0: ID-based direct links for users without an avatar 307-redirect to the missing placeholder —
+            // the final URL after the redirect must be checked too (the original URL lacks /missing, the landing URL has it)
             var finalUrl = res.RequestMessage?.RequestUri?.ToString() ?? url;
             if (finalUrl.Contains("/missing", StringComparison.OrdinalIgnoreCase)) return null;
             var bytes = await res.Content.ReadAsByteArrayAsync();
-            // avatars CDN 实测回 application/octet-stream —— data URI 统一标成图片类型
+            // The avatars CDN actually returns application/octet-stream — label the data URI as a generic image type
             var ct = res.Content.Headers.ContentType?.MediaType ?? "image/png";
             if (ct is null || ct == "application/octet-stream") ct = "image/png";
             return $"data:{ct};base64,{Convert.ToBase64String(bytes)}";
@@ -1179,28 +1181,30 @@ public sealed class NexusService
 
 public sealed record NexusUser(string Name, string Email, string ProfileUrl, string Avatar, bool IsPremium, int MemberId);
 
-/// <summary>v0.70.1：用户扩展信息（GraphQL user(id)，tooltip 卡片用）。
-/// v1.07.0：新增 Avatar —— GraphQL 真实头像直链，validate.json 头像缺失时的回填源。</summary>
+/// <summary>v0.70.1: extended user info (GraphQL user(id), for tooltip cards).
+/// v1.07.0: added Avatar — the real avatar direct link from GraphQL, used to backfill when validate.json lacks one.</summary>
 public sealed record NexusUserExtras(string? Avatar, string? About, string? Joined, string? Country,
     int ModCount, long UniqueModDownloads, int EndorsementsGiven, int Kudos, bool RecognizedAuthor, bool VerifiedCurator);
 
 public sealed record NexusModInfo(int Id, string Name, string Version, string PictureUrl, int? CategoryId);
 
-/// <summary>vNext：更新检查指纹（GraphQL legacyModsByDomain 批量拉取）。
-/// UpdatedAt 是 mod 的最后更新时间（ISO-8601，新文件上传必然带动它变化）——
-/// 指纹没变 ⟹ 文件列表没变 ⟹ 上次精查到的最新 MAIN 文件版本仍有效。
-/// Version 是 mod 顶层版本（作者手填、可能滞后，仅诊断参考，判定更新仍以文件版本为准）。</summary>
+/// <summary>vNext: update-check fingerprints (batch-fetched via GraphQL legacyModsByDomain).
+/// UpdatedAt is the mod's last update time (ISO-8601; uploading a new file always changes it) —
+/// an unchanged fingerprint => unchanged file list => the newest MAIN file version found by the last
+/// detailed check is still valid.
+/// Version is the mod's top-level version (hand-entered by the author, possibly stale; diagnostics only —
+/// update decisions still use the file version).</summary>
 public sealed record NexusModFingerprint(int ModId, string Version, string UpdatedAt, string? PictureUrl);
 
 public sealed record NexusFileInfo(long FileId, string Name, string Version, string Category, long Size = 0);
 
-/// <summary>v0.69.0：一个版本的更新日志。</summary>
+/// <summary>v0.69.0: the changelog for one version.</summary>
 public sealed record NexusChangelog(string Version, List<string> Lines);
 
-/// <summary>v0.69.2：页面附加数据里的一条链接（译本/合集共用）。Sub 为附加说明（如"553 mods"）。</summary>
+/// <summary>v0.69.2: one link from the page extras (shared by translations/collections). Sub is extra text (e.g. "553 mods").</summary>
 public sealed record NexusLinkItem(string Name, string Url, string Sub);
 
-/// <summary>v0.69.2：mod 页面附加数据（许可与致谢文本 / 译本列表 / 合集列表）。抓不到就为 null，UI 兜底给官网链接。</summary>
+/// <summary>v0.69.2: extra data scraped from the mod page (permissions & credits text / translations list / collections list). Null when scraping fails; the UI falls back to the website link.</summary>
 public sealed record NexusModExtras(string? PermissionsText, List<NexusLinkItem> Translations, List<NexusLinkItem> Collections);
 
 public sealed record NexusModListEntry(
@@ -1215,16 +1219,16 @@ public sealed record NexusModDetail(
     string UpdatedAt, IReadOnlyList<NexusModDependency>? Dependencies,
     IReadOnlyList<string> ImageUrls);
 
-/// <summary>Nexus 返回的"依赖此 mod 的其他 mod"。availability: published/removed 等。</summary>
+/// <summary>"Other mods that depend on this mod" as returned by Nexus. availability: published/removed, etc.</summary>
 public sealed record NexusModDependency(int ModId, string Name, string Availability);
 
-/// <summary>v0.69.3：官网 Requirements 表的一行（GraphQL v2 数据源）。</summary>
+/// <summary>v0.69.3: one row of the site's Requirements table (GraphQL v2 data source).</summary>
 public sealed record NexusRequirement(string ModName, string Notes, string Url, int ModId, bool External);
 
-/// <summary>v0.69.7：带封面的 Requirements 行（GraphQL legacyModsByDomain 批量补封面）。</summary>
+/// <summary>v0.69.7: Requirements row with cover (cover batch-filled via GraphQL legacyModsByDomain).</summary>
 public sealed record NexusRequirementEx(string ModName, string Notes, string Url, int ModId, bool External, string? PictureUrl);
 
-/// <summary>v0.69.7：译本条（GraphQL mods 搜索得到）。</summary>
+/// <summary>v0.69.7: translation entry (from the GraphQL mods search).</summary>
 public sealed record NexusTranslationItem(string Name, int ModId, string? PictureUrl);
 
 public sealed record NexusDownloadResult(string? Url, string? Error, bool NeedsPremium)
@@ -1233,8 +1237,8 @@ public sealed record NexusDownloadResult(string? Url, string? Error, bool NeedsP
     public static NexusDownloadResult Fail(string err) => new(null, err, false);
 
     public static readonly NexusDownloadResult PremiumRequired =
-        new(null, "Nexus 免费账户不能通过 API 直接下载（需要 Premium 会员）", true);
+        new(null, "Nexus free accounts cannot download directly through the API (a Premium account is required)", true);
 }
 
-/// <summary>下载进度快照：文本 + 可选百分比 + 可选瞬时速度（MB/s）。</summary>
+/// <summary>Download progress snapshot: text + optional percentage + optional instantaneous speed (MB/s).</summary>
 public sealed record NexusDownloadProgress(string Message, double Percent, double? SpeedMBps);

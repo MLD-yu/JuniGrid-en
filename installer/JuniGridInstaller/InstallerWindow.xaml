@@ -1,13 +1,13 @@
 <Window x:Class="JuniGridInstaller.InstallerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="JuniGrid 安装"
+        Title="JuniGrid Setup"
         Width="500" Height="640"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         WindowStyle="None"
         Background="#0D0F12"
-        FontFamily="Microsoft YaHei UI"
+        FontFamily="Segoe UI"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
 
@@ -25,7 +25,7 @@
     <SolidColorBrush x:Key="AccentPressedBrush" Color="#22A44C" />
     <SolidColorBrush x:Key="ErrorBrush" Color="#FF5A66" />
 
-    <!-- 主按钮：品牌绿大圆角 -->
+    <!-- Primary button: brand green, large rounded corners -->
     <Style x:Key="AccentButton" TargetType="Button">
       <Setter Property="Background" Value="{StaticResource AccentBrush}" />
       <Setter Property="Foreground" Value="#0A140C" />
@@ -56,7 +56,7 @@
       </Setter>
     </Style>
 
-    <!-- 文字幽灵按钮 -->
+    <!-- Text ghost button -->
     <Style x:Key="GhostButton" TargetType="Button">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Foreground" Value="#C7FFFFFF" />
@@ -82,7 +82,7 @@
       </Setter>
     </Style>
 
-    <!-- 文件夹按钮 -->
+    <!-- Folder button -->
     <Style x:Key="FolderButton" TargetType="Button">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Cursor" Value="Hand" />
@@ -103,7 +103,7 @@
       </Setter>
     </Style>
 
-    <!-- 标题栏按钮（最小化 / 关闭），Tag 可覆盖悬停底色 -->
+    <!-- Title bar buttons (minimize / close); Tag can override the hover background -->
     <Style x:Key="ChromeButton" TargetType="Button">
       <Setter Property="Width" Value="42" />
       <Setter Property="Height" Value="30" />
@@ -127,7 +127,7 @@
       </Setter>
     </Style>
 
-    <!-- v1.0.18：退出确认对话框按钮（继续退出=黑底白字 / 取消=白底黑字），放在奶白卡片上 -->
+    <!-- v1.0.18: exit confirmation dialog buttons (exit anyway = black bg / white text, cancel = white bg / black text), placed on the cream card -->
     <Style x:Key="DarkPillButton" TargetType="Button">
       <Setter Property="Background" Value="#0D0F12" />
       <Setter Property="Foreground" Value="#F4F7F5" />
@@ -175,7 +175,7 @@
       </Setter>
     </Style>
 
-    <!-- 深色复选框 -->
+    <!-- Dark checkbox -->
     <Style x:Key="DarkCheck" TargetType="CheckBox">
       <Setter Property="Foreground" Value="#DDFFFFFF" />
       <Setter Property="FontSize" Value="13" />
@@ -213,14 +213,14 @@
   </Window.Resources>
 
   <Grid x:Name="Root">
-    <!-- 立绘（顶部对齐，底部裁切）；完成时加模糊 -->
+    <!-- Key art (top aligned, cropped at the bottom); blurred when complete -->
     <Image x:Name="KeyArt" Source="/Assets/keyart.png" Stretch="UniformToFill" VerticalAlignment="Top">
       <Image.Effect>
         <BlurEffect Radius="0" />
       </Image.Effect>
     </Image>
 
-    <!-- 底部渐变遮罩，保证按钮可读 -->
+    <!-- Bottom gradient scrim to keep the buttons readable -->
     <Rectangle x:Name="BottomScrim" VerticalAlignment="Bottom" Height="300" IsHitTestVisible="False">
       <Rectangle.Fill>
         <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
@@ -231,18 +231,18 @@
       </Rectangle.Fill>
     </Rectangle>
 
-    <!-- 路径页的整窗压暗 -->
+    <!-- Full-window dimming for the path page -->
     <Rectangle x:Name="DimOverlay" Fill="#E00D0F12" Visibility="Collapsed" IsHitTestVisible="False" />
 
-    <!-- ========== 欢迎页 ========== -->
+    <!-- ========== Welcome page ========== -->
     <Grid x:Name="WelcomeScreen">
       <StackPanel VerticalAlignment="Bottom" Margin="48,0,48,42">
         <Button x:Name="BtnInstallNow" Style="{StaticResource AccentButton}" Content="Install" Height="58" FontSize="19" Click="OnInstallNow" />
-        <Button x:Name="BtnAdvanced" Style="{StaticResource GhostButton}" Content="高 级 选 项" Margin="0,20,0,0" HorizontalAlignment="Center" Click="OnAdvanced" />
+        <Button x:Name="BtnAdvanced" Style="{StaticResource GhostButton}" Content="Advanced options" Margin="0,20,0,0" HorizontalAlignment="Center" Click="OnAdvanced" />
       </StackPanel>
     </Grid>
 
-    <!-- ========== 路径页 ========== -->
+    <!-- ========== Path page ========== -->
     <Grid x:Name="PathScreen" Visibility="Collapsed">
       <StackPanel VerticalAlignment="Bottom" Margin="36,0,36,36">
         <TextBlock Text="Install location" FontSize="13" FontWeight="SemiBold" Foreground="#D9FFFFFF" />
@@ -261,15 +261,15 @@
             </Button>
           </Grid>
         </Border>
-        <TextBlock x:Name="PathHint" Text="请输入有效的Install location" Foreground="{StaticResource ErrorBrush}" FontSize="12" Margin="4,8,0,0" Visibility="Collapsed" />
+        <TextBlock x:Name="PathHint" Text="Please enter a valid install location" Foreground="{StaticResource ErrorBrush}" FontSize="12" Margin="4,8,0,0" Visibility="Collapsed" />
         <CheckBox x:Name="DeskShortcut" Content="Create a desktop shortcut" IsChecked="True" Margin="2,18,0,0" Style="{StaticResource DarkCheck}" />
-        <Button x:Name="BtnInstall" Style="{StaticResource AccentButton}" Content="开 始 安 装" Height="56" FontSize="18" Margin="0,24,0,0" Click="OnInstall" />
-        <Button x:Name="BtnBack" Style="{StaticResource GhostButton}" Content="返 回" Margin="0,16,0,0" HorizontalAlignment="Center" Click="OnBack" />
+        <Button x:Name="BtnInstall" Style="{StaticResource AccentButton}" Content="Install" Height="56" FontSize="18" Margin="0,24,0,0" Click="OnInstall" />
+        <Button x:Name="BtnBack" Style="{StaticResource GhostButton}" Content="Back" Margin="0,16,0,0" HorizontalAlignment="Center" Click="OnBack" />
       </StackPanel>
     </Grid>
 
-    <!-- ========== 安装进度页 ==========
-         v1.0.17 布局：状态行在上，大号 已下载/总量 + 百分比 紧贴进度条上方（底部留 30 = 条高 12 + 18 间距） -->
+    <!-- ========== Install progress page ==========
+         v1.0.17 layout: status line on top, large downloaded/total + percentage right above the progress bar (bottom margin 30 = bar height 12 + 18 spacing) -->
     <Grid x:Name="ProgressScreen" Visibility="Collapsed">
       <StackPanel VerticalAlignment="Bottom" Margin="36,0,36,30">
         <TextBlock x:Name="StatusText" Text="Preparing…" FontSize="13" Foreground="#A6FFFFFF" TextTrimming="CharacterEllipsis" />
@@ -282,21 +282,21 @@
           <TextBlock x:Name="PercentText" Grid.Column="1" Text="" FontSize="20" FontWeight="Bold" Foreground="#F4F7F5" Margin="16,0,0,0" VerticalAlignment="Center" />
         </Grid>
         <StackPanel x:Name="ErrorPanel" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0" Visibility="Collapsed">
-          <Button x:Name="BtnRetry" Style="{StaticResource AccentButton}" Content="重　试" Height="42" FontSize="15" Width="120" Click="OnRetry" />
+          <Button x:Name="BtnRetry" Style="{StaticResource AccentButton}" Content="Retry" Height="42" FontSize="15" Width="120" Click="OnRetry" />
           <Button x:Name="BtnCloseErr" Style="{StaticResource GhostButton}" Content="Close" VerticalAlignment="Center" Margin="14,0,0,0" Click="OnCloseErr" />
         </StackPanel>
       </StackPanel>
       <Rectangle x:Name="ProgressTrack" VerticalAlignment="Bottom" Height="12" Fill="#4D2BC05A" />
       <Border x:Name="ProgressFill" VerticalAlignment="Bottom" Height="12" HorizontalAlignment="Left"
               Width="0" Background="{StaticResource AccentBrush}" />
-      <!-- 完成态：底部中间 复选框 + 完成按钮 -->
+      <!-- Done state: checkbox + finish button centered at the bottom -->
       <StackPanel x:Name="DonePanel" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,46" Visibility="Collapsed">
         <CheckBox x:Name="LaunchAfterDone" Content="Launch JuniGrid" IsChecked="True" Style="{StaticResource DarkCheck}" HorizontalAlignment="Center" />
-        <Button x:Name="BtnFinish" Style="{StaticResource AccentButton}" Content="完　成" Height="50" FontSize="16" Width="300" Margin="0,18,0,0" Click="OnFinish" />
+        <Button x:Name="BtnFinish" Style="{StaticResource AccentButton}" Content="Finish" Height="50" FontSize="16" Width="300" Margin="0,18,0,0" Click="OnFinish" />
       </StackPanel>
     </Grid>
 
-    <!-- 完成态：居中标题 -->
+    <!-- Done state: centered title -->
     <TextBlock x:Name="DoneTitle" Text="Installation complete" FontSize="30" FontWeight="Bold" Foreground="#F4F7F5"
                HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
       <TextBlock.Effect>
@@ -304,7 +304,7 @@
       </TextBlock.Effect>
     </TextBlock>
 
-    <!-- 品牌区：左上角 logo + 正常字体字样 + 版本 -->
+    <!-- Brand area: top-left logo + name in the regular font + version -->
     <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12,10,0,0" IsHitTestVisible="False">
       <StackPanel Orientation="Horizontal">
         <Image Source="/Assets/logo.png" Width="40" Height="40" RenderOptions.BitmapScalingMode="HighQuality" />
@@ -321,37 +321,37 @@
       </StackPanel>
     </StackPanel>
 
-    <!-- 窗口控制 -->
+    <!-- Window controls -->
     <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0" Orientation="Horizontal">
-      <Button Style="{StaticResource ChromeButton}" Click="OnMinimize" ToolTip="最小化">
+      <Button Style="{StaticResource ChromeButton}" Click="OnMinimize" ToolTip="Minimize">
         <Path Data="M1,5 H11" Stroke="#E6FFFFFF" StrokeThickness="1.4" />
       </Button>
-      <Button Style="{StaticResource ChromeButton}" Tag="#E81123" Click="OnClose" ToolTip="关闭">
+      <Button Style="{StaticResource ChromeButton}" Tag="#E81123" Click="OnClose" ToolTip="Close">
         <Path Data="M0,0 L8,8 M8,0 L0,8" Stroke="#E6FFFFFF" StrokeThickness="1.4" />
       </Button>
     </StackPanel>
 
-    <!-- ========== v1.0.17：安装进行中退出确认 ==========
-         半途强退会留下半新半旧的文件（引擎无回滚，见 InstallerEngine），
-         安装期间关窗（✕ / Alt+F4 / 任务栏关闭）先弹此确认；
-         「继续退出」放行关闭（Closed → _cts.Cancel 在文件边界停止解压），「取消」继续安装 -->
+    <!-- ========== v1.0.17: exit confirmation while installing ==========
+         Force-quitting midway leaves a mix of old and new files (the engine has no rollback, see InstallerEngine),
+         so closing the window during the install (✕ / Alt+F4 / taskbar close) shows this confirmation first;
+         "Exit anyway" lets the close through (Closed → _cts.Cancel stops extraction at the next file boundary), "Cancel" continues the install -->
     <Grid x:Name="ExitConfirmOverlay" Visibility="Collapsed">
       <Rectangle Fill="#A6000000" />
-      <!-- v1.0.18：卡片改奶白 #FDFBDB（与更新气泡同色），文字反深色 -->
+      <!-- v1.0.18: card changed to cream #FDFBDB (same color as the update bubble), text in dark color -->
       <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="372"
               Background="#FDFBDB" BorderBrush="#1F000000" BorderThickness="1" CornerRadius="18">
         <Border.Effect>
           <DropShadowEffect BlurRadius="30" ShadowDepth="0" Opacity="0.45" Color="Black" />
         </Border.Effect>
         <StackPanel Margin="28,26,28,24">
-          <TextBlock Text="退出安装？" FontSize="17" FontWeight="Bold" Foreground="#171A12"
+          <TextBlock Text="Exit setup?" FontSize="17" FontWeight="Bold" Foreground="#171A12"
                      HorizontalAlignment="Center" />
-          <TextBlock Text="安装未完成，强行退出可能导致文件损坏。" FontSize="13" Foreground="#4A4E3F"
+          <TextBlock Text="The installation is not complete. Exiting now may corrupt files." FontSize="13" Foreground="#4A4E3F"
                      TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" Margin="0,12,0,0" />
-          <TextBlock Text="之后可重新运行安装包继续安装。" FontSize="12" Foreground="#83866F"
+          <TextBlock Text="You can run the setup package again later to finish the installation." FontSize="12" Foreground="#83866F"
                      HorizontalAlignment="Center" Margin="0,6,0,0" />
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,22,0,0">
-            <Button Style="{StaticResource DarkPillButton}" Content="继续退出" Width="132" Height="42" Click="OnForceExit" />
+            <Button Style="{StaticResource DarkPillButton}" Content="Exit anyway" Width="132" Height="42" Click="OnForceExit" />
             <Button Style="{StaticResource LightPillButton}" Content="Cancel" Width="110" Height="42" Margin="16,0,0,0" Click="OnCancelExit" />
           </StackPanel>
         </StackPanel>

@@ -1,6 +1,6 @@
 // ============================================================
-// interop 核心：window.junigridJs 基础对象 + 顶栏滑块 + 窗口状态
-// （必须最先加载 —— 其它 junigrid.*.js 都往这个对象上挂方法）
+// Interop core: window.junigridJs base object + top nav thumb + window state
+// (Must be loaded first - every other junigrid.*.js file attaches methods to this object)
 // ============================================================
 // JuniGrid — JS interop helpers, callable from Razor via IJSRuntime.
 window.junigridJs = {
@@ -12,7 +12,7 @@ window.junigridJs = {
             { scale: 1.08, duration: 0.18, yoyo: true, repeat: 1, ease: 'power2.inOut' }
         );
     },
-    // 顶栏选中高亮滑块：把 .jg-topnav-thumb 平移到当前 .active 项（滑动/水平移动式切换）
+    // Top nav selection thumb: translate .jg-topnav-thumb under the current .active item (sliding/horizontal toggle)
     placeNavThumb() {
         const nav = document.querySelector('.jg-topnav');
         const thumb = document.querySelector('.jg-topnav-thumb');
@@ -21,17 +21,19 @@ window.junigridJs = {
         thumb.style.width = active.offsetWidth + 'px';
         thumb.style.left = active.offsetLeft + 'px';
     },
-    // v0.33.0：排序下拉 —— open/close 都清干净初态，杜绝残留白块
-    // v1.05.0：wrap 带 .jg-dd-right 时菜单右对齐（贴窗口右缘的下拉不再超出界面），基点用 top right
-    // v1.07.0：①外部遮罩 .jg-dd-overlay 的开合在本函数内与菜单【同帧】翻转 —— 遮罩原先靠 Blazor
-    //            重渲染补上，比 JS 慢一拍，「菜单已开、遮罩未铺」的窗口期 hover/点击穿透到下方 mod 卡；
-    //          ②动画作用于 .jg-sort-menu-in 视觉内层（Nexus 页），外层盒子保持最终矩形，
-    //            命中区域从打开第一帧起就是最终位置；无内层的页面（Logs/Mods）自动回退动画 menu 本身
+    // v0.33.0: Sort dropdown - both open and close clear the initial state cleanly, preventing leftover white blocks
+    // v1.05.0: Right-align the menu when the wrap has .jg-dd-right (dropdowns near the window's right edge no longer overflow); origin is top right
+    // v1.07.0: (1) The external overlay .jg-dd-overlay now toggles inside this function in the same frame as the menu - the
+    //            overlay used to be filled in by a Blazor re-render, one beat slower than JS; during the "menu open, overlay
+    //            missing" window, hover/clicks fell through to the mod cards below;
+    //          (2) The animation targets the .jg-sort-menu-in visual inner layer (Nexus page) while the outer box keeps its
+    //            final rectangle, so the hit area is at its final position from the first frame of opening; pages without an
+    //            inner layer (Logs/Mods) automatically fall back to animating the menu itself
     dropdownToggle(wrapSel, open) {
         const wrap = document.querySelector(wrapSel);
         if (!wrap) return;
-        // v1.1.2：按 data-dd 键配对同步 —— 一页可能有多个下拉遮罩（Mods 的排序/存档），
-        // 无差别全开会互相拦截点击（后一个遮罩盖住前一个，@onclick 落到错误的 Close 上）
+        // v1.1.2: Pair and sync by data-dd key - a page may have multiple dropdown overlays (Mods' sort/saves);
+        // toggling them all blindly would intercept each other's clicks (the later overlay covers the earlier one and @onclick lands on the wrong Close)
         const ddKey = wrap.dataset.dd;
         document.querySelectorAll('.jg-dd-overlay').forEach(o => o.classList.toggle('open', !!open && o.dataset.dd === ddKey));
         const menu  = wrap.querySelector('.jg-sort-menu');
@@ -42,7 +44,7 @@ window.junigridJs = {
         const fromRight = wrap.classList.contains('jg-dd-right');
         const originY = fromRight ? 'top right' : 'top left';
 
-        // 兜底：无 gsap 时靠 .open + CSS 完成开关，避免白块残留
+        // Fallback: without gsap, open/close relies on .open + CSS to avoid leftover white blocks
         if (!window.gsap) {
             wrap.classList.toggle('open', !!open);
             return;
@@ -66,7 +68,7 @@ window.junigridJs = {
         } else {
             const tl = gsap.timeline({
                 onComplete() {
-                    // 关键：动画完全结束再彻底清 inline style + 移除 open 类，白块杜绝
+                    // Key: only clear inline styles and remove the open class once the animation fully ends, eliminating white blocks
                     gsap.set([vis, arrow, items], { clearProps: 'all' });
                     wrap.classList.remove('open');
                 }
@@ -78,7 +80,7 @@ window.junigridJs = {
         }
     },
 
-    // v0.33.0：展开式搜索 —— width 收放 + 关时 clearProps:'width' 让回 CSS 40px
+    // v0.33.0: Expanding search - animate the width, and on close clearProps hands back to the CSS 40px width
     searchToggle(sel, open) {
         const wrap = document.querySelector(sel);
         if (!wrap) return;
@@ -108,7 +110,7 @@ window.junigridJs = {
         } else {
             const tl = gsap.timeline({
                 onComplete() {
-                    // 交还给 CSS：width 由 .jg-search-x（无 .open）40px 定义
+                    // Hand back to CSS: width is defined as 40px by .jg-search-x (without .open)
                     gsap.set([wrap, field], { clearProps: 'all' });
                     wrap.classList.remove('open');
                 }
@@ -119,8 +121,9 @@ window.junigridJs = {
         }
     },
 
-    // 启动/关闭等状态切换时，立即清掉启动按钮上残留的像素溶解蒙版（.px-grid）与倾斜 transform，
-    // 否则残留的白色「点击启动！」会盖住新的按钮文案（如「启动中…」）。
+    // On state changes such as starting/stopping, immediately clear any leftover pixel-dissolve mask (.px-grid)
+    // and tilt transform on the launch button, otherwise the leftover white "Click to launch!" would cover
+    // the new button text (e.g. "Launching...").
     clearLaunchFx(selector) {
         const btn = document.querySelector(selector);
         if (!btn) return;
@@ -131,18 +134,18 @@ window.junigridJs = {
         if (window.gsap) window.gsap.killTweensOf(btn);
         if (window.gsap) window.gsap.set(btn, { clearProps: 'transform' });
     },
-    // v0.31.0: PCL 式页面入场 —— 给 <main.jg-main> 打上 .jg-page-enter，触发 CSS 关键帧
+    // v0.31.0: PCL-style page entrance - add .jg-page-enter to <main.jg-main> to trigger the CSS keyframes
     playPageEnter() {
         const el = document.querySelector('.jg-main');
         if (!el) return;
         el.classList.remove('jg-page-enter');
-        // 强制回流一次，再加回来，才能重新触发动画
+        // Force a reflow, then add the class back so the animation can retrigger
         // eslint-disable-next-line no-unused-expressions
         void el.offsetWidth;
         el.classList.add('jg-page-enter');
-        // v1.1.2：切页后刷新返回顶部按钮的显隐（路由变了，滚动位置也变了）
+        // v1.1.2: Refresh back-to-top button visibility after page changes (the route changed, and so did the scroll position)
         if (window.junigridJs.backTopRefresh) window.junigridJs.backTopRefresh();
-        // 500ms 后清掉，避免与后续交互动画冲突（子项最长 delay 290 + duration 420 ≈ 710）
+        // Clear it afterwards to avoid clashing with later interaction animations (longest child delay 290 + duration 420 ≈ 710)
         clearTimeout(el.__peTimer);
         el.__peTimer = setTimeout(() => el.classList.remove('jg-page-enter'), 900);
     },
@@ -156,7 +159,7 @@ window.junigridJs = {
         if (!el) return;
         el.addEventListener('mousedown', e => {
             if (e.button !== 0) return;              // left button only
-            if (e.target.closest && e.target.closest('.jg-upd-btn')) return;   // 更新按钮不能顺带拖动窗口
+            if (e.target.closest && e.target.closest('.jg-upd-btn')) return;   // the update button must not drag the window along
             dotNetRef.invokeMethodAsync('BeginDrag');
         });
         el.addEventListener('dblclick', e => {
@@ -166,9 +169,9 @@ window.junigridJs = {
     }
 };
 
-// ---- v0.5.0 新增 ----
-// v0.39.0：Pixel Reveal —— 登录成功卡片被像素幕布盖住，
-// 像素块从左到右、带随机抖动地消散，露出下方的头像/昵称/欢迎语
+// ---- Added in v0.5.0 ----
+// v0.39.0: Pixel Reveal - the login-success card is covered by a pixel curtain;
+// the pixels dissolve left to right with random jitter, revealing the avatar/nickname/welcome text underneath
 window.junigridJs.pixelReveal = function (canvasSel) {
     const canvas = document.querySelector(canvasSel);
     if (!canvas) return;
@@ -184,7 +187,7 @@ window.junigridJs.pixelReveal = function (canvasSel) {
     const cols = Math.ceil(w / cell), rows = Math.ceil(h / cell);
     const bg = '#161616';
 
-    // 每个像素的揭示时刻：x 归一化 + 随机抖动 → 0..1 区间
+    // Reveal moment per pixel: normalized x + random jitter mapped into the 0..1 range
     const reveal = [];
     for (let r = 0; r < rows; r++) {
         reveal[r] = [];
@@ -197,18 +200,18 @@ window.junigridJs.pixelReveal = function (canvasSel) {
     const t0 = performance.now();
     function frame(now) {
         const t = Math.min((now - t0) / DURATION, 1);
-        // ease: power2.out 收尾更快露出内容
+        // ease: power2.out so the tail end reveals content faster
         const p = 1 - (1 - t) * (1 - t);
         ctx.clearRect(0, 0, w, h);
         for (let r = 0; r < rows; r++) {
             for (let c2 = 0; c2 < cols; c2++) {
                 const rt = reveal[r][c2];
                 if (p < rt) {
-                    // 未揭示：实心像素
+                    // Not yet revealed: solid pixel
                     ctx.fillStyle = bg;
                     ctx.fillRect(c2 * cell, r * cell, cell, cell);
                 } else if (p < rt + 0.10) {
-                    // 揭示边缘：像素缩小淡出
+                    // Reveal edge: pixel shrinks and fades out
                     const k = (p - rt) / 0.10;
                     const sz = cell * (1 - k);
                     ctx.fillStyle = bg;
@@ -224,15 +227,15 @@ window.junigridJs.pixelReveal = function (canvasSel) {
     requestAnimationFrame(frame);
 };
 
-// v0.36.0：AnimatedList 滚动效果（React Bits AnimatedList 的 Blazor 移植）
-// - 行进入视口 50% 时 scale 0.7→1 + opacity 0→1（0.2s），离开视口收回
-// - 滚动容器顶/底渐变遮罩随滚动位置淡入淡出
+// v0.36.0: AnimatedList scroll effect (Blazor port of the React Bits AnimatedList)
+// - Rows scale 0.7→1 + opacity 0→1 (0.2s) when 50% in view, and collapse when leaving the viewport
+// - Top/bottom gradient masks of the scroll container fade in/out with scroll position
 window.junigridJs.animatedListInit = function (scrollSel, listSel) {
     const scroller = document.querySelector(scrollSel);
     const list = document.querySelector(listSel);
     if (!scroller || !list) return;
 
-    // ── 行入场动画：IntersectionObserver，amount≈0.5，离开视口收回（triggerOnce:false）──
+    // -- Row entrance animation: IntersectionObserver, threshold ~0.5, collapse when leaving the viewport (triggerOnce:false) --
     if (!list.__alObs) {
         list.__alObs = new IntersectionObserver(entries => {
             for (const e of entries) {
@@ -250,7 +253,7 @@ window.junigridJs.animatedListInit = function (scrollSel, listSel) {
     list.querySelectorAll('[data-al]').forEach(el => {
         if (el.__alBound) return;
         el.__alBound = true;
-        // 初始态：未进视口前收起（仅对当前不在视口内的；在视口内的立刻展开避免闪缩）
+        // Initial state: collapsed until entering the viewport (only for rows currently outside it; visible rows expand immediately to avoid a flash)
         el.style.transition = 'opacity .2s ease, transform .2s ease';
         el.style.transformOrigin = 'center center';
         const r = el.getBoundingClientRect();
@@ -260,7 +263,7 @@ window.junigridJs.animatedListInit = function (scrollSel, listSel) {
         list.__alObs.observe(el);
     });
 
-    // ── 顶/底渐变遮罩 ──
+    // -- Top/bottom gradient masks --
     if (!scroller.__alGrad) {
         scroller.__alGrad = true;
         const pos = getComputedStyle(scroller).position;
@@ -283,8 +286,8 @@ window.junigridJs.animatedListInit = function (scrollSel, listSel) {
         onScroll();
     }
 };
-// v1.08：过滤/搜索切换时调用 —— 清掉旧行的入场动画内联样式（IntersectionObserver
-// 写入的 opacity/transform），让新过滤结果直接显示，不重播整表动画
+// v1.08: Called on filter/search changes - clears the old rows' entrance-animation inline styles
+// (opacity/transform written by the IntersectionObserver) so the new filtered results show directly without replaying the whole list animation
 window.junigridJs.animatedListReset = function (listSel) {
     const list = document.querySelector(listSel);
     if (!list) return;
@@ -297,7 +300,7 @@ window.junigridJs.animatedListReset = function (listSel) {
     });
 };
 
-// v0.35.0：导航滑块实时同步 —— 路由变化/窗口缩放/刷新都立即重定位（双重 rAF 等布局稳定）
+// v0.35.0: Real-time nav thumb sync - reposition immediately on route change/window resize/refresh (double rAF waits for layout to settle)
 window.junigridJs.placeNavThumb = function () {
     const nav = document.querySelector('.jg-topnav');
     const thumb = document.querySelector('.jg-topnav-thumb');
@@ -310,10 +313,10 @@ window.junigridJs.placeNavThumb = function () {
         thumb.style.left = (r.left - nr.left) + 'px';
         thumb.style.width = r.width + 'px';
     };
-    // 双 rAF：等 Blazor 把 .active 挪到目标项 + 布局回流完成后再量
+    // Double rAF: measure only after Blazor has moved .active to the target item and the layout reflow has completed
     requestAnimationFrame(() => requestAnimationFrame(place));
 };
-// 缩放/字体加载等导致宽度变化时，滑块实时跟随（不带动画错位：transition 会平滑过渡）
+// When zoom/font loading changes item widths, the thumb follows in real time (the CSS transition smooths the move, so it never sits misaligned)
 (function () {
     if (window.__navThumbBound) return; window.__navThumbBound = true;
     let raf = 0;
@@ -332,15 +335,15 @@ window.junigridJs.animateMinimize = function () {
 };
 
 // ============================================================
-// v1.1.2：深浅主题（WPF 覆盖层圆形揭示方案的 JS 侧接口）
-// 切换动画本体在宿主侧（MainWindow.RevealThemeSwitchAsync：
-// CapturePreview 截旧主题 → 覆盖层挖圆洞），这里只提供状态读写与
-// 无动画瞬时切换（由 C# 在覆盖层就位后调用）。
+// v1.1.2: Light/dark theme (JS-side interface for the WPF overlay circular-reveal scheme)
+// The switch animation itself lives on the host side (MainWindow.RevealThemeSwitchAsync:
+// CapturePreview snapshots the old theme -> the overlay punches a circular hole). This only provides state read/write
+// and an instant, animation-free switch (called by C# once the overlay is in place).
 // ============================================================
 window.junigridJs.getTheme = function () {
     return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
 };
-// 无动画应用主题（瞬时生效，供宿主在覆盖层就位后调用）
+// Apply the theme without animation (takes effect instantly; called by the host once the overlay is in place)
 window.junigridJs.applyTheme = function (theme) {
     var t = theme === 'dark' ? 'dark' : 'light';
     document.documentElement.dataset.theme = t;

@@ -1,9 +1,9 @@
 // ============================================================
-// 任务中心悬浮窗（TaskDock）：光标倾斜、胶囊↔圆形 morph、下载信息下拉、拖动
+// Task center floating dock (TaskDock): cursor tilt, pill<->circle morph, download details dropdown, dragging
 // ============================================================
-// ─── v1.06.7：任务悬浮窗光标透视倾斜（gsap cursor-driven-perspective-tilt demo 同款）───
-// ─── v1.06.7：任务悬浮窗光标透视倾斜（gsap cursor-driven-perspective-tilt demo 同款）───
-// 外层 rotationX/Y 用 quickTo 平滑跟随光标，内层文字反向轻移产生视差；离开复位。
+// ─── v1.06.7: task dock cursor perspective tilt (same as the gsap cursor-driven-perspective-tilt demo) ───
+// ─── v1.06.7: task dock cursor perspective tilt (same as the gsap cursor-driven-perspective-tilt demo) ───
+// The outer rotationX/Y follow the cursor smoothly via quickTo; the inner text shifts slightly the opposite way for parallax; resets on leave.
 junigridJs.taskDockTilt = function (sel) {
     var el = document.querySelector(sel);
     if (!el || !window.gsap || el.__tiltBound) return;
@@ -15,7 +15,7 @@ junigridJs.taskDockTilt = function (sel) {
     var innerX = inner ? gsap.quickTo(inner, 'x', { ease: 'power3', duration: 0.35 }) : null;
     var innerY = inner ? gsap.quickTo(inner, 'y', { ease: 'power3', duration: 0.35 }) : null;
     el.addEventListener('pointermove', function (e) {
-        if (el.__dragging) {   // 拖动期间停用倾斜，避免 transform 干扰拖动定位
+        if (el.__dragging) {   // tilt is disabled while dragging so the transform does not interfere with drag positioning
             outerRX(0); outerRY(0);
             if (innerX) innerX(0);
             if (innerY) innerY(0);
@@ -37,11 +37,12 @@ junigridJs.taskDockTilt = function (sel) {
     });
 };
 
-// ─── v1.07：TaskDock 胶囊 ↔ 圆 平滑形变（gsap smooth-morph demo 同款观感）───
-// 全部完成时整颗胶囊收缩成 56px 圆、文字淡出、白色对号弹出；来任务时再展开回胶囊。
-// 形变本体 = 宽/高/内边距的缓动（border-radius 恒 999px，宽=高时自然成圆），
-// 配 power3.inOut 得到 smooth-morph 的「果冻变形」质感。文字留在 DOM 里只动透明度，
-// 既保住 Blazor 重渲染不换节点，也保证收圆后量回胶囊自然尺寸有内容可依。
+// ─── v1.07: TaskDock pill ↔ circle smooth morph (same look as the gsap smooth-morph demo) ───
+// When everything is done the whole pill shrinks into a 56px circle, the text fades out and a white checkmark pops in;
+// it expands back to a pill when new tasks arrive.
+// The morph itself eases width/height/padding (border-radius stays 999px, so equal width and height naturally form a circle),
+// paired with power3.inOut for the smooth-morph "jelly" feel. The text stays in the DOM and only its opacity animates,
+// which keeps Blazor re-renders from swapping nodes and leaves content to measure the pill's natural size when expanding back.
 junigridJs.taskDockMorph = function (sel, done, animate) {
     var el = document.querySelector(sel);
     if (!el) return;
@@ -49,7 +50,7 @@ junigridJs.taskDockMorph = function (sel, done, animate) {
     var body = el.querySelector('.jg-taskdock-body');
     var check = el.querySelector('.jg-taskdock-check');
     if (!window.gsap) {
-        // 无 gsap 兜底：直接切最终态，靠 CSS 过渡
+        // Fallback without gsap: jump straight to the final state and let CSS transitions handle it
         el.classList.toggle('done', !!done);
         return;
     }
@@ -63,7 +64,7 @@ junigridJs.taskDockMorph = function (sel, done, animate) {
             return;
         }
         var tl = gsap.timeline();
-        tl.set(body, { opacity: 0 })   // 文字瞬间消失，不做渐隐 —— 完成就是直接变对号
+        tl.set(body, { opacity: 0 })   // the text disappears instantly, no fade — completion snaps straight to the checkmark
           .to(el, { width: SIZE, minWidth: SIZE, height: SIZE, minHeight: SIZE,
                     paddingTop: 0, paddingBottom: 0, paddingLeft: 0, paddingRight: 0,
                     duration: 0.55, ease: 'power3.inOut' }, 0)
@@ -73,7 +74,7 @@ junigridJs.taskDockMorph = function (sel, done, animate) {
     } else {
         el.classList.remove('done');
         if (!animate) { gsap.set(body, { opacity: 1, scale: 1 }); gsap.set(check, { opacity: 0 }); return; }
-        // 收圆时内联样式盖住了自然尺寸 —— 先摘掉量一次真实胶囊大小，再从圆展开过去
+        // While shrunk, inline styles override the natural size — remove them, measure the real pill size once, then expand from the circle
         var props = ['width', 'min-width', 'height', 'min-height', 'padding-top', 'padding-bottom', 'padding-left', 'padding-right'];
         var saved = props.map(function (p) { return [p, el.style.getPropertyValue(p), el.style.getPropertyPriority(p)]; });
         props.forEach(function (p) { el.style.removeProperty(p); });
@@ -99,10 +100,10 @@ junigridJs.taskDockMorph = function (sel, done, animate) {
     }
 };
 
-// ─── v1.06.7：任务卡「下载信息」下拉（gsap easeReverse UI interactions 的 Dropdown 同款）───
-// 弹性箭头旋转 + 面板 height 0→auto 弹性展开 + 信息行 stagger；收起 easeReverse 2.5×。
-// 每次点击都 kill 旧时间线、基于当前 DOM 重建 —— 下载中 Blazor 频繁重渲染可能替换节点，
-// 缓存时间线会指向旧节点导致「点开就收不回」。
+// ─── v1.06.7: task card "download details" dropdown (same as the Dropdown in gsap easeReverse UI interactions) ───
+// Elastic arrow rotation + panel height 0→auto elastic expansion + staggered info rows; collapse uses easeReverse 2.5x.
+// Every click kills the old timeline and rebuilds from the current DOM — while downloading, Blazor re-renders can replace nodes,
+// and a cached timeline would point at stale nodes leaving the panel stuck open.
 junigridJs.taskDrop = function (panelSel, arrowSel, open) {
     var panel = document.querySelector(panelSel);
     var arrow = document.querySelector(arrowSel);
@@ -117,7 +118,7 @@ junigridJs.taskDrop = function (panelSel, arrowSel, open) {
     }
     if (open) {
         panel.classList.add('open');
-        // v1.07：动画结束后清掉内联样式，稳态显示交给 CSS .open（Blazor 重渲染不丢状态）
+        // v1.07: clear the inline styles when the animation ends; steady-state display is handled by CSS .open (survives Blazor re-renders)
         panel.__tl = gsap.timeline({
             onComplete: function () {
                 panel.style.height = '';
@@ -148,7 +149,7 @@ junigridJs.taskDrop = function (panelSel, arrowSel, open) {
     }
 };
 
-// ------------------ v0.2.2：任务管理悬浮窗拖动（拖动超过 5px 时吞掉本次点击） ------------------
+// ------------------ v0.2.2: task dock dragging (dragging more than 5px swallows the click) ------------------
 window.junigridJs.makeTaskDockDraggable = function (sel) {
     const el = document.querySelector(sel);
     if (!el || el.__dragBound) return;
@@ -157,15 +158,15 @@ window.junigridJs.makeTaskDockDraggable = function (sel) {
     let dragging = false, moved = false;
     let sx = 0, sy = 0, baseL = 0, baseT = 0, w = 0, h = 0;
 
-    // 把悬浮窗左上角放到 (l, t)，按「就近角」记偏移；不再读元素矩形（倾斜 transform 会污染它）
+    // Place the dock's top-left corner at (l, t), anchoring by the nearest corner; no longer reads the element rect (the tilt transform pollutes it)
     function place(l, t) {
         const pr = (el.offsetParent || document.body).getBoundingClientRect();
         const maxL = Math.max(0, pr.width - w);
         const maxT = Math.max(0, pr.height - h);
         l = Math.min(Math.max(0, l), maxL);
         t = Math.min(Math.max(0, t), maxT);
-        // 关键：反向偏移必须显式置 auto —— 样式表里有 right:20px/bottom:20px，
-        // 只内联 left 的话 left+right 同时生效，绝对定位元素会被强行拉满宽度（巨型椭圆 bug）
+        // Key: the opposite offset must be set to auto explicitly — the stylesheet has right:20px/bottom:20px,
+        // so inlining only left makes left+right apply at the same time and the absolutely positioned element gets stretched to full width (giant ellipse bug)
         el.style.left = el.style.right = el.style.top = el.style.bottom = '';
         if (l + w / 2 <= pr.width / 2) { el.style.left = l + 'px'; el.style.right = 'auto'; }
         else { el.style.right = (pr.width - l - w) + 'px'; el.style.left = 'auto'; }
@@ -173,7 +174,7 @@ window.junigridJs.makeTaskDockDraggable = function (sel) {
         else { el.style.bottom = (pr.height - t - h) + 'px'; el.style.top = 'auto'; }
     }
 
-    // 窗口缩放时按当前锚定角重新钳制
+    // Re-clamp by the current anchor corner when the window is resized
     function reclamp() {
         const r = el.getBoundingClientRect();
         if (!r.width) return;
@@ -186,7 +187,7 @@ window.junigridJs.makeTaskDockDraggable = function (sel) {
     window.addEventListener('resize', reclamp);
 
     el.addEventListener('pointerdown', function (e) {
-        if (e.button !== 0) return;   // v1.1.4：只拖左键 —— 右键留给「隐藏悬浮窗」
+        if (e.button !== 0) return;   // v1.1.4: drag with the left button only — the right button is reserved for "hide the dock"
         dragging = true; moved = false;
         sx = e.clientX; sy = e.clientY;
         const r = el.getBoundingClientRect();
@@ -200,7 +201,7 @@ window.junigridJs.makeTaskDockDraggable = function (sel) {
         const dx = e.clientX - sx, dy = e.clientY - sy;
         if (!moved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
             moved = true;
-            el.__dragging = true;   // 停用 tilt 的光标倾斜
+            el.__dragging = true;   // disable the tilt cursor effect
             if (window.gsap) {
                 gsap.killTweensOf(el, 'rotationX,rotationY');
                 gsap.set(el, { rotationX: 0, rotationY: 0 });
@@ -212,12 +213,12 @@ window.junigridJs.makeTaskDockDraggable = function (sel) {
         if (!dragging) return;
         dragging = false;
         el.__dragging = false;
-        // 让 tilt 平滑回正（指针还悬在按钮上时由下一次 move 重新接管）
+        // Let tilt ease back to neutral (while the pointer is still over the button, the next move retakes control)
         el.dispatchEvent(new Event('pointerleave'));
     }
     el.addEventListener('pointerup', endDrag);
     el.addEventListener('pointercancel', endDrag);
-    // 拖动结束时吞掉点击，避免拖完误进任务页
+    // Swallow the click at drag end so finishing a drag does not open the tasks page
     el.addEventListener('click', function (e) {
         if (moved) {
             e.stopImmediatePropagation();

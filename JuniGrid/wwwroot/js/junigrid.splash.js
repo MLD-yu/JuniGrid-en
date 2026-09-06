@@ -1,26 +1,26 @@
 // ============================================================
-// 启动动画 / 启动屏（splash）：logo → 描边字 → 淡出 → UI 弹起
+// Startup animation / splash screen: logo -> stroked text -> fade out -> UI rises
 // ============================================================
 // ============================================================
 // ============================================================
-// 启动动画：居中 logo → 左移 → JuniGrid 字样描边填充 → 淡出 → UI 从底部弹起
+// Startup animation: centered logo -> slide left -> JuniGrid wordmark stroke-and-fill -> fade out -> UI rises from the bottom
 // ============================================================
 (function () {
     window.junigridJs = window.junigridJs || {};
-    var _splashDone = false;   // 动画播完
-    var _uiReady = false;      // Blazor UI 已挂载
+    var _splashDone = false;   // animation finished playing
+    var _uiReady = false;      // Blazor UI mounted
 
     function el(id) { return document.getElementById(id); }
 
-    // 兜底：gsap 没加载 / 找不到元素时，直接放行 UI（绝不卡死应用）
+    // Fallback: if gsap is not loaded or elements are missing, release the UI directly (never deadlock the app)
     window.junigridJs.splashInit = function () {
-        // v0.19.0：前端 splash 已退化为空壳（display:none），logo 由 WPF SplashWindow 显示。
-        // 这里只负责在 Blazor 挂载完成前把 shell 藏起，避免闪出主界面。
+        // v0.19.0: The front-end splash has been reduced to an empty shell (display:none); the logo is shown by WPF SplashWindow.
+        // This only hides the shell until Blazor finishes mounting, so the main UI does not flash through.
         document.body.classList.add('jg-booting');
     };
 
-    // v0.20.0：等 Blazor 首帧真正稳定（两帧 rAF + 100ms）再通知 WPF。
-    // 这样避免主窗淡入时看到深色兜底 (#app 背景色) 而不是浅色主题。
+    // v0.20.0: Wait until Blazor's first frame is truly stable (two rAF frames + 100ms) before notifying WPF.
+    // This avoids the main window fading in showing the dark fallback (#app background color) instead of the light theme.
     window.junigridJs.splashUiReadyWhenStable = function () {
         function stable() {
             requestAnimationFrame(function () {
@@ -29,18 +29,18 @@
                 });
             });
         }
-        // 再等 shell DOM 出现（Blazor 挂载完但布局可能还没算完）
+        // Also wait for the shell DOM to appear (Blazor has mounted but layout may not be settled yet)
         if (document.querySelector('#app .jg-shell')) stable();
         else setTimeout(function () { window.junigridJs.splashUiReadyWhenStable(); }, 30);
     };
 
     window.junigridJs.splashUiReady = function () {
         _uiReady = true;
-        // v0.19.0：透明启动动画已完全由 WPF SplashWindow 负责，前端这里只做两件事：
-        // 1) 把 ui-ready 通知给 WPF 宿主（SplashWindow / App），由它淡出 Splash 并显示主窗；
-        // 2) 立即解除 jg-booting，放行 .jg-shell —— 否则若上一步的动画路径缺元素提前
-        //    退出、never 清理 jg-booting,整个主界面会一直 opacity:0/visibility:hidden，
-        //    表现为“主界面黑屏”。
+        // v0.19.0: The transparent startup animation is fully handled by WPF SplashWindow; the front end here only does two things:
+        // 1) notify the WPF host (SplashWindow / App) of ui-ready, and it fades out the Splash and shows the main window;
+        // 2) immediately clear jg-booting and release .jg-shell - otherwise, if the animation path above exits early due to
+        //    missing elements and never cleans up jg-booting, the whole main UI stays opacity:0/visibility:hidden,
+        //    appearing as a "black main window".
         document.body.classList.remove('jg-booting');
         try {
             if (window.chrome && window.chrome.webview && window.chrome.webview.postMessage) {
@@ -56,14 +56,14 @@
         var svg = el('jg-splash-word');
         if (!splash || !svg || !window.gsap) { hideSplash(); return; }
 
-        // logo 立刻浮现，不等字体测量 —— 启动画面要第一时间出现
+        // The logo appears right away, without waiting for font measurement - the splash must show up immediately
         gsap.fromTo(logo, { opacity: 0, scale: 0.75 }, { opacity: 1, scale: 1, duration: 0.45 });
 
         var text = 'JuniGrid';
         var fs = Math.round(Math.max(72, Math.min(window.innerWidth, window.innerHeight) * 0.11));
         var dash = Math.max(fs * 7, 200);
 
-        // 描边文字 + 填色文字（裁剪用）
+        // Stroke text + fill text (the fill is used for clipping)
         var NS = 'http://www.w3.org/2000/svg';
         var strokeText = mkText(true);
         var fillText = mkText(false);
@@ -82,7 +82,7 @@
             for (var i = 0; i < text.length; i++) {
                 var ts = document.createElementNS(NS, 'tspan');
                 ts.textContent = text[i];
-                if (isStroke) ts.setAttribute('data-draw', '1');  // 只描边字参与逐笔绘
+                if (isStroke) ts.setAttribute('data-draw', '1');  // only stroke glyphs take part in the per-glyph draw
                 t.appendChild(ts);
             }
             return t;
@@ -91,8 +91,8 @@
         svg.appendChild(strokeText);
         svg.appendChild(fillText);
 
-        // 等字体加载完成后测字宽并开播；若 fonts.ready 迟迟不触发（字体被拦/离线），
-        // 1.4s 后强行按估算开播，避免“动画永不开始、页面卡在深色封面”。
+        // Measure the text width and start playing once fonts finish loading; if fonts.ready is slow to fire (fonts blocked/offline),
+        // force-start after 1.4s using the estimate, avoiding "the animation never starts and the page stays stuck on the dark cover".
         var ran = false;
         function measureAndPlay() {
             var bbox;
@@ -104,7 +104,7 @@
             svg.setAttribute('viewBox', vx + ' ' + vy + ' ' + vw + ' ' + vh);
             svg.style.height = 'clamp(56px, 9.5vmin, 104px)';
 
-            // 填色文字的裁剪片（左→右遮罩浮现）
+            // Clip piece for the fill text (mask reveals left to right)
             var defs = document.createElementNS(NS, 'defs');
             var cp = document.createElementNS(NS, 'clipPath');
             cp.setAttribute('id', 'jgs-wipe');
@@ -133,20 +133,20 @@
         var wipeRect = el('jgs-wipeRect');
         if (!strokes.length) { hideSplash(); return; }
 
-        // 描边初始：整段虚线藏在后面，再逐段 0 绘出
+        // Stroke initial state: the whole dash is hidden away first, then drawn out segment by segment from 0
         gsap.set(strokes, { strokeDasharray: dash, strokeDashoffset: dash });
         gsap.set(wipeRect, { attr: { width: 0 } });
-        // 字体初始完全透明 —— logo 动画完成前不显示
+        // Text starts fully transparent - not shown until the logo animation completes
         gsap.set(svg, { opacity: 0 });
 
-        // 让「logo+字」整体居中时，logo 恰好覆盖在整组中心；
-        // 启动时 logo 先停在屏幕正中，动画里向左滑（restX）回到它应在的槽位。
+        // So that the "logo + text" group is centered, the logo sits exactly over the group's center;
+        // at startup the logo first rests at screen center, then slides left (restX) to its intended slot during the animation.
         var stage = el('jg-splash-stage');
         var gap = stage ? (parseFloat(getComputedStyle(stage).gap) || 14) : 14;
-        var restX = (vw + gap) + vx * 0;   // vx 已含 padding，额外位移 = 字宽 + 间距
+        var restX = (vw + gap) + vx * 0;   // vx already includes padding; extra offset = text width + gap
         gsap.set(logo, { x: restX / 2 });
 
-        // logo 滑动时长（正常节奏）
+        // Logo slide duration (normal pace)
         var slideDur = 0.9;
 
         var tl = gsap.timeline({
@@ -154,23 +154,23 @@
             onComplete: function () { _splashDone = true; maybeReveal(); }
         });
 
-        // 0) logo 由 buildWordmark 立即浮现 → 在中心停 0.5s → 再向左滑动到位
-        //    修复：原先只等 0.05s，视觉上"一浮现就跑"，现在给 0.5s 定格再走
+        // 0) The logo appears immediately via buildWordmark -> rests at center for 0.5s -> then slides left into place
+        //    Fix: it used to wait only 0.05s, looking like it "ran off as soon as it appeared"; now it holds for 0.5s before moving
         var startDelay = 0.5;
         tl.to(logo, { x: 0, duration: slideDur, ease: 'linear' }, startDelay);
-        // 1) logo 到位后，字体才淡入，再逐笔描边 + 填色
+        // 1) Only after the logo lands does the text fade in, then stroke-draw glyph by glyph + fill
         tl.to(svg, { opacity: 1, duration: 0.35 }, startDelay + slideDur);
         tl.to(strokes, { strokeDashoffset: 0, duration: 1.5, ease: 'power2.inOut', stagger: 0.03 }, startDelay + slideDur + 0.25);
         tl.to(wipeRect, { attr: { width: vw }, duration: 0.9, ease: 'power2.inOut' }, startDelay + slideDur + 0.9);
-        // 尾部停顿：确保描边（1.5s）与填色（0.9s）完全结束再淡出，避免主界面提前露出（图三 bug 修复）
+        // Tail pause: make sure the stroke (1.5s) and fill (0.9s) fully finish before fading out, so the main UI does not peek through early (screenshot 3 bug fix)
         tl.to({}, { duration: 0.8 });
     }
 
     function maybeReveal() {
         if (!(_splashDone && _uiReady)) return;
         if (!window.gsap) { hideSplash(); return; }
-        // 解除启动态：让应用外壳可见。先去掉 .jg-shell 的 opacity:0!important，
-        // gsap 同一帧设 opacity:0 再滑入，不会闪白。
+        // Leave the booting state so the app shell becomes visible. Remove .jg-shell's opacity:0!important first;
+        // gsap sets opacity:0 in the same frame and slides it in, so there is no white flash.
         document.body.classList.remove('jg-booting');
         var splash = el('jg-splash'); if (!splash) return;
         var shell = document.querySelector('#app .jg-shell');
@@ -187,16 +187,16 @@
     }
 
     function hideSplash() {
-        document.body.classList.remove('jg-booting');   // 兜底：别把外壳藏死
+        document.body.classList.remove('jg-booting');   // fallback: never leave the shell permanently hidden
         var splash = el('jg-splash');
         if (splash) { splash.classList.add('hidden'); if (splash.parentNode) splash.parentNode.removeChild(splash); }
     }
 })();
 
-// ---- 顶栏选中块随窗口尺寸自适应 ----
-// 改变窗口大小会重新分配顶栏 flex 项，.active 项的 offsetLeft/offsetWidth 随之变化，
-// 但 Blazor 不会因 resize 重新 render → thumb 的 left/width 会停留在旧值而错位。
-// 监听 resize 事件，重新读一次真实几何再定位。
+// ---- Top nav selection thumb adapts to window size ----
+// Resizing redistributes the top nav's flex items, so the .active item's offsetLeft/offsetWidth changes,
+// but Blazor does not re-render on resize -> the thumb's left/width would stay at the old values and misalign.
+// Listen to the resize event, re-read the real geometry, and reposition.
 window.addEventListener('resize', function () {
     if (window.junigridJs && typeof window.junigridJs.placeNavThumb === 'function')
         window.junigridJs.placeNavThumb();

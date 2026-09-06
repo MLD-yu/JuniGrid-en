@@ -68,14 +68,14 @@ public sealed class GameService
             catch (Exception __ex) { AppLog.Warn("GameService", __ex.Message); }
         }
 
-        // 3) 兵底：只能确认装了但读不到版本号。
-        // 返回一个确定不会被 Version.TryParse 当成有效版本的占位符，
-        // 且保证 CheckSmapiAsync 能识别出「本地版本未知但已装」。
-        return null;   // 读不到版本 → 视为未识别，避免与 GitHub 版本比较时抖动
+        // 3) Last resort: we can only confirm SMAPI is installed but can't read its version.
+        // Returns a placeholder that Version.TryParse will definitely reject as a valid version,
+        // and guarantees CheckSmapiAsync recognizes "installed locally but version unknown".
+        return null;   // version unreadable → treated as unknown, avoiding flapping when compared with the GitHub version
     }
 
     // ------------------------------------------------------------------
-    // SMAPI 自己的图标（从 exe 里抽取，转成 data URI 给界面用）
+    // SMAPI's own icon (extracted from the exe, converted to a data URI for the UI)
     // ------------------------------------------------------------------
     private string? _smapiIconCache;
     private string? _smapiIconForPath;
