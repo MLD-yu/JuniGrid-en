@@ -5,12 +5,14 @@ This repository hosts the official English edition of JuniGrid; downloads are av
 
 ## Security notes
 
-- No API keys or secrets are embedded in the source code. Nexus credentials are entered by the user at sign-in and are stored only in the local configuration file of the current Windows user on that machine.
+- No API keys or secrets are embedded in the source code. Sign-in is OAuth2 only (authorization code + PKCE); tokens are stored only in the local configuration file of the current Windows user on that machine, and personal API keys are never requested from or shown to the user.
 - All downloads are performed strictly as the currently signed-in Nexus user; the app never proxies, redistributes, or caches mod files on behalf of other users.
+- The app talks only to official Nexus APIs (REST v1 + GraphQL). It never fetches or parses www.nexusmods.com pages.
+- Adult content is excluded by default; when the user opts in, listings follow the signed-in user's Nexus account adult content setting (enforced server-side).
 
 ## Features
 
-- **Nexus Mods integration** — three sign-in methods: SSO (`wss://sso.nexusmods.com`), OAuth2 authorization code + PKCE (callback URL `http://localhost:49162/auth/callback`), and personal API keys. Browse mods through the Nexus GraphQL API and fetch files through the official download endpoints, acting as the signed-in user.
+- **Nexus Mods integration** — sign-in runs through OAuth2 (authorization code + PKCE, callback URL `http://localhost:49162/auth/callback`, temporary loopback-only listener closed after the single callback). Browse mods through the Nexus GraphQL API and fetch files through the official download endpoints, acting as the signed-in user.
 - **One-click install** — registers as the `nxm://` protocol handler, so the "Mod Manager Download" button on Nexus pages launches JuniGrid directly.
 - **Mod management** — scans the Mods folder (including nested manifests), enable/disable/uninstall, dependency checks, save and configuration management.
 - **Task center** — a unified progress view for downloads, installs, and updates, with resumable transfers.

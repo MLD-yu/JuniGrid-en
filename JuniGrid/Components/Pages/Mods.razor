@@ -634,7 +634,7 @@
     private bool _initialLoading = true;
     // v0.60.0: shimmer loading state while checking for updates
     private bool _checkingUpdates = false;
-    private string _apiKey = "";
+    
     private string? _smapiVersion;
     private string? _smapiIcon;
     private SmapiUpdateInfo? _smapiUpdate;
@@ -1025,13 +1025,13 @@
         return string.IsNullOrEmpty(m.Category) ? null : m.Category;
     }
 
-    /// <summary>When the category table is empty and an API key exists, fetch the official category table once and cache it.</summary>
+    /// <summary>When the category table is empty and signed in, fetch the official category table once and cache it.</summary>
     private async Task EnsureCategoriesAsync()
     {
-        if (Cfg.Current.NexusCategories.Count > 0 || string.IsNullOrWhiteSpace(_apiKey)) return;
+        if (Cfg.Current.NexusCategories.Count > 0 || !NexusService.IsAuthenticated) return;
         try
         {
-            var cats = await Nexus.GetCategoriesAsync(_apiKey);
+            var cats = await Nexus.GetCategoriesAsync();
             if (cats is { Count: > 0 })
             {
                 Cfg.Current.NexusCategories = cats;
@@ -1557,7 +1557,7 @@
     protected override void OnInitialized()
     {
         Covers.Changed += OnCoverCached;   // v1.08: refresh after the image finishes caching in the background
-        _apiKey = Cfg.Current.NexusApiKey;
+        
         // v1.08: restore SMAPI task state from the task center — leaving and returning rebuilds the component,
         // and _smapiUpdating resetting to false would re-enable the button and create duplicate download tasks.
         _smapiUpdating = Center.Items.Any(t =>
@@ -2196,7 +2196,7 @@
         Rescan();
         // v0.72.9: explicitly trigger one cover backfill (with a concurrency gate, never stacked) — the folder changed
         // after the batch rename, so covers under the new keys need to be fetched again.
-        if (!string.IsNullOrWhiteSpace(_apiKey)) _ = BackfillCoversAsync();
+        if (!!NexusService.IsAuthenticated) _ = BackfillCoversAsync();
 
         PersistCurrentToActive();
         Cfg.Save(Cfg.Current);
@@ -2270,7 +2270,7 @@
             return;
         }
         ShowNotice("ok", $"Updating {targets.Count} mods in-app one by one… (runs in the background; you'll be notified when done)");
-        if (!string.IsNullOrEmpty(_apiKey))
+        if (NexusService.IsAuthenticated)
             _ = BackfillCoversAsync();
         await RunUpdatePipeline(targets);
         // v0.68.1: for GitHub-source releases without a zip asset that can't be installed in-app, open their download page too
@@ -2307,7 +2307,7 @@
                 await semaphore.WaitAsync();
                 try
                 {
-                    var info = await Nexus.GetModAsync(_apiKey, m.NexusModId!.Value);
+                    var info = await Nexus.GetModAsync(m.NexusModId!.Value);
                     if (info is not null && !string.IsNullOrEmpty(info.PictureUrl))
                     {
                         GetState(m.Folder).PictureUrl = info.PictureUrl;
@@ -2374,10 +2374,10 @@
             .ToList();
 
         // v0.46.0: on the first update check, also fetch the official category table (works only with a key)
-        if (!string.IsNullOrEmpty(_apiKey)) _ = EnsureCategoriesAsync();
+        if (NexusService.IsAuthenticated) _ = EnsureCategoriesAsync();
 
         // works without a Nexus key too — GitHub-source mods need no key at all
-        if (string.IsNullOrEmpty(_apiKey))
+        if (!NexusService.IsAuthenticated)
             targets = targets.Where(m => m.GitHubRepo is not null).ToList();
 
         // vNext: nothing to check (all hits within TTL / no key and no GitHub sources) -> return silently, no more
@@ -2398,7 +2398,7 @@
         // v0.68.0: checking runs the "check-only" pipeline (CheckOnlyOne never downloads or installs);
         // installing only happens via RunUpdatePipeline after the user confirms.
         await RunCheckPipeline(targets);
-        if (!string.IsNullOrEmpty(_apiKey))
+        if (NexusService.IsAuthenticated)
             _ = BackfillCoversAsync();
     }
 
@@ -2515,7 +2515,7 @@
 
         var precise = targets;
         Dictionary<int, string>? fpUpdatedAt = null;   // modId -> batch fingerprint updatedAt (written back to cache after a successful precise check)
-        if (!string.IsNullOrEmpty(_apiKey))
+        if (NexusService.IsAuthenticated)
         {
             var nexusIds = targets.Where(m => m.NexusModId is not null).Select(m => m.NexusModId!.Value).ToList();
             if (nexusIds.Count > 0)
@@ -2637,22 +2637,22 @@
             // (same authoritative source as UpdateOne/one-click install's GetLatestMainFileAsync). The old logic took
             // the top-level version in mods/{id}.json (author-entered, often lagging the main file), which caused the
             // contradiction of "local 1.3.0 judged up to date, yet clicking update installs 1.3.1".
-            if (m.NexusModId is not null && !string.IsNullOrEmpty(_apiKey))
+            if (m.NexusModId is not null && NexusService.IsAuthenticated)
             {
                 // vNext: precise-check results for the same modId are shared within the pipeline — a mod installed
                 // twice (original + stale copy) sends one files.json request and both rows use the result
                 NexusFileInfo? file;
                 if (sharedFetch is not null)
                     file = await sharedFetch.GetOrAdd(m.NexusModId!.Value,
-                        k => Nexus.GetLatestMainFileAsync(_apiKey, k));
+                        k => Nexus.GetLatestMainFileAsync(k));
                 else
-                    file = await Nexus.GetLatestMainFileAsync(_apiKey, m.NexusModId!.Value);
+                    file = await Nexus.GetLatestMainFileAsync(m.NexusModId!.Value);
                 var remoteVer = string.IsNullOrWhiteSpace(file?.Version) ? null : file!.Version;
                 if (remoteVer is null)
                 {
                     // fallback when the main file has no version: use the mod's top-level version (grabbing the cover
                     // too; routine missing covers are BackfillCoversAsync's job, so no extra requests here)
-                    var info = await Nexus.GetModAsync(_apiKey, m.NexusModId!.Value);
+                    var info = await Nexus.GetModAsync(m.NexusModId!.Value);
                     if (!string.IsNullOrEmpty(info?.Version))
                     {
                         remoteVer = info!.Version;
@@ -2786,17 +2786,17 @@
         {
             // ── (1) Nexus source first (v0.68.2): mods with a Nexus source always check and download via Nexus,
             //    dual-source mods like SDV-Glow are no longer snatched by the GitHub source (free users' batch updates can jump to Nexus too) ──
-            if (m.NexusModId is not null && !string.IsNullOrEmpty(_apiKey))
+            if (m.NexusModId is not null && NexusService.IsAuthenticated)
             {
                 // v0.72.0: resolve the "latest MAIN file" first; check and install share this one authoritative source.
                 // The old logic checked the top-level version in mods/{id}.json but only consulted the files.json main
                 // file at install time; mismatched versions produced "no update found, yet updating installs a higher version".
-                var file = await Nexus.GetLatestMainFileAsync(_apiKey, m.NexusModId!.Value);
+                var file = await Nexus.GetLatestMainFileAsync(m.NexusModId!.Value);
                 var remoteVer = string.IsNullOrWhiteSpace(file?.Version) ? null : file!.Version;
                 if (remoteVer is null)
                 {
                     // fallback when the main file has no version: use the mod's top-level version (grabbing the cover too)
-                    var info = await Nexus.GetModAsync(_apiKey, m.NexusModId!.Value);
+                    var info = await Nexus.GetModAsync(m.NexusModId!.Value);
                     if (!string.IsNullOrEmpty(info?.Version))
                     {
                         remoteVer = info!.Version;
@@ -2827,7 +2827,7 @@
                         st.Message = $"New version {remoteVer} found (Nexus source); auto-updating…";
                         StateHasChanged();
 
-                        var dl = await Nexus.GetDownloadUrlAsync(_apiKey, m.NexusModId!.Value, file.FileId);
+                        var dl = await Nexus.GetDownloadUrlAsync(m.NexusModId!.Value, file.FileId);
                         if (dl.NeedsPremium)
                         {
                             st.Status = "premium";

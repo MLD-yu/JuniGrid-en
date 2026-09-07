@@ -8,7 +8,8 @@ namespace JuniGrid.Services;
 
 /// <summary>
 /// Nexus Mods Public API v1 (https://api.nexusmods.com).
-///  - Version checks work with any free personal API key.
+///  - User authentication is OAuth2 only (NexusOAuthService): requests attach the signed-in
+///    user's Bearer access token. Personal API keys are never used or requested.
 ///  - Direct download links are Premium-only (Nexus policy): free accounts
 ///    get HTTP 403 on download_link — surfaced as NeedsPremium.
 /// Rate limits: ~100 req/day free, 2500/day premium (X-RL-* headers).
@@ -22,19 +23,32 @@ public sealed class NexusService
     {
         var h = new HttpClient();
         h.DefaultRequestHeaders.UserAgent.ParseAdd("JuniGrid-Launcher");
-        // App identification headers required by the Nexus AUP
+        // App identification headers required by the Nexus AUP — the version must always match
+        // the real released app version, so it is taken from the single AppInfo source of truth
+        // instead of a literal that goes stale as the app evolves.
         h.DefaultRequestHeaders.TryAddWithoutValidation("Application-Name", "JuniGrid");
-        h.DefaultRequestHeaders.TryAddWithoutValidation("Application-Version", "0.2.0");
+        h.DefaultRequestHeaders.TryAddWithoutValidation("Application-Version", AppInfo.Version);
         h.DefaultRequestHeaders.Accept.ParseAdd("application/json");
         h.Timeout = TimeSpan.FromSeconds(15);   // v1.06.8: faster update checks — slow requests fail fast after 15s instead of stalling the whole batch
         return h;
     }
 
-    private static HttpRequestMessage Req(string? apiKey, string url)
+    /// <summary>OAuth2 access token of the signed-in user (set by NexusOAuthService). Null when logged out —
+    /// requests then run unauthenticated (public GraphQL browsing keeps working without it).</summary>
+    private static string? _bearerToken;
+    public static string? BearerToken
+    {
+        get => Volatile.Read(ref _bearerToken);
+        set => Volatile.Write(ref _bearerToken, value);
+    }
+    /// <summary>True when a user is signed in via OAuth2 (Bearer token present).</summary>
+    public static bool IsAuthenticated => !string.IsNullOrEmpty(BearerToken);
+
+    private static HttpRequestMessage Req(string url)
     {
         var r = new HttpRequestMessage(HttpMethod.Get, url);
-        if (!string.IsNullOrEmpty(apiKey))
-            r.Headers.TryAddWithoutValidation("apikey", apiKey);
+        if (BearerToken is { } token)
+            r.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         return r;
     }
 
@@ -50,9 +64,9 @@ public sealed class NexusService
 
     /// <summary>Mod metadata (name + current version + cover). null on error.</summary>
     /// <summary>v0.46.0: fetches the official category table for this game (category_id → name); the caller caches it in config.</summary>
-    public async Task<Dictionary<int, string>?> GetCategoriesAsync(string apiKey)
+    public async Task<Dictionary<int, string>?> GetCategoriesAsync()
     {
-        using var res = await Http.SendAsync(Req(apiKey, Base + ".json"));
+        using var res = await Http.SendAsync(Req(Base + ".json"));
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         if (!doc.RootElement.TryGetProperty("categories", out var arr) || arr.ValueKind != JsonValueKind.Array)
@@ -68,9 +82,9 @@ public sealed class NexusService
         return dict;
     }
 
-    public async Task<NexusModInfo?> GetModAsync(string apiKey, int modId)
+    public async Task<NexusModInfo?> GetModAsync(int modId)
     {
-        using var res = await Http.SendAsync(Req(apiKey, $"{Base}/mods/{modId}.json"));
+        using var res = await Http.SendAsync(Req($"{Base}/mods/{modId}.json"));
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var root = doc.RootElement;
@@ -84,9 +98,9 @@ public sealed class NexusService
     }
 
     /// <summary>Full mod detail for the in-app detail page (incl. HTML description + cover).</summary>
-    public async Task<NexusModDetail?> GetModDetailAsync(string apiKey, int modId)
+    public async Task<NexusModDetail?> GetModDetailAsync(int modId)
     {
-        using var res = await SlowHttp.SendAsync(Req(apiKey, $"{Base}/mods/{modId}.json"));
+        using var res = await SlowHttp.SendAsync(Req($"{Base}/mods/{modId}.json"));
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var root = doc.RootElement;
@@ -244,9 +258,9 @@ public sealed class NexusService
 }
 
     /// <summary>Newest MAIN file (fallback: newest file of any category).</summary>
-    public async Task<NexusFileInfo?> GetLatestMainFileAsync(string apiKey, int modId, bool patient = false)
+    public async Task<NexusFileInfo?> GetLatestMainFileAsync(int modId, bool patient = false)
     {
-        using var res = await (patient ? SlowHttp : Http).SendAsync(Req(apiKey, $"{Base}/mods/{modId}/files.json"));
+        using var res = await (patient ? SlowHttp : Http).SendAsync(Req($"{Base}/mods/{modId}/files.json"));
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         if (!doc.RootElement.TryGetProperty("files", out var files)) return null;
@@ -335,9 +349,9 @@ public sealed class NexusService
     }
 
     /// <summary>v0.69.0: mod changelogs (version → change lines). Matches the Changelogs on the site's LOGS tab.</summary>
-    public async Task<List<NexusChangelog>?> GetChangelogsAsync(string apiKey, int modId)
+    public async Task<List<NexusChangelog>?> GetChangelogsAsync(int modId)
     {
-        using var res = await SlowHttp.SendAsync(Req(apiKey, $"{Base}/mods/{modId}/changelogs.json"));
+        using var res = await SlowHttp.SendAsync(Req($"{Base}/mods/{modId}/changelogs.json"));
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var list = new List<NexusChangelog>();
@@ -353,40 +367,6 @@ public sealed class NexusService
         return list;
     }
 
-    /// <summary>
-    /// v0.69.2: fetches the mod images page (?tab=images) to complete the full gallery.
-    /// Root cause: the images field of v1 mods.json usually contains only the main picture (the site's
-    /// 25 images are not included), and the full gallery only exists in the images page HTML.
-    /// Collects staticdelivery direct links and dedupes by file name.
-    /// Returns null on any failure (the caller keeps the original main image); never affects the detail page.
-    /// </summary>
-    public async Task<List<string>?> GetModImagesAsync(int modId)
-    {
-        try
-        {
-            using var res = await Http.GetAsync(
-                $"https://www.nexusmods.com/stardewvalley/mods/{modId}?tab=images");
-            if (!res.IsSuccessStatusCode) return null;
-            var html = await res.Content.ReadAsStringAsync();
-            var urls = new List<string>();
-            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-                html, @"https://staticdelivery\.nexusmods\.com/[^""'\s\\]+?\.(?:png|jpe?g|webp)(?:\?[^""'\s\\]*)?",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-            {
-                var u = m.Value;
-                // Skip avatar/icon-sized images
-                if (u.Contains("/avatars/", StringComparison.OrdinalIgnoreCase)) continue;
-                // Dedupe by base URL (query string stripped): keep only one copy when only the query string differs
-                var baseU = u.Split('?')[0];
-                if (!urls.Any(x => x.Split('?')[0].Equals(baseU, StringComparison.OrdinalIgnoreCase)))
-                    urls.Add(u);
-            }
-            return urls.Count > 1 ? urls : null;
-        }
-        catch { return null; }
-    }
-
-
     // ══════════════════════════════════════════════════════════════════
     // v0.69.5: Requirements uses GraphQL v2 (fixes the v0.69.3 bug where hand-built JSON left inner
     // quotes unescaped, making the request body invalid, the API return 400, and the UI stick on shimmer — switched to JsonSerializer).
@@ -396,21 +376,15 @@ public sealed class NexusService
     // compatible (the site's frontend uses this route too).
     private const string GraphQlEndpoint = "https://api-router.nexusmods.com/graphql";
     /// <summary>v0.79.0: adult content master switch — false = browse/search GraphQL appends an adultContent:false filter.
-    /// Synced by ConfigService from the "Settings → filter adult content" toggle (FilterAdultContent=true => this=false).
+    /// Synced by ConfigService from the single "show adult content" toggle (default off).
+    /// When true, no adult condition is added: the request then runs under the signed-in user's own
+    /// Nexus account adult content setting, which the server enforces — the app never overrides it.
     /// v1.1.6: written on the UI thread / read on GraphQL background threads; switched to a Volatile property to avoid torn reads.</summary>
-    private static bool _includeAdultContent = true;
+    private static bool _includeAdultContent = false;
     public static bool IncludeAdultContent
     {
         get => Volatile.Read(ref _includeAdultContent);
         set => Volatile.Write(ref _includeAdultContent, value);
-    }
-    /// <summary>"Only show adult content" toggle — when true, browse/search GraphQL appends an adultContent:true filter
-    /// (takes priority over IncludeAdultContent; mutual exclusion is guaranteed by ConfigService). Off by default.</summary>
-    private static bool _onlyAdultContent = false;
-    public static bool OnlyAdultContent
-    {
-        get => Volatile.Read(ref _onlyAdultContent);
-        set => Volatile.Write(ref _onlyAdultContent, value);
     }
     /// <summary>Version counter for the adult filter: +1 each time the toggle actually changes (maintained by ConfigService.SyncAdultFilter).
     /// Nexus page snapshots store the version at fetch time; a version mismatch on return means the snapshot holds data fetched under the old filter => discard and refetch.</summary>
@@ -603,105 +577,21 @@ public sealed class NexusService
         catch { return null; }
     }
 
-    /// <summary>
-    /// v0.69.2: fetches the mod detail page HTML and parses three sections: Permissions and credits /
-    /// Translations / Collections containing this mod (none of these has an endpoint in the v1 REST API or
-    /// the public GraphQL docs; the site's pages are server-rendered and can be parsed directly).
-    /// If a section fails to parse it comes back empty/null; the UI shows a "view on the website" fallback.
-    /// </summary>
-    public async Task<NexusModExtras?> GetModPageExtrasAsync(int modId)
-    {
-        try
-        {
-            using var res = await SlowHttp.GetAsync(
-                $"https://www.nexusmods.com/stardewvalley/mods/{modId}");
-            if (!res.IsSuccessStatusCode) return null;
-            var html = await res.Content.ReadAsStringAsync();
-
-            // ── Translations: mod links inside the Translations section ──
-            var translations = new List<NexusLinkItem>();
-            var tRegion = ExtractRegion(html, "Translations",
-                "Changelogs", "Mods using this mod", "Collections containing this mod", "Posts");
-            if (tRegion is not null)
-                foreach (var (u, t) in ExtractModLinks(tRegion))
-                    translations.Add(new NexusLinkItem(t, "https://www.nexusmods.com" + u, ""));
-
-            // ── Collections: the "Collections containing this mod" / "Included in N collections" section ──
-            var collections = new List<NexusLinkItem>();
-            var cRegion = ExtractRegion(html, "Collections containing this mod",
-                "Posts", "Bug reports", "Activity logs", "Mod statistics", "</footer");
-            if (cRegion is null)
-                cRegion = ExtractRegion(html, "Included in", "Posts", "</footer");
-            if (cRegion is not null)
-            {
-                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-                    cRegion, @"href=""(?<u>/stardewvalley/collections/[a-zA-Z0-9]+)""[^>]*>(?<t>[^<]{1,80})<"))
-                {
-                    var t = m.Groups["t"].Value.Trim();
-                    if (t.Length == 0) continue;
-                    // Look for an "N mods" count near the link
-                    var tail = cRegion.Substring(m.Index, Math.Min(400, cRegion.Length - m.Index));
-                    var cm = System.Text.RegularExpressions.Regex.Match(tail, @"(\d[\d,]*)\s*mods");
-                    var sub = cm.Success ? cm.Groups[1].Value + " mods" : "";
-                    collections.Add(new NexusLinkItem(t, "https://www.nexusmods.com" + m.Groups["u"].Value, sub));
-                }
-            }
-
-            // ── Permissions and credits: strip tags inside the section and take plain text (truncated when too long) ──
-            string? permissions = null;
-            var pRegion = ExtractRegion(html, "Permissions and credits",
-                "Translations", "Changelogs", "Mods using this mod", "Collections containing this mod");
-            if (pRegion is not null)
-            {
-                var txt = System.Text.RegularExpressions.Regex.Replace(pRegion, "<[^>]+>", " ");
-                txt = System.Text.RegularExpressions.Regex.Replace(
-                    System.Net.WebUtility.HtmlDecode(txt), "\\s+", " ").Trim();
-                // Drop the section heading itself at the start
-                txt = System.Text.RegularExpressions.Regex.Replace(txt, "^Permissions and credits\\s*", "");
-                if (txt.Length > 30) permissions = txt.Length > 900 ? txt[..900] + "..." : txt;
-            }
-
-            return new NexusModExtras(permissions, translations, collections);
-        }
-        catch { return null; }
-    }
-
-    /// <summary>Cuts out the HTML region between startMarker and the first matching endMarker (null when not found).</summary>
-    private static string? ExtractRegion(string html, string startMarker, params string[] endMarkers)
-    {
-        var i = html.IndexOf(startMarker, StringComparison.OrdinalIgnoreCase);
-        if (i < 0) return null;
-        var end = html.Length;
-        foreach (var em in endMarkers)
-        {
-            var j = html.IndexOf(em, i + startMarker.Length, StringComparison.OrdinalIgnoreCase);
-            if (j > i && j < end) end = j;
-        }
-        var len = Math.Min(end - i, 200000);   // defensive: truncate pathologically large regions
-        return html.Substring(i, len);
-    }
-
-    /// <summary>Extracts (mod link, display text) pairs from an HTML region.</summary>
-    private static IEnumerable<(string Url, string Text)> ExtractModLinks(string region)
-    {
-        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-            region, @"href=""(?<u>/stardewvalley/mods/\d+)[^""]*""[^>]*>(?<t>[^<]{1,80})<"))
-        {
-            var t = m.Groups["t"].Value.Trim();
-            if (t.Length > 0) yield return (m.Groups["u"].Value, t);
-        }
-    }
+    // The former GetModPageExtrasAsync (v0.69.2) and its HTML region parsers were removed:
+    // they fetched www.nexusmods.com pages and regex-parsed Translations / Collections /
+    // Permissions sections, which violates the Nexus ToS prohibition on automated site
+    // scraping. The detail page links to the mod page on the website instead.
 
     /// <summary>
     /// v0.69.0: user download history (modId → last download date, yyyy-MM-dd).
     /// This is a legacy v1 endpoint that could be taken down at any time — always return null on any failure
     /// and let the caller fall back silently; opening the detail page must never be affected by this endpoint.
     /// </summary>
-    public async Task<Dictionary<int, string>?> GetDownloadHistoryAsync(string apiKey)
+    public async Task<Dictionary<int, string>?> GetDownloadHistoryAsync()
     {
         try
         {
-            using var res = await SlowHttp.SendAsync(Req(apiKey,
+            using var res = await SlowHttp.SendAsync(Req(
                 "https://api.nexusmods.com/v1/user/download_history.json"));
             if (!res.IsSuccessStatusCode) return null;
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
@@ -734,9 +624,9 @@ public sealed class NexusService
     }
 
     /// <summary>CDN download URL for a file. NeedsPremium=true on free accounts (HTTP 403).</summary>
-    public async Task<NexusDownloadResult> GetDownloadUrlAsync(string apiKey, int modId, long fileId)
+    public async Task<NexusDownloadResult> GetDownloadUrlAsync(int modId, long fileId)
     {
-        using var res = await Http.SendAsync(Req(apiKey,
+        using var res = await Http.SendAsync(Req(
             $"{Base}/mods/{modId}/files/{fileId}/download_link.json"));
         if ((int)res.StatusCode == 403) return NexusDownloadResult.PremiumRequired;
         if (!res.IsSuccessStatusCode) return NexusDownloadResult.Fail($"HTTP {(int)res.StatusCode}");
@@ -784,16 +674,16 @@ public sealed class NexusService
     // the user clicking "Mod Manager Download" on the website)
     // ------------------------------------------------------------------
     public async Task<NexusDownloadResult> GetNxmDownloadUrlAsync(
-        string? apiKey, int modId, long fileId, string key, string expires)
+        int modId, long fileId, string key, string expires)
     {
         var url = $"{Base}/mods/{modId}/files/{fileId}/download_link.json"
                 + $"?key={Uri.EscapeDataString(key)}&expires={Uri.EscapeDataString(expires)}";
-        using var res = await Http.SendAsync(Req(apiKey, url));
+        using var res = await Http.SendAsync(Req(url));
         if (!res.IsSuccessStatusCode)
         {
             var code = (int)res.StatusCode;
             return NexusDownloadResult.Fail(code is 400 or 401 or 403
-                ? $"HTTP {code} (the download credentials do not match the Nexus account that owns the API Key in Settings, or the link has expired — make sure the app and the website are logged into the same Nexus account, then click Mod Manager Download on the website again)"
+                ? $"HTTP {code} (the download credentials do not match the signed-in Nexus account, or the link has expired — make sure the app and the website are logged into the same Nexus account, then click Mod Manager Download on the website again)"
                 : $"HTTP {code} (the link may have expired — click the download on the website again)");
         }
 
@@ -808,9 +698,10 @@ public sealed class NexusService
     // Browse lists (no full-text search in API v1 — that's v2/OAuth only)
     // ------------------------------------------------------------------
     /// <summary>kind: trending | latest_added | latest_updated</summary>
-    public async Task<IReadOnlyList<NexusModListEntry>> GetModListAsync(string apiKey, string kind)
+    public async Task<IReadOnlyList<NexusModListEntry>> GetModListAsync(string kind)
     {
-        using var res = await Http.SendAsync(Req(apiKey, $"{Base}/mods/{kind}.json"));
+        using var res = await Http.SendAsync(Req(
+            $"{Base}/mods/{kind}.json" + (IncludeAdultContent ? "" : "?include_adult=false")));
         if (!res.IsSuccessStatusCode) return Array.Empty<NexusModListEntry>();
 
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
@@ -940,10 +831,10 @@ public sealed class NexusService
             {
                 "{gameId:{value:\"" + gameId + "\"}}"
             };
-            // "Only show adult content" takes priority; otherwise filter adult content when the master switch is off
-            if (OnlyAdultContent)
-                conds.Add("{adultContent:{value:true, op:EQUALS}}");
-            else if (!IncludeAdultContent)
+            // Adult content: hidden unless the user opted in. When opted in, no condition is added —
+            // the request then runs under the signed-in user's own Nexus account adult content setting
+            // (enforced server-side), so the app can never override the user's account preference.
+            if (!IncludeAdultContent)
                 conds.Add("{adultContent:{value:false, op:EQUALS}}");
             if (!string.IsNullOrWhiteSpace(categoryName))
                 conds.Add("{categoryName:{value:\"" + categoryName.Replace("\"", "") + "\", op:EQUALS}}");
@@ -1038,16 +929,16 @@ public sealed class NexusService
         catch { return null; }
     }
 
-    /// <summary>Calls /v1/users/validate.json for the account info behind the current API Key.
+    /// <summary>Calls /v1/users/validate.json for the signed-in OAuth2 user's account info.
     /// Verified in v1.08.0: the endpoint no longer has avatar / member_id fields — the user id is called
     /// user_id (reading member_id always yields 0, so the whole GraphQL extras + avatar backfill chain never ran);
     /// the avatar direct link can be built as avatars.nexusmods.com/{user_id}/100 (the endpoint currently
     /// misplaces it in the profile_url field; corrected here).</summary>
-    public async Task<NexusUser?> ValidateAsync(string apiKey)
+    public async Task<NexusUser?> ValidateAsync()
     {
         try
         {
-            using var res = await Http.SendAsync(Req(apiKey, "https://api.nexusmods.com/v1/users/validate.json"));
+            using var res = await Http.SendAsync(Req("https://api.nexusmods.com/v1/users/validate.json"));
             if (!res.IsSuccessStatusCode) return null;
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             var r = doc.RootElement;
@@ -1118,36 +1009,18 @@ public sealed class NexusService
     }
 
     /// <summary>v1.05.1: author avatar for the detail page.
-    /// v1.06.1: GraphQL legacyModsByDomain promoted to the primary channel — site HTML scraping is blocked by
-    /// Cloudflare 403 (HttpClient/curl are blocked no matter the UA), while GraphQL's avatar field does return
-    /// real direct links in practice; earlier failures were the query itself being rejected by the server (see the
-    /// GetUploaderInfoAsync comment). HTML scraping is kept as a fallback.</summary>
+    /// v1.06.1: GraphQL legacyModsByDomain is the only channel — its avatar field returns real direct
+    /// links in practice. (The former site-page HTML scraping fallback was removed: automated requests
+    /// to www.nexusmods.com pages violate the Nexus ToS.) Returns null when GraphQL has no usable avatar;
+    /// the caller falls back to the initial-letter avatar.</summary>
     public async Task<string?> GetUploaderAvatarAsync(int modId, string gameDomain = "stardewvalley")
     {
-        // (1) GraphQL legacyModsByDomain → uploader.avatar (currently the only stable channel)
         try
         {
             var up = await GetUploaderInfoAsync(modId, gameDomain);
             var gav = up?.Avatar;
             if (!string.IsNullOrWhiteSpace(gav) && !gav.Contains("/missing", StringComparison.OrdinalIgnoreCase))
                 return gav;
-        }
-        catch { }
-        // (2) Fallback: scrape the avatar from the site page HTML (only works when Cloudflare lets it through)
-        try
-        {
-            using var res = await Http.GetAsync($"https://www.nexusmods.com/{gameDomain}/mods/{modId}");
-            if (res.IsSuccessStatusCode)
-            {
-                var html = await res.Content.ReadAsStringAsync();
-                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
-                    html, @"https://avatars\.nexusmods\.com/[^""'\s\\]+"))
-                {
-                    var u = m.Value;
-                    if (u.Contains("/missing", StringComparison.OrdinalIgnoreCase)) continue;
-                    return u;
-                }
-            }
         }
         catch { }
         return null;
@@ -1200,12 +1073,6 @@ public sealed record NexusFileInfo(long FileId, string Name, string Version, str
 
 /// <summary>v0.69.0: the changelog for one version.</summary>
 public sealed record NexusChangelog(string Version, List<string> Lines);
-
-/// <summary>v0.69.2: one link from the page extras (shared by translations/collections). Sub is extra text (e.g. "553 mods").</summary>
-public sealed record NexusLinkItem(string Name, string Url, string Sub);
-
-/// <summary>v0.69.2: extra data scraped from the mod page (permissions & credits text / translations list / collections list). Null when scraping fails; the UI falls back to the website link.</summary>
-public sealed record NexusModExtras(string? PermissionsText, List<NexusLinkItem> Translations, List<NexusLinkItem> Collections);
 
 public sealed record NexusModListEntry(
     int Id, string Name, string Summary, string Version, long Downloads, string PictureUrl,

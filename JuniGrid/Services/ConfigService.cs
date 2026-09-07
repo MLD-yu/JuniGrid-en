@@ -64,16 +64,14 @@ public sealed class ConfigService
             }
         }
 
-    /// <summary>Syncs the two mutually exclusive switches "Filter adult content / Show adult content only" to NexusService's static query switches
-    /// (whether the browsing GraphQL query includes the adult filter condition). When a switch actually changes, NexusService.AdultFilterVersion is incremented;
+    /// <summary>Syncs the single "show adult content" switch to NexusService's static query switch
+    /// (whether the browsing GraphQL query adds an adult filter condition). When the switch actually changes, NexusService.AdultFilterVersion is incremented;
     /// the Nexus page uses it to decide whether its browsing snapshot was fetched under the old filter and should be discarded and refetched.</summary>
     private void SyncAdultFilter()
     {
-        var only = Current.OnlyAdultContent;
-        var include = !Current.OnlyAdultContent && !Current.FilterAdultContent;
-        if (NexusService.OnlyAdultContent != only || NexusService.IncludeAdultContent != include)
+        var include = Current.ShowAdultContent;
+        if (NexusService.IncludeAdultContent != include)
             NexusService.BumpAdultFilterVersion();
-        NexusService.OnlyAdultContent = only;
         NexusService.IncludeAdultContent = include;
     }
 
@@ -228,7 +226,13 @@ public sealed class JuniGridConfig
     public string LaunchMode { get; set; } = "smapi";   // "smapi" | "steam"
     public string SteamAppId { get; set; } = "413150";
     public string ActiveShaderPreset { get; set; } = "balanced";
-    public string NexusApiKey { get; set; } = "";
+
+    // ── Nexus OAuth2 (the only sign-in path — personal API keys are not used, per the Nexus AUP) ──
+    // Tokens are persisted in the local config file on this machine only, and are refreshed
+    // automatically with the refresh token when they expire.
+    public string NexusAccessToken { get; set; } = "";
+    public string NexusRefreshToken { get; set; } = "";
+    public DateTime? NexusTokenExpiresAt { get; set; }
 
     // Launch history
     public string? LastLaunchTime { get; set; }          // ISO-8601
@@ -254,12 +258,13 @@ public sealed class JuniGridConfig
     public List<string> NexusSearchHistory { get; set; } = new();
 
     /// <summary>
-    /// Filter pornographic (adult) content switch. On by default — Nexus browsing/searching always excludes adult content;
-    /// mutually exclusive with "Show adult content only"; toggling either involves no age verification (the birthdate verification from early versions was removed).
+    /// "Show adult content" switch. Off by default — Nexus browsing/searching always explicitly
+    /// excludes adult content. When on, the app adds no adult condition of its own: listings then
+    /// follow the signed-in user's Nexus account adult content setting (enforced server-side),
+    /// so the app never overrides the user's account preference. No age verification is involved
+    /// (the birthdate verification from early versions was removed).
     /// </summary>
-    public bool FilterAdultContent { get; set; } = true;
-    /// <summary>"Show adult content only" switch, mutually exclusive with FilterAdultContent (at most one of the two is on; both may be off). Off by default.</summary>
-    public bool OnlyAdultContent { get; set; } = false;
+    public bool ShowAdultContent { get; set; } = false;
     /// <summary>
     /// Nexus one-click install (no browser popup; downloads in the background and installs straight into Mods). On by default;
     /// when off, the "Install" button on the detail page falls back to opening the built-in browser.

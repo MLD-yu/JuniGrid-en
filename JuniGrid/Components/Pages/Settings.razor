@@ -5,6 +5,7 @@
 @inject GameService Game
 @inject SteamService Steam
 @inject NexusService NexusApi
+@inject NexusOAuthService OAuth
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject StorageService Storage
@@ -98,12 +99,11 @@
     <div class="jg-card" style="margin-top:12px">
         <div style="font-weight:600">Content filtering</div>
         <div class="jg-switch-col">
-            <div class="jg-switch-row @(_filterAdult ? "on" : "")" @onclick="ToggleFilterAdult">
-                <span>Filter adult content</span>
-                <span class="jg-switch"><span class="jg-switch-knob"></span></span>
-            </div>
-            <div class="jg-switch-row @(_onlyAdult ? "on" : "")" @onclick="ToggleOnlyAdult">
-                <span>Show adult content only</span>
+            @* v1.1.3: single toggle. Off (default) = adult content is always explicitly excluded.
+               On = no app-side condition is added and listings follow the signed-in user's Nexus
+               account adult content setting (enforced server-side), so the app never overrides it. *@
+            <div class="jg-switch-row @(_showAdult ? "on" : "")" @onclick="ToggleShowAdult">
+                <span>Show adult content</span>
                 <span class="jg-switch"><span class="jg-switch-knob"></span></span>
             </div>
         </div>
@@ -318,14 +318,7 @@
 
     private void NexusLogout()
     {
-        var cfg = Cfg.Current;
-        cfg.NexusApiKey = "";
-        cfg.NexusUserName = "";
-        cfg.NexusUserEmail = "";
-        cfg.NexusProfileUrl = "";
-        cfg.NexusIsPremium = false;
-        cfg.NexusAvatarDataUri = "";
-        Cfg.Save(cfg);
+        OAuth.Logout();   // clears the OAuth2 tokens, the attached Bearer and the cached account fields
         _nexusName = ""; _nexusAvatar = null; _nexusPremium = false;
         _ = JS.InvokeVoidAsync("junigridJs.toast", "Signed out of Nexus");
         StateHasChanged();
@@ -343,7 +336,7 @@
         _nexusAvatar = cached is not null && cached.StartsWith("data:image/", StringComparison.Ordinal) ? cached : null;
         // v1.08.2: when signed in, self-heal by refreshing in the background (validate already builds the real avatar direct link from user_id); write back to the cache only if it differs;
         // not awaited — the settings page's first render is never delayed by network waits
-        if (!string.IsNullOrEmpty(cfg.NexusApiKey)) _ = RefreshNexusAvatarAsync();
+        if (NexusService.IsAuthenticated) _ = RefreshNexusAvatarAsync();
     }
 
     private async Task RefreshNexusAvatarAsync()
@@ -351,7 +344,7 @@
         try
         {
             var cfg = Cfg.Current;
-            var u = await NexusApi.ValidateAsync(cfg.NexusApiKey);
+            var u = await NexusApi.ValidateAsync();
             if (u is null || string.IsNullOrEmpty(u.Avatar)) return;
             var fresh = await NexusApi.FetchAvatarAsync(u.Avatar);
             if (string.IsNullOrEmpty(fresh)) return;
@@ -382,8 +375,7 @@
     private bool _autoInstall;
 
     // ─── Filter adult content / Show adult content only: mutually exclusive switches (at most one on, both may be off); filtering on by default ───
-    private bool _filterAdult = true;
-    private bool _onlyAdult;
+    private bool _showAdult;   // off by default — adult content is excluded unless the user opts in
 
     private bool _showTaskDock;
 
@@ -621,11 +613,10 @@
     });
 
 
-    private void SaveFilterAdult()
+    private void SaveShowAdult()
     {
         var cfg = Cfg.Current;
-        cfg.FilterAdultContent = _filterAdult;
-        cfg.OnlyAdultContent = _onlyAdult;
+        cfg.ShowAdultContent = _showAdult;
         Cfg.Save(cfg);   // ConfigService.Save internally syncs NexusService's adult content query switches
     }
 
@@ -640,8 +631,7 @@
             Cfg.Current.EnableAutoInstall = false;
             Cfg.Save(Cfg.Current);
         }
-        _filterAdult = Cfg.Current.FilterAdultContent;
-        _onlyAdult = Cfg.Current.OnlyAdultContent;
+        _showAdult = Cfg.Current.ShowAdultContent;
         _showTaskDock = Cfg.Current.ShowTaskDock;
 
         // v0.2.1: memory management — subscribe to snapshot pushes (every 5s); Dispose unsubscribes when leaving the page
@@ -693,18 +683,10 @@
         SaveAutoInstall();
     }
 
-    private void ToggleFilterAdult()
+    private void ToggleShowAdult()
     {
-        _filterAdult = !_filterAdult;
-        if (_filterAdult) _onlyAdult = false;   // mutually exclusive: enabling filtering disables "show only"
-        SaveFilterAdult();
-    }
-
-    private void ToggleOnlyAdult()
-    {
-        _onlyAdult = !_onlyAdult;
-        if (_onlyAdult) _filterAdult = false;   // mutually exclusive: enabling "show only" disables filtering
-        SaveFilterAdult();
+        _showAdult = !_showAdult;
+        SaveShowAdult();
     }
 
     private void SaveOneClickInstall()

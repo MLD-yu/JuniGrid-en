@@ -4,7 +4,7 @@
 @inject CoverCacheService Covers
 @inject ConfigService Cfg
 @inject NexusService NexusApi
-@inject NexusSsoService Sso
+@inject NexusOAuthService OAuth
 @inject ModService ModSvc
 @inject GameService Game
 @inject InstallService Installer
@@ -63,7 +63,7 @@
             </div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex:1 1 0;justify-content:flex-end">
-            @if (!string.IsNullOrEmpty(_key))
+            @if (_loggedIn)
             {
                 @* ─── v0.70.1: show only the avatar; hovering pops up a GSAP easeReverse-tooltip user card ─── *@
                 <div class="jg-user-tip" id="jgUserTip">
@@ -112,7 +112,7 @@
             }
         </div>
     </div>
-    @if (!string.IsNullOrEmpty(_ssoMsg)) { <div class="jg-note" style="margin-top:6px;">@_ssoMsg</div> }
+    @if (!string.IsNullOrEmpty(_loginMsg)) { <div class="jg-note" style="margin-top:6px;">@_loginMsg</div> }
     @* ─── v0.74.0: website-style home page (image 3 Trending + image 4 Mods sections) ─── *@
     @if (_viewMode == "home")
     {
@@ -123,7 +123,7 @@
                 <button type="button" class="jg-viewall" @onclick='@(() => EnterBrowse("trending"))'>View all@((MarkupString)ViewAllArrow)</button>
             </div>
             @* v0.75.0: check the login state first — show guidance text when logged out; when logged in, Shimmer throughout until the data is in *@
-            @if (string.IsNullOrEmpty(_key))
+            @if (!_loggedIn)
             {
                 <div style="font-size:12px;opacity:.6">Log in to see Nexus's official Trending list.</div>
             }
@@ -207,7 +207,7 @@
                     </button>
                 }
             </div>
-            @if (string.IsNullOrEmpty(_key))
+            @if (!_loggedIn)
             {
                 <div style="font-size:12px;opacity:.6;margin-top:8px">Log in to see Nexus's official Mods list.</div>
             }
@@ -499,7 +499,7 @@
                and during the window where "the menu has popped up but the overlay isn't on yet" the mouse could click through to the mod cards below (most visible during the open animation).
                the open/close class is flipped in the same frame as the menu by the dropdownToggle JS; this only re-aligns the state as a fallback on re-render. *@
             <div class="jg-dd-overlay @((_kindOpen || _timeOpen || _dirOpen) ? "open" : "")" data-dd="browse" @onclick="CloseAllDd"></div>
-            @if (string.IsNullOrEmpty(_key))
+            @if (!_loggedIn)
             {
                 <div style="font-size:12px;opacity:.6;margin-top:8px">Log in to see Nexus's official lists.</div>
             }
@@ -600,79 +600,22 @@
 
 </div>
 
-@* ── v0.39.0: Login dialog (method choice → API Key entry → authorization wait → Pixel Reveal success card) ── *@
+@* ── v0.39.0: Login dialog (OAuth2 authorization wait → Pixel Reveal success card).
+   v1.1.3: the personal API key path was removed per the Nexus AUP — OAuth2 is the only sign-in. ── *@
 @if (_loginStep != LoginStep.Closed)
 {
     <div class="jg-login-overlay" @onclick="CloseLoginDialog">
         <div class="jg-login-card @(_loginStep == LoginStep.Success ? "success" : "")" @onclick:stopPropagation>
 
-            @if (_loginStep == LoginStep.Choose)
-            {
-                <div class="jg-login-title">Choose a login method</div>
-                <div class="jg-login-sub">Connect your Nexus Mods account to unlock browsing and one-click install</div>
-                <div class="jg-login-options">
-                    <button class="jg-login-option" @onclick="() => _loginStep = LoginStep.ApiKey">
-                        <span class="jg-login-option-icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m11 12 9.5-9.5"/><path d="m15.5 7.5 3 3"/><path d="m18.5 4.5 2 2"/></svg>
-                        </span>
-                        <span class="jg-login-option-text">
-                            <span class="jg-login-option-name">API Key login</span>
-                            <span class="jg-login-option-desc">Paste your personal API Key to sign in instantly</span>
-                        </span>
-                    </button>
-                    @* v1.08.4: the SSO app name "junigrid" is not yet on Nexus's official whitelist,
-                       the authorization page reports "invalid application ID" — this entry stays disabled until official approval *@
-                    <button class="jg-login-option jg-login-option-disabled" disabled
-                            title="Pending official approval: Nexus website authorization opens once the app name is approved — please use API Key login for now">
-                        <span class="jg-login-option-icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                        </span>
-                        <span class="jg-login-option-text">
-                            <span class="jg-login-option-name">Website authorization login</span>
-                            <span class="jg-login-option-desc">Pending official approval — coming soon</span>
-                        </span>
-                    </button>
-                </div>
-                <button class="jg-login-cancel" @onclick="CloseLoginDialog">Cancel</button>
-            }
-            else if (_loginStep == LoginStep.ApiKey)
-            {
-                <div class="jg-login-title">Enter your API Key</div>
-                <div class="jg-login-sub">The API Key is stored only on this machine and is used to access official Nexus Mods data</div>
-                <input class="jg-login-input" placeholder="Paste your Nexus API Key"
-                       @bind="_apiKeyInput" @bind:event="oninput" disabled="@_apiKeyBusy" />
-                @if (!string.IsNullOrEmpty(_apiKeyError))
-                {
-                    <div class="jg-login-error">@_apiKeyError</div>
-                }
-                <div class="jg-login-actions">
-                    <button class="jg-login-get" @onclick="OpenApiKeyPage" disabled="@_apiKeyBusy">
-                        Get API Key
-                    </button>
-                    <button class="jg-login-confirm @(_apiKeyBusy ? "busy" : "")"
-                            disabled="@(_apiKeyBusy || string.IsNullOrWhiteSpace(_apiKeyInput))"
-                            @onclick="ConfirmApiKey">
-                        @if (_apiKeyBusy)
-                        {
-                            <span class="jg-login-spinner"></span>
-                        }
-                        else
-                        {
-                            <text>OK</text>
-                        }
-                    </button>
-                </div>
-                <button class="jg-login-cancel" @onclick="BackToChoose" disabled="@_apiKeyBusy">Back</button>
-            }
-            else if (_loginStep == LoginStep.SsoWaiting)
+            @if (_loginStep == LoginStep.Waiting)
             {
                 <div class="jg-login-title">Waiting for authorization</div>
-                <div class="jg-login-sub">The Nexus authorization page is open — click Authorise in your browser to finish authorizing</div>
+                <div class="jg-login-sub">The Nexus authorization page is open — click Authorise in your browser to finish signing in</div>
                 <div class="jg-login-waiting">
                     <span class="jg-login-spinner large"></span>
                     <span>Waiting for browser authorization...</span>
                 </div>
-                <button class="jg-login-cancel" @onclick="CancelSsoFlow">Cancel authorization</button>
+                <button class="jg-login-cancel" @onclick="CancelOAuthFlow">Cancel authorization</button>
             }
             else if (_loginStep == LoginStep.Success)
             {
@@ -706,139 +649,83 @@
 @code {
     // v0.59.0: first-screen shimmer
 
-    private string? _ssoMsg;
+    private string? _loginMsg;
 
-    // ---- v0.39.0: login dialog state machine ----
-    private enum LoginStep { Closed, Choose, ApiKey, SsoWaiting, Success }
+    // ---- login dialog state machine (OAuth2 is the only sign-in path — see NexusOAuthService) ----
+    private enum LoginStep { Closed, Waiting, Success }
     private LoginStep _loginStep = LoginStep.Closed;
-    private string _apiKeyInput = "";
-    private bool _apiKeyBusy;
-    private string? _apiKeyError;
+    private bool _loginBusy;
     private bool _loginToast;
 
     private void OpenLoginDialog()
     {
-        _loginStep = LoginStep.Choose;
-        _apiKeyInput = "";
-        _apiKeyError = null;
+        _loginMsg = null;
+        _ = StartOAuthFlow();
     }
 
     private void CloseLoginDialog()
     {
         // clicking the overlay while waiting for authorization counts as cancel
-        if (_loginStep == LoginStep.SsoWaiting) { CancelSsoFlow(); return; }
+        if (_loginStep == LoginStep.Waiting) { CancelOAuthFlow(); return; }
         _loginStep = LoginStep.Closed;
     }
 
-    private void BackToChoose() => _loginStep = LoginStep.Choose;
-
-    private void OpenApiKeyPage()
+    // OAuth2 sign-in: open the browser authorization page → capture the loopback callback → success card
+    private async Task StartOAuthFlow()
     {
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
-                "https://www.nexusmods.com/users/myaccount?tab=api") { UseShellExecute = true });
-        }
-        catch { }
-    }
-
-    // API Key login: validate → save → success card
-    private async Task ConfirmApiKey()
-    {
-        if (_apiKeyBusy) return;
-        _apiKeyBusy = true;
-        _apiKeyError = null;
+        if (_loginBusy) return;
+        _loginBusy = true;
+        _loginStep = LoginStep.Waiting;
         StateHasChanged();
+        using var cts = _oauthCts = new CancellationTokenSource();
         try
         {
-            var key = _apiKeyInput.Trim();
-            var user = await NexusApi.ValidateAsync(key);
-            if (user is null)
+            var user = await OAuth.LoginAsync(cts.Token);
+            if (user is not null)
             {
-                _apiKeyError = "Invalid API Key. Please check and try again";
-                return;
-            }
-            _key = key;
-            _userName = user.Name ?? "";
-            _isPremium = user.IsPremium;
-            // vNext: persist the user info at login time — if only the key is saved, the settings page flashes "not logged in" first
-            // (the name only gets filled in once the settings page's background validate self-heals, which takes about 1s)
-            {
-                var c0 = Cfg.Current;
-                c0.NexusApiKey = _key;
-                c0.NexusUserName = _userName;
-                c0.NexusUserEmail = user.Email ?? "";
-                c0.NexusProfileUrl = user.ProfileUrl ?? "";
-                c0.NexusIsPremium = _isPremium;
-                Cfg.Save(c0);
-            }
-            _userName = user.Name ?? "";
-            _isPremium = user.IsPremium;
-            // v1.08.3: the success card starts with the initial-letter fallback while the avatar is fetched in the background, converted to a data URI and cached —
-            // the pixel reveal animation lasts 2.6s, enough for the image to land and swap in; the next page entry reads the cache and shows it instantly
-            _userAvatar = "";
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    var av = await NexusApi.FetchAvatarAsync(user.Avatar ?? "");
-                    if (!string.IsNullOrEmpty(av))
-                    {
-                        _userAvatar = av;
-                        var c = Cfg.Current; c.NexusAvatarDataUri = av; Cfg.Save(c);
-                        await InvokeAsync(StateHasChanged);
-                    }
-                }
-                catch { }
-            });
-            await ShowLoginSuccess();
-        }
-        catch (Exception ex)
-        {
-            _apiKeyError = "Validation failed: " + ex.Message;
-        }
-        finally
-        {
-            _apiKeyBusy = false;
-            StateHasChanged();
-        }
-    }
-
-    // Website authorization: enter the waiting state → SSO → success card
-    private async Task StartSsoFlow()
-    {
-        _loginStep = LoginStep.SsoWaiting;
-        StateHasChanged();
-        using var cts = _ssoCts = new CancellationTokenSource();
-        try
-        {
-            var key = await Sso.LoginAsync("junigrid", cts.Token);
-            if (!string.IsNullOrEmpty(key))
-            {
-                _key = key;
-                Save();
+                _loggedIn = true;
+                _userName = user.Name ?? "";
+                _isPremium = user.IsPremium;
+                _profileUrl = user.ProfileUrl;
                 await LoadNexusUserAsync();
+                // v1.08.3: the success card starts with the initial-letter fallback while the avatar is fetched in the background
+                _userAvatar = "";
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var av = await NexusApi.FetchAvatarAsync(user.Avatar ?? "");
+                        if (!string.IsNullOrEmpty(av))
+                        {
+                            _userAvatar = av;
+                            var c = Cfg.Current; c.NexusAvatarDataUri = av; Cfg.Save(c);
+                            await InvokeAsync(StateHasChanged);
+                        }
+                    }
+                    catch { }
+                });
                 await ShowLoginSuccess();
             }
-            else if (_ssoCts?.IsCancellationRequested != true)
+            else if (_oauthCts?.IsCancellationRequested != true)
             {
-                // failure (not a cancel): return to the method choice and show a message
-                _loginStep = LoginStep.Choose;
-                _ssoMsg = "SSO not completed: " + (Sso.LastError ?? "Timed out (5 minutes)");
+                // failure (not a cancel): close the waiting card and show a message
+                _loginStep = LoginStep.Closed;
+                _loginMsg = "Sign-in not completed: " + (OAuth.LastError ?? "Timed out (5 minutes)");
             }
         }
         finally
         {
-            _ssoCts = null;
-            if (_loginStep == LoginStep.SsoWaiting) _loginStep = LoginStep.Choose;
+            _oauthCts = null;
+            _loginBusy = false;
+            if (_loginStep == LoginStep.Waiting) _loginStep = LoginStep.Closed;
             StateHasChanged();
         }
     }
 
-    private void CancelSsoFlow()
+    private void CancelOAuthFlow()
     {
-        _ssoCts?.Cancel();
-        _loginStep = LoginStep.Choose;
+        _oauthCts?.Cancel();
+        _loginStep = LoginStep.Closed;
     }
 
     // Success card: switch to the Success step → play Pixel Reveal → toast
@@ -858,7 +745,7 @@
         });
         // refresh the current view's data after login (v0.97.1: it used to refresh only the browse list — in home mode
         // nothing ever loaded the Trending/Mods data sources, so they showed "failed to fetch" forever)
-        if (!string.IsNullOrEmpty(_key))
+        if (_loggedIn)
         {
             if (_viewMode == "browse")
                 _ = LoadBrowse(_browseKind);
@@ -866,9 +753,9 @@
                 _ = LoadHomeAsync();
         }
     }
-    private CancellationTokenSource? _ssoCts;   // cancellation token for the authorization wait, used by the "Cancel authorization" button to abort LoginAsync
+    private CancellationTokenSource? _oauthCts;   // cancellation token for the authorization wait, used by the "Cancel authorization" button to abort LoginAsync
 
-    private string _key = "";
+    private bool _loggedIn;   /* signed-in state — backed by the OAuth2 token held by NexusOAuthService/NexusService */
     private string _userName = "";
     private string _userAvatar = "";
     private bool _isPremium;
@@ -1064,7 +951,7 @@
 
     private async Task LoadHomeAsync()
     {
-        if (string.IsNullOrEmpty(_key)) { _homeLoading = false; return; }
+        if (!_loggedIn) { _homeLoading = false; return; }
         _homeLoading = true;
         StateHasChanged();
         try
@@ -1088,7 +975,7 @@
 
     private async Task SetHomeTab(string key)
     {
-        if (_homeTab == key || _homeLoading || string.IsNullOrEmpty(_key)) return;
+        if (_homeTab == key || _homeLoading || !_loggedIn) return;
         _homeTab = key;
         _homeLoading = true;
         StateHasChanged();
@@ -1214,7 +1101,7 @@
     private async Task RunSearchAsync()
     {
         var q = _searchText.Trim();
-        if (string.IsNullOrEmpty(q) || string.IsNullOrEmpty(_key)) return;
+        if (string.IsNullOrEmpty(q) || !_loggedIn) return;
         PushSearchHistory(q);
         _searchTitle = q;   // v1.05.0: title/prompt updates only after Enter submits
         _viewMode = "search";
@@ -1231,10 +1118,10 @@
     private async Task ExecuteSearchAsync(bool withExact)
     {
         var q = _searchTitle;
-        if (string.IsNullOrEmpty(q) || string.IsNullOrEmpty(_key)) return;
+        if (string.IsNullOrEmpty(q) || !_loggedIn) return;
         _browseLoading = true;
         StateHasChanged();
-        var exactTask = withExact && q.All(char.IsDigit) ? NexusApi.GetModAsync(_key, int.Parse(q)) : null;
+        var exactTask = withExact && q.All(char.IsDigit) ? NexusApi.GetModAsync(int.Parse(q)) : null;
         try
         {
             _browse = await NexusApi.BrowseModsAsync(_searchSort, 0, _pageSize, searchText: q,
@@ -1291,7 +1178,7 @@
         if (key != "nexus") return;
         _ = InvokeAsync(async () =>
         {
-            if (string.IsNullOrEmpty(_key)) return;
+            if (!_loggedIn) return;
             // vNext: manual refresh = start from the top — scroll to top and write 0 into the scroll archive (forward navigation
             // restores the position from the archive; if we don't write it, the stale pre-refresh position would come back)
             try { await JS.InvokeVoidAsync("junigridJs.setScroll", ".jg-main", 0); } catch { }
@@ -1308,10 +1195,10 @@ protected override async Task OnInitializedAsync()
     {
         // v0.75.0: no longer force-close the first-screen loading state after 400ms — keep the Shimmer skeleton up the whole time,
         // taking it down only once the user info + first-screen lists have truly finished loading; when logged out, close immediately and show the login prompt.
-        _key = Cfg.Current.NexusApiKey;
-        if (string.IsNullOrEmpty(_key)) _homeLoading = false;
+        _loggedIn = OAuth.IsSignedIn;
+        if (!_loggedIn) _homeLoading = false;
         // arrived via the settings page "Log in" pill (/nexus?login=1): open the login dialog directly when logged out
-        if (string.IsNullOrEmpty(_key) && new Uri(Nav.Uri).Query.Contains("login=1"))
+        if (!_loggedIn && new Uri(Nav.Uri).Query.Contains("login=1"))
         {
             OpenLoginDialog();
             StateHasChanged();
@@ -1350,7 +1237,7 @@ protected override async Task OnInitializedAsync()
             catch { }
         });
         // auto-load the default list as soon as the page opens (no need to click a tab first)
-        if (!string.IsNullOrEmpty(_key))
+        if (_loggedIn)
         {
             // v1.03.0: use snapshot data directly when present (returning to the previous page doesn't re-request); only re-fetch when the snapshot is missing (e.g. a leftover mode after an app restart)
             if (_viewMode == "search" && _browse.Count > 0) { /* search page snapshot restored, zero requests */ }
@@ -1390,34 +1277,21 @@ protected override async Task OnInitializedAsync()
     private string? GetBrowseState(int id) =>
         _browseStates.TryGetValue(id, out var s) ? s : null;
 
-    // ---- API key ----
-    private void Save()
-    {
-        var cfg = Cfg.Current;
-        cfg.NexusApiKey = _key;
-        Cfg.Save(cfg);
-    }
-
+    // ---- sign-out (OAuth2 tokens live in NexusOAuthService / the config file) ----
     private void Clear()
     {
-        _key = "";
+        OAuth.Logout();   // clears the tokens, the attached Bearer and the cached account fields
+        _loggedIn = false;
         _userName = "";
         _userAvatar = "";
         _isPremium = false;
         _profileUrl = null;
-        Save();
-        var cfg = Cfg.Current;
-        cfg.NexusUserName = "";
-        cfg.NexusUserEmail = "";
-        cfg.NexusProfileUrl = "";
-        cfg.NexusIsPremium = false;
-        cfg.NexusAvatarDataUri = "";   // v1.08.3: clear the avatar cache along with it, so logging in with a different account doesn't flash the previous one's avatar
-        Cfg.Save(cfg);
+        _userExtras = null;
     }
 
     private async Task LoadNexusUserAsync()
     {
-        if (string.IsNullOrEmpty(_key))
+        if (!_loggedIn)
         {
             _userName = ""; _userAvatar = ""; _isPremium = false; _profileUrl = null;
             return;
@@ -1433,7 +1307,7 @@ protected override async Task OnInitializedAsync()
         _userAvatar = cachedAvatar is not null && cachedAvatar.StartsWith("data:image/", StringComparison.Ordinal) ? cachedAvatar : "";
         try
         {
-            var u = await NexusApi.ValidateAsync(_key);
+            var u = await NexusApi.ValidateAsync();
             if (u is null) return;
             _userName = u.Name;
             _isPremium = u.IsPremium;
@@ -1518,7 +1392,7 @@ protected override async Task OnInitializedAsync()
     /// v1.04.0: passes the ascending/descending direction; the category and custom time parameters were removed with that feature.</summary>
     private async Task LoadCurrentPageAsync()
     {
-        if (string.IsNullOrEmpty(_key)) return;
+        if (!_loggedIn) return;
         _browseLoading = true;
         StateHasChanged();
         try
@@ -1559,7 +1433,7 @@ protected override async Task OnInitializedAsync()
 
     private async Task GoToPage(int p)
     {
-        if (_browseLoading || string.IsNullOrEmpty(_key)) return;
+        if (_browseLoading || !_loggedIn) return;
         if (TotalPages is int t) p = Math.Min(p, t);
         p = Math.Max(1, p);
         if (p == _page) return;
@@ -1610,7 +1484,7 @@ protected override async Task OnInitializedAsync()
     // ---- Install a new mod: one-click direct install (silent, in the background); fall back to the embedded browser only on failure ----
     private async Task InstallBrowse(NexusModListEntry mod)
     {
-        if (string.IsNullOrEmpty(_key)) return;
+        if (!_loggedIn) return;
         if (!Cfg.Current.EnableOneClickInstall)
         {
             // the one-click install toggle is off → open the embedded browser directly for a manual download

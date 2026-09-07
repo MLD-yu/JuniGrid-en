@@ -129,7 +129,7 @@ public partial class MainWindow : Window
             services.AddSingleton<PageRefreshService>();
             services.AddSingleton<TaskCenterService>();
             services.AddSingleton<InstallService>();
-            services.AddSingleton<NexusSsoService>();
+            services.AddSingleton<NexusOAuthService>();
             // v0.2.1: cache and storage management + memory management
             services.AddSingleton<StorageService>();
             services.AddSingleton<MemoryService>();
@@ -143,6 +143,10 @@ public partial class MainWindow : Window
             Resources.Add("services", provider);
             App.Services = provider;
             Log("DI configured");
+
+            // v1.1.3: restore the persisted OAuth2 session (if any) before any Nexus data loads —
+            // expired tokens are refreshed in the background so saved logins survive restarts
+            provider.GetRequiredService<NexusOAuthService>().RestoreSession();
 
             // The game is running but was not started by this app (e.g. a JuniGrid restart) -> attach to the existing SMAPI log
             provider.GetRequiredService<LauncherService>().AttachIfGameRunning();

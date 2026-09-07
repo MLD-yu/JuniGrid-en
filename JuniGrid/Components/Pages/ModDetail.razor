@@ -339,7 +339,6 @@
 
     public void Dispose() => Covers.Changed -= OnCoversChanged;
 
-    private string _key = "";
     private NexusModDetail? _mod;
     // v0.72.0: latest MAIN file (one authoritative source for both the update check and one-click install InstallModDirectAsync)
     private NexusFileInfo? _latestFile;
@@ -411,12 +410,12 @@
         _translations = null;
         _changelogs = null;
         _installMsg = null;
-        _key = Cfg.Current.NexusApiKey;
+        
 
-        if (string.IsNullOrEmpty(_key))
+        if (!NexusService.IsAuthenticated)
         {
             _loading = false;
-            _error = "No Nexus API key configured — paste your Personal API Key on the Nexus page first.";
+            _error = "Not signed in to Nexus Mods — sign in on the Nexus page first.";
             return;
         }
 
@@ -439,13 +438,13 @@
             // v1.06.8: on a cache hit (viewed within 10 minutes) use it directly so returning to A opens instantly without a spinner; only a miss goes to the network
             if (!_detailCache.TryGetValue(ModId, out var hit) || DateTime.UtcNow - hit.At > DetailCacheTtl)
             {
-                var mod = await NexusApi.GetModDetailAsync(_key, ModId);
+                var mod = await NexusApi.GetModDetailAsync(ModId);
                 if (mod is null) { _error = "Failed to fetch — check your network or whether the API key is valid."; }
                 else
                 {
                     // v0.72.0: fetch the latest MAIN file for the update check (same source as one-click install). Fails silently.
                     NexusFileInfo? latest = null;
-                    try { latest = await NexusApi.GetLatestMainFileAsync(_key, ModId, patient: true); }
+                    try { latest = await NexusApi.GetLatestMainFileAsync(ModId, patient: true); }
                     catch { latest = null; }
                     hit = (mod, latest, DateTime.UtcNow);
                     RememberDetail(ModId, hit);
@@ -486,7 +485,7 @@
                     catch { _translations = new(); }
                     try
                     {
-                        _changelogs = await NexusApi.GetChangelogsAsync(_key, ModId) ?? new();
+                        _changelogs = await NexusApi.GetChangelogsAsync(ModId) ?? new();
                         await InvokeAsync(StateHasChanged);
                     }
                     catch { _changelogs = new(); }
@@ -495,7 +494,7 @@
                 {
                     try
                     {
-                        var hist = await NexusApi.GetDownloadHistoryAsync(_key);
+                        var hist = await NexusApi.GetDownloadHistoryAsync();
                         if (hist is not null && hist.TryGetValue(ModId, out var remote)
                             && (_lastDownloaded is null
                                 || string.Compare(remote, _lastDownloaded, StringComparison.Ordinal) > 0))
@@ -593,9 +592,9 @@
     private async Task Install()
     {
         if (_mod is null) return;
-        if (string.IsNullOrEmpty(_key))
+        if (!NexusService.IsAuthenticated)
         {
-            _installMsg = "Enter an API key under Settings → Nexus first to enable one-click install";
+            _installMsg = "Not signed in to Nexus Mods — sign in on the Nexus page first to enable one-click install";
             return;
         }
         if (!Cfg.Current.EnableOneClickInstall)

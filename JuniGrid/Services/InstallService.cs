@@ -54,12 +54,12 @@ public sealed class InstallService
         if (Busy) return "The previous install is still running; wait for it to finish and try again";
 
         var cfg = _cfg.Current;
-        if (string.IsNullOrWhiteSpace(cfg.NexusApiKey))
-            return "No Nexus API key configured yet — paste one on the Nexus page first";
+        if (!NexusService.IsAuthenticated)
+            return "Not signed in to Nexus Mods yet — sign in on the Nexus page first";
         if (string.IsNullOrWhiteSpace(cfg.GamePath))
             return "Game folder not set yet — choose it on the Settings page first";
 
-        var taskTitle = await ResolveModTitleAsync(cfg.NexusApiKey, modId, null);
+        var taskTitle = await ResolveModTitleAsync(modId, null);
         var task = _center.Start($"Download and install {taskTitle}", "install");
 
         void Step(string msg, double? pct = null, double? speed = null) =>
@@ -70,11 +70,11 @@ public sealed class InstallService
         try
         {
             Step("Fetching file info…", 2);
-            var file = await _nexus.GetLatestMainFileAsync(cfg.NexusApiKey, modId);
+            var file = await _nexus.GetLatestMainFileAsync(modId);
             if (file is null) { _center.Finish(task, false, "No downloadable file found"); return "No downloadable file found"; }
 
             Step("Getting download URL…", 5);
-            var dl = await _nexus.GetDownloadUrlAsync(cfg.NexusApiKey, modId, file.FileId);
+            var dl = await _nexus.GetDownloadUrlAsync(modId, file.FileId);
             if (dl.NeedsPremium)
             { _center.Finish(task, false, "Nexus Premium required; switched to the web flow"); return "premium: this mod's direct download requires a Nexus Premium account"; }
             if (dl.Url is null)
@@ -150,10 +150,10 @@ public sealed class InstallService
             }
 
             var cfg = _cfg.Current;
-            if (string.IsNullOrWhiteSpace(cfg.NexusApiKey))
+            if (!NexusService.IsAuthenticated)
             {
-                _center.Finish(task, false, "No Nexus API key configured yet");
-                Notify("❌ No Nexus API key configured yet — paste one on the Nexus page first");
+                _center.Finish(task, false, "Not signed in to Nexus Mods yet");
+                Notify("❌ Not signed in to Nexus Mods yet — sign in on the Nexus page first");
                 return;
             }
             if (string.IsNullOrWhiteSpace(cfg.GamePath))
@@ -164,12 +164,12 @@ public sealed class InstallService
             }
 
             // once modId is parsed, add the mod name to the task title so it is recognizable on the /tasks page
-            task.Title = "Download and install " + await ResolveModTitleAsync(cfg.NexusApiKey, modId, null);
+            task.Title = "Download and install " + await ResolveModTitleAsync(modId, null);
 
             Step($"Getting download URL (mod #{modId})…", 8);
-            // v0.62.0: restored the API key header — Nexus's download_link.json endpoint strictly requires the apikey header;
-            // even with key/expires in the URL it returns 401 without it (v0.61 dropping the key introduced this error).
-            var dl = await _nexus.GetNxmDownloadUrlAsync(cfg.NexusApiKey, modId, fileId, key, exp);
+            // The nxm:// link's download_link endpoint requires authenticated access matching the Nexus
+            // account that generated the link — the OAuth2 Bearer token of the signed-in user is attached automatically.
+            var dl = await _nexus.GetNxmDownloadUrlAsync(modId, fileId, key, exp);
             if (dl.Url is null)
             {
                 _center.Finish(task, false, dl.Error ?? "Failed to get download URL");
@@ -250,8 +250,8 @@ public sealed class InstallService
     {
         if (Busy) return "The previous install is still running; wait for it to finish and try again";
         var cfg = _cfg.Current;
-        if (string.IsNullOrWhiteSpace(cfg.NexusApiKey))
-            return "No Nexus API key configured yet — paste one on the Nexus page first";
+        if (!NexusService.IsAuthenticated)
+            return "Not signed in to Nexus Mods yet — sign in on the Nexus page first";
         if (string.IsNullOrWhiteSpace(cfg.GamePath))
             return "Game folder not set yet — choose it on the Settings page first";
 
@@ -344,10 +344,10 @@ public sealed class InstallService
                         {
                             task.Cts.Token.ThrowIfCancellationRequested();
                             Step($"({idx}/{total}) Fetching file info for {c.Name}…");
-                            var file = await _nexus.GetLatestMainFileAsync(cfg.NexusApiKey, c.Id);
+                            var file = await _nexus.GetLatestMainFileAsync(c.Id);
                             if (file is null) { lastErr = "No downloadable file found"; continue; }
 
-                            var dl = await _nexus.GetDownloadUrlAsync(cfg.NexusApiKey, c.Id, file.FileId);
+                            var dl = await _nexus.GetDownloadUrlAsync(c.Id, file.FileId);
                             if (dl.NeedsPremium)
                             {
                                 // switching candidates will not help — account-level limitation: all remaining dependencies this run switch to manual
@@ -518,7 +518,7 @@ public sealed class InstallService
         var firstName = "";
         try
         {
-            var info = await _nexus.GetModAsync(cfg.NexusApiKey, ids[0]);
+            var info = await _nexus.GetModAsync(ids[0]);
             if (!string.IsNullOrWhiteSpace(info?.Name)) firstName = info!.Name;
         }
         catch { }
@@ -606,11 +606,11 @@ public sealed class InstallService
     /// Resolves a readable mod name for the task title (the /tasks page shows which mod is being downloaded).
     /// Falls back to the given fallback or "Mod #{id}" when the network request yields no name.
     /// </summary>
-    private async Task<string> ResolveModTitleAsync(string apiKey, int modId, string? fallbackName)
+    private async Task<string> ResolveModTitleAsync(int modId, string? fallbackName)
     {
         try
         {
-            var info = await _nexus.GetModAsync(apiKey, modId);
+            var info = await _nexus.GetModAsync(modId);
             if (!string.IsNullOrWhiteSpace(info?.Name)) return info.Name;
         }
         catch (Exception __ex) { AppLog.Warn("InstallService", __ex.Message); }
