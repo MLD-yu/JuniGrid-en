@@ -8,6 +8,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>JuniGrid</RootNamespace>
     <AssemblyName>JuniGrid</AssemblyName>
+    <!-- Product version defaults to 1.0.0 without this; build-installer.ps1 also passes -p:Version
+         from AppInfo.Version so the released assembly, installer, and Nexus Application-Version
+         header stay in lockstep (AUP requires they always match the current release). -->
+    <Version>1.1.4</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\junigrid-logo.ico</ApplicationIcon>
     <!-- Keep only Chinese/English satellite resources: in a self-contained publish, the WPF/FluentUI

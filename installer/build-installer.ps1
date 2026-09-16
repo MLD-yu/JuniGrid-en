@@ -1,4 +1,4 @@
-﻿# One-shot build of the Riot-style in-house installer: dist-tmp\JuniGrid-en-v<version>-setup.exe
+# One-shot build of the Riot-style in-house installer: dist-tmp\JuniGrid-en-v<version>-setup.exe
 # Usage: powershell -File build-installer.ps1 [-SkipAppPublish]
 #   -SkipAppPublish  Reuse the existing publish\sc without republishing the main app (for day-to-day installer builds)
 $param = $args
@@ -17,7 +17,9 @@ $skipPublish = $param -contains '-SkipAppPublish'
 # 2) Self-contained publish of the main app
 $sc = Join-Path $repo 'publish\sc'
 if (-not $skipPublish -or -not (Test-Path (Join-Path $sc 'JuniGrid.exe'))) {
-    dotnet publish (Join-Path $repo 'JuniGrid') -c Release -r win-x64 --self-contained true -p:DebugType=none -o $sc
+    # -p:Version=$version keeps FileVersion/ProductVersion in lockstep with AppInfo.Version
+    # (Nexus AUP: Application-Version HTTP header + the released build must always match).
+    dotnet publish (Join-Path $repo 'JuniGrid') -c Release -r win-x64 --self-contained true -p:DebugType=none -p:Version=$version -o $sc
     if ($LASTEXITCODE -ne 0) { throw "Main app publish failed" }
 }
 

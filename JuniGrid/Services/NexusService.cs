@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -13,6 +16,8 @@ namespace JuniGrid.Services;
 ///  - Direct download links are Premium-only (Nexus policy): free accounts
 ///    get HTTP 403 on download_link — surfaced as NeedsPremium.
 /// Rate limits: ~100 req/day free, 2500/day premium (X-RL-* headers).
+/// All api.nexusmods.com / GraphQL traffic goes through SendApiAsync (central concurrency
+/// cap + 429 / Retry-After / X-RL-*-Reset handling) so one client never bursts aggressively.
 /// </summary>
 public sealed class NexusService
 {
@@ -44,12 +49,160 @@ public sealed class NexusService
     /// <summary>True when a user is signed in via OAuth2 (Bearer token present).</summary>
     public static bool IsAuthenticated => !string.IsNullOrEmpty(BearerToken);
 
-    private static HttpRequestMessage Req(string url)
+    // ══════════════════════════════════════════════════════════════════
+    // Central Nexus API rate-limit gate (AUP second-pass review)
+    //  - MaxConcurrent: hard ceiling on in-flight API/GraphQL requests from this process
+    //    (call-site semaphores only shape work items; this gate is the real network budget).
+    //  - 429: honor Retry-After (seconds or HTTP-date); fall back to X-RL-*-Reset seconds.
+    //  - Successful responses that report remaining==0 also pause until the window resets,
+    //    so we stop before the next 429 instead of racing into it.
+    // CDN file/avatar downloads are NOT gated here (different hosts; download_link is one API call).
+    // ══════════════════════════════════════════════════════════════════
+    private const int MaxConcurrentApiRequests = 2;
+    private static readonly SemaphoreSlim ApiGate = new(MaxConcurrentApiRequests, MaxConcurrentApiRequests);
+    private static long _apiPauseUntilUtcTicks;
+    // Server-directed waits (Retry-After / X-RL-*-Reset) are honored without an upper clamp —
+    // free-tier daily resets can be hours, and truncating them causes repeated 429s (AUP risk).
+    // Only the no-header fallback and the inline retry delay are capped.
+    private static readonly TimeSpan MinRetryAfter = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan FallbackWhenNoHeaders = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MaxInlineRetryWait = TimeSpan.FromSeconds(15);
+
+    private static void PauseUntil(DateTimeOffset untilUtc)
     {
-        var r = new HttpRequestMessage(HttpMethod.Get, url);
-        if (BearerToken is { } token)
-            r.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-        return r;
+        var ticks = untilUtc.UtcTicks;
+        while (true)
+        {
+            var cur = Volatile.Read(ref _apiPauseUntilUtcTicks);
+            if (ticks <= cur) return;
+            if (Interlocked.CompareExchange(ref _apiPauseUntilUtcTicks, ticks, cur) == cur) return;
+        }
+    }
+
+    private static async Task WaitIfPausedAsync(CancellationToken ct)
+    {
+        while (true)
+        {
+            var until = Volatile.Read(ref _apiPauseUntilUtcTicks);
+            var now = DateTimeOffset.UtcNow.UtcTicks;
+            if (until <= now) return;
+            var waitMs = (int)Math.Min((until - now) / TimeSpan.TicksPerMillisecond + 25, 30_000);
+            if (waitMs <= 0) return;
+            await Task.Delay(waitMs, ct).ConfigureAwait(false);
+        }
+    }
+
+    private static bool TryGetIntHeader(HttpResponseMessage res, string name, out int value)
+    {
+        value = 0;
+        if (!res.Headers.TryGetValues(name, out var vals)) return false;
+        foreach (var v in vals)
+            if (int.TryParse(v.Trim(), out value)) return true;
+        return false;
+    }
+
+    /// <summary>Proactive pause when the server says the hourly/daily quota is exhausted.</summary>
+    private static void ObserveRateLimit(HttpResponseMessage res)
+    {
+        try
+        {
+            if (TryGetIntHeader(res, "X-RL-Hourly-Remaining", out var hourlyLeft) && hourlyLeft <= 0
+                && TryGetIntHeader(res, "X-RL-Hourly-Reset", out var hourlyReset) && hourlyReset > 0)
+            {
+                var wait = TimeSpan.FromSeconds(Math.Max(hourlyReset, 1));
+                PauseUntil(DateTimeOffset.UtcNow + wait);
+                AppLog.Warn("Nexus", $"Hourly rate-limit exhausted — pausing API calls for {wait.TotalSeconds:0}s");
+            }
+            else if (TryGetIntHeader(res, "X-RL-Daily-Remaining", out var dailyLeft) && dailyLeft <= 0
+                     && TryGetIntHeader(res, "X-RL-Daily-Reset", out var dailyReset) && dailyReset > 0)
+            {
+                var wait = TimeSpan.FromSeconds(Math.Max(dailyReset, 1));
+                PauseUntil(DateTimeOffset.UtcNow + wait);
+                AppLog.Warn("Nexus", $"Daily rate-limit exhausted — pausing API calls for {wait.TotalSeconds:0}s");
+            }
+        }
+        catch { /* header parsing must never break a successful response */ }
+    }
+
+    /// <summary>Parses Retry-After / X-RL-*-Reset from a 429, applies the pause, and returns how long to wait.
+    /// Explicit server values are used as-is (only floored at 1s); the no-header fallback stays short.</summary>
+    private static TimeSpan ApplyPauseFrom429(HttpResponseMessage res)
+    {
+        TimeSpan wait;
+        var ra = res.Headers.RetryAfter;
+        if (ra?.Delta is TimeSpan d && d > TimeSpan.Zero) wait = d;
+        else if (ra?.Date is DateTimeOffset dt)
+        {
+            wait = dt - DateTimeOffset.UtcNow;
+            if (wait < MinRetryAfter) wait = MinRetryAfter;
+        }
+        else if (TryGetIntHeader(res, "X-RL-Hourly-Reset", out var hourlyReset) && hourlyReset > 0)
+            wait = TimeSpan.FromSeconds(hourlyReset);
+        else if (TryGetIntHeader(res, "X-RL-Daily-Reset", out var dailyReset) && dailyReset > 0)
+            wait = TimeSpan.FromSeconds(dailyReset);
+        else
+            wait = FallbackWhenNoHeaders;
+
+        if (wait < MinRetryAfter) wait = MinRetryAfter;
+        PauseUntil(DateTimeOffset.UtcNow + wait);
+        return wait;
+    }
+
+    /// <summary>
+    /// Sole send path for Nexus API v1 and GraphQL. Caps concurrency, waits out any
+    /// active pause, and always observes X-RL-* headers so subsequent calls respect
+    /// the remaining quota. On 429: short Retry-After waits and retries once; long
+    /// server-directed locks set the global pause and return 429 immediately (so this
+    /// call does not hold ApiGate while sleeping out a multi-hour window).
+    /// Callers dispose the returned response as usual.
+    /// </summary>
+    private static async Task<HttpResponseMessage> SendApiAsync(
+        HttpClient client,
+        string url,
+        HttpMethod? method = null,
+        string? jsonBody = null,
+        bool useBearer = true,
+        CancellationToken ct = default)
+    {
+        await ApiGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                await WaitIfPausedAsync(ct).ConfigureAwait(false);
+
+                using var req = new HttpRequestMessage(method ?? HttpMethod.Get, url);
+                if (useBearer && BearerToken is { } token && token.Length > 0)
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                if (jsonBody is not null)
+                    req.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+
+                var res = await client.SendAsync(req, ct).ConfigureAwait(false);
+                ObserveRateLimit(res);
+                if ((int)res.StatusCode != 429 || attempt >= 1)
+                    return res;
+
+                var wait = ApplyPauseFrom429(res);
+                res.Dispose();
+                // Long server-directed lock: do NOT retry inline — the global PauseUntil already
+                // covers future calls. Looping back into WaitIfPausedAsync would sleep out the full
+                // multi-hour window while still holding an ApiGate slot and spinning the UI.
+                if (wait > MaxInlineRetryWait)
+                {
+                    AppLog.Warn("Nexus", $"HTTP 429 on {url} — API paused {wait.TotalSeconds:0}s, failing this call without retry");
+                    return new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                    {
+                        ReasonPhrase = "Rate limited (paused per Retry-After / rate-limit reset)",
+                    };
+                }
+                AppLog.Warn("Nexus", $"HTTP 429 on {url} — short window {wait.TotalSeconds:0}s; waiting and retrying once");
+                await Task.Delay(wait, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            ApiGate.Release();
+        }
     }
 
     // v1.08: lenient client — for the detail page / on-demand single requests. A single Nexus API request
@@ -66,7 +219,7 @@ public sealed class NexusService
     /// <summary>v0.46.0: fetches the official category table for this game (category_id → name); the caller caches it in config.</summary>
     public async Task<Dictionary<int, string>?> GetCategoriesAsync()
     {
-        using var res = await Http.SendAsync(Req(Base + ".json"));
+        using var res = await SendApiAsync(Http, Base + ".json");
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         if (!doc.RootElement.TryGetProperty("categories", out var arr) || arr.ValueKind != JsonValueKind.Array)
@@ -84,7 +237,7 @@ public sealed class NexusService
 
     public async Task<NexusModInfo?> GetModAsync(int modId)
     {
-        using var res = await Http.SendAsync(Req($"{Base}/mods/{modId}.json"));
+        using var res = await SendApiAsync(Http, $"{Base}/mods/{modId}.json");
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var root = doc.RootElement;
@@ -100,7 +253,7 @@ public sealed class NexusService
     /// <summary>Full mod detail for the in-app detail page (incl. HTML description + cover).</summary>
     public async Task<NexusModDetail?> GetModDetailAsync(int modId)
     {
-        using var res = await SlowHttp.SendAsync(Req($"{Base}/mods/{modId}.json"));
+        using var res = await SendApiAsync(SlowHttp, $"{Base}/mods/{modId}.json");
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var root = doc.RootElement;
@@ -260,7 +413,7 @@ public sealed class NexusService
     /// <summary>Newest MAIN file (fallback: newest file of any category).</summary>
     public async Task<NexusFileInfo?> GetLatestMainFileAsync(int modId, bool patient = false)
     {
-        using var res = await (patient ? SlowHttp : Http).SendAsync(Req($"{Base}/mods/{modId}/files.json"));
+        using var res = await SendApiAsync(patient ? SlowHttp : Http, $"{Base}/mods/{modId}/files.json");
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         if (!doc.RootElement.TryGetProperty("files", out var files)) return null;
@@ -306,42 +459,32 @@ public sealed class NexusService
             if (ids.Count == 0) return new Dictionary<int, NexusModFingerprint>();
             const int CHUNK = 50;   // same size as the browse page's FetchChunkedAsync (batches of 50 are stable)
             var result = new Dictionary<int, NexusModFingerprint>();
-            // Fetch batches in parallel (even hundreds of mods is just a few concurrent POSTs; no key, no rate-limit pressure)
-            var chunks = new List<Task<Dictionary<int, NexusModFingerprint>?>>();
+            // Sequential batches — the old Task.WhenAll fan-out could open several GraphQL POSTs at once;
+            // the central ApiGate now allows only 2 concurrent Nexus calls, and serializing here keeps
+            // fingerprint pre-checks from competing with precise files.json checks.
             for (var i = 0; i < ids.Count; i += CHUNK)
             {
                 var slice = ids.Skip(i).Take(CHUNK).ToList();
-                chunks.Add(Task.Run(async () =>
+                var idArgs = string.Join(",", slice.Select(id =>
+                    "{gameDomain:\"" + gameDomain + "\", modId:" + id + "}"));
+                var d = await GraphQlAsync(
+                    "{ legacyModsByDomain(ids:[" + idArgs + "]) { nodes { modId version updatedAt pictureUrl } } }");
+                if (d is null) return null;
+                var root = d.Value;
+                if (!root.TryGetProperty("legacyModsByDomain", out var lb)
+                    || lb.ValueKind != JsonValueKind.Object
+                    || !lb.TryGetProperty("nodes", out var nodes)
+                    || nodes.ValueKind != JsonValueKind.Array)
+                    return null;
+                foreach (var n in nodes.EnumerateArray())
                 {
-                    var idArgs = string.Join(",", slice.Select(id =>
-                        "{gameDomain:\"" + gameDomain + "\", modId:" + id + "}"));
-                    var d = await GraphQlAsync(
-                        "{ legacyModsByDomain(ids:[" + idArgs + "]) { nodes { modId version updatedAt pictureUrl } } }");
-                    if (d is null) return null;
-                    var root = d.Value;
-                    if (!root.TryGetProperty("legacyModsByDomain", out var lb)
-                        || lb.ValueKind != JsonValueKind.Object
-                        || !lb.TryGetProperty("nodes", out var nodes)
-                        || nodes.ValueKind != JsonValueKind.Array)
-                        return null;
-                    var dict = new Dictionary<int, NexusModFingerprint>();
-                    foreach (var n in nodes.EnumerateArray())
-                    {
-                        var mid = n.TryGetProperty("modId", out var m1) && m1.ValueKind == JsonValueKind.Number
-                            ? m1.GetInt32()
-                            : int.TryParse(GetStr(n, "modId"), out var p) ? p : 0;
-                        if (mid <= 0) continue;
-                        dict[mid] = new NexusModFingerprint(
-                            mid, GetStr(n, "version"), GetStr(n, "updatedAt"), GetStr(n, "pictureUrl"));
-                    }
-                    return dict;
-                }));
-            }
-            foreach (var t in chunks)
-            {
-                var dict = await t;
-                if (dict is null) return null;
-                foreach (var kv in dict) result[kv.Key] = kv.Value;
+                    var mid = n.TryGetProperty("modId", out var m1) && m1.ValueKind == JsonValueKind.Number
+                        ? m1.GetInt32()
+                        : int.TryParse(GetStr(n, "modId"), out var p) ? p : 0;
+                    if (mid <= 0) continue;
+                    result[mid] = new NexusModFingerprint(
+                        mid, GetStr(n, "version"), GetStr(n, "updatedAt"), GetStr(n, "pictureUrl"));
+                }
             }
             return result;
         }
@@ -351,7 +494,7 @@ public sealed class NexusService
     /// <summary>v0.69.0: mod changelogs (version → change lines). Matches the Changelogs on the site's LOGS tab.</summary>
     public async Task<List<NexusChangelog>?> GetChangelogsAsync(int modId)
     {
-        using var res = await SlowHttp.SendAsync(Req($"{Base}/mods/{modId}/changelogs.json"));
+        using var res = await SendApiAsync(SlowHttp, $"{Base}/mods/{modId}/changelogs.json");
         if (!res.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var list = new List<NexusChangelog>();
@@ -410,8 +553,8 @@ public sealed class NexusService
         try
         {
             var body = JsonSerializer.Serialize(new { query });
-            using var res = await Http.PostAsync(GraphQlEndpoint,
-                new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+            // GraphQL browse is public (no Bearer) — still goes through the central gate for concurrency + 429.
+            using var res = await SendApiAsync(Http, GraphQlEndpoint, HttpMethod.Post, body, useBearer: false);
             if (!res.IsSuccessStatusCode) return null;
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             // v0.76.0: on GraphQL syntax/argument errors the response is 200 + {"errors":[...],"data":null} —
@@ -591,8 +734,8 @@ public sealed class NexusService
     {
         try
         {
-            using var res = await SlowHttp.SendAsync(Req(
-                "https://api.nexusmods.com/v1/user/download_history.json"));
+            using var res = await SendApiAsync(SlowHttp,
+                "https://api.nexusmods.com/v1/user/download_history.json");
             if (!res.IsSuccessStatusCode) return null;
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             var map = new Dictionary<int, string>();
@@ -626,8 +769,8 @@ public sealed class NexusService
     /// <summary>CDN download URL for a file. NeedsPremium=true on free accounts (HTTP 403).</summary>
     public async Task<NexusDownloadResult> GetDownloadUrlAsync(int modId, long fileId)
     {
-        using var res = await Http.SendAsync(Req(
-            $"{Base}/mods/{modId}/files/{fileId}/download_link.json"));
+        using var res = await SendApiAsync(Http,
+            $"{Base}/mods/{modId}/files/{fileId}/download_link.json");
         if ((int)res.StatusCode == 403) return NexusDownloadResult.PremiumRequired;
         if (!res.IsSuccessStatusCode) return NexusDownloadResult.Fail($"HTTP {(int)res.StatusCode}");
 
@@ -678,7 +821,7 @@ public sealed class NexusService
     {
         var url = $"{Base}/mods/{modId}/files/{fileId}/download_link.json"
                 + $"?key={Uri.EscapeDataString(key)}&expires={Uri.EscapeDataString(expires)}";
-        using var res = await Http.SendAsync(Req(url));
+        using var res = await SendApiAsync(Http, url);
         if (!res.IsSuccessStatusCode)
         {
             var code = (int)res.StatusCode;
@@ -700,8 +843,8 @@ public sealed class NexusService
     /// <summary>kind: trending | latest_added | latest_updated</summary>
     public async Task<IReadOnlyList<NexusModListEntry>> GetModListAsync(string kind)
     {
-        using var res = await Http.SendAsync(Req(
-            $"{Base}/mods/{kind}.json" + (IncludeAdultContent ? "" : "?include_adult=false")));
+        using var res = await SendApiAsync(Http,
+            $"{Base}/mods/{kind}.json" + (IncludeAdultContent ? "" : "?include_adult=false"));
         if (!res.IsSuccessStatusCode) return Array.Empty<NexusModListEntry>();
 
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
@@ -938,7 +1081,7 @@ public sealed class NexusService
     {
         try
         {
-            using var res = await Http.SendAsync(Req("https://api.nexusmods.com/v1/users/validate.json"));
+            using var res = await SendApiAsync(Http, "https://api.nexusmods.com/v1/users/validate.json");
             if (!res.IsSuccessStatusCode) return null;
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             var r = doc.RootElement;

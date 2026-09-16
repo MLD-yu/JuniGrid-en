@@ -2301,7 +2301,9 @@
                             && !Cfg.Current.ModCovers.ContainsKey(NormCoverKey(m.Folder)))
                 .ToList();
             if (need.Count == 0) return;
-            var semaphore = new SemaphoreSlim(12);   // v1.06.8: cover backfill concurrency doubled
+            // AUP second-pass: cover backfill used to fan out at 12-way — with dozens of missing
+            // covers that looked like a burst of Nexus API checks. 2 matches the central ApiGate.
+            var semaphore = new SemaphoreSlim(2);
             await Task.WhenAll(need.Select(async m =>
             {
                 await semaphore.WaitAsync();
@@ -2566,7 +2568,10 @@
 
         if (precise.Count > 0)
         {
-            var semaphore = new SemaphoreSlim(32);   // v1.06.8: check-only, no downloads; concurrency maxed at 32
+            // AUP second-pass: 32 concurrent files.json checks was the "32 concurrent Nexus checks"
+            // Nexus Support flagged. 3 work items (central ApiGate still caps real in-flight at 2)
+            // keeps the UI responsive without bursting the API.
+            var semaphore = new SemaphoreSlim(3);
             // vNext: precise-check requests for the same modId are shared across the whole pipeline (one request even if a mod is installed twice)
             var byId = new System.Collections.Concurrent.ConcurrentDictionary<int, Task<NexusFileInfo?>>();
             await Task.WhenAll(precise.Select(async m =>
@@ -2738,8 +2743,9 @@
     {
         StateHasChanged();
 
-        // v0.60.0: version checks run in parallel (8-way concurrency) so one slow/timing-out source can't hold up the page's update states.
-        var semaphore = new SemaphoreSlim(16);
+        // AUP second-pass: update pipeline concurrency lowered from 16 → 3; the central
+        // NexusService ApiGate still hard-caps real in-flight API calls at 2.
+        var semaphore = new SemaphoreSlim(3);
         await Task.WhenAll(targets.Select(async m =>
         {
             await semaphore.WaitAsync();
