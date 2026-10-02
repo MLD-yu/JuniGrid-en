@@ -1,5 +1,5 @@
 # JuniGrid
-This repository is no longer updated and has now been merged into [JuniGrid](https://github.com/MLD-yu/JuniGrid)This repository
+This repository is no longer updated and has now been merged into [JuniGrid](https://github.com/MLD-yu/JuniGrid)
 A desktop mod manager and launcher for **Stardew Valley**, built on .NET (WPF + Blazor WebView2).
 This repository hosts the official English edition of JuniGrid; downloads are available at [Releases](https://github.com/MLD-yu/JuniGrid-en/releases).
 
